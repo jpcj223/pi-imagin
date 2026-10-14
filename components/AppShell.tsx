@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { createPortal } from "react-dom";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar, type SelectSessionOptions, type SessionSidebarControl } from "./SessionSidebar";
 import { WorkspaceRail } from "./WorkspaceRail";
@@ -13,6 +14,7 @@ import { TabBar, type Tab } from "./TabBar";
 import { mutateFileWorkspace, openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
 import { FILE_MUTATION_EVENT, type FileMutation } from "@/lib/file-mutation";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
+import { PiImaginTitle } from "./PiImaginTitle";
 import { ProjectTrustDialog, type ProjectTrustFailure } from "./ProjectTrustDialog";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
@@ -229,9 +231,10 @@ export function AppShell() {
   const [projectTrustError, setProjectTrustError] = useState<ProjectTrustFailure | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => !initialNavigation.sidebarCollapsed);
   const desktopSidebarOpenRef = useRef(!initialNavigation.sidebarCollapsed);
-  const [rightPanelOpen, setRightPanelOpen] = useState(false);
-  const [auxiliaryView, setAuxiliaryView] = useState<"files" | "outline">("outline");
+  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [auxiliaryView, setAuxiliaryView] = useState<"files" | "outline" | "inspect">("outline");
   const [outlineHost, setOutlineHost] = useState<HTMLDivElement | null>(null);
+  const [inspectionHost, setInspectionHost] = useState<HTMLDivElement | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
   const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
@@ -299,6 +302,7 @@ export function AppShell() {
   // Mobile drawer actions must not change the remembered desktop preference.
   useEffect(() => {
     setSidebarOpen(isMobile ? false : desktopSidebarOpenRef.current);
+    if (isMobile) setRightPanelOpen(false);
   }, [isMobile]);
   useEffect(() => {
     setMobileSidebarReady(true);
@@ -410,8 +414,12 @@ export function AppShell() {
   ) => {
     if (isMobile) setSidebarOpen(false);
     setActiveTopPanel((cur) => cur === panel ? null : panel);
+    if (["system", "tools", "session"].includes(panel)) {
+      setAuxiliaryView(activeTopPanel === panel ? "outline" : "inspect");
+      setRightPanelOpen(true);
+    }
     if (isMobile && isNarrowMobile && keepMobileToolbarOpen) setMobileToolbarMoreOpen(true);
-  }, [isMobile, isNarrowMobile]);
+  }, [activeTopPanel, isMobile, isNarrowMobile]);
 
   const handleSystemInfoToggle = useCallback((
     panel: "system" | "tools",
@@ -438,6 +446,8 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
     setMobileToolbarMoreOpen(false);
     setActiveTopPanel("session");
+    setAuxiliaryView("inspect");
+    setRightPanelOpen(true);
   }, [isMobile]);
 
   // The composer opens Settings too: a bare /mcp opens Settings › MCP (useAgentSession).
@@ -614,9 +624,9 @@ export function AppShell() {
     // 终端独立于右侧面板，切换项目时保留底部连接。
     if (!activeFileTabId || activeFileId || activeFileTabId.startsWith("agent:")) {
       setActiveFileTabId(next.activeTabId);
-      setRightPanelOpen(next.open);
+      setRightPanelOpen(next.open || (auxiliaryView === "outline" && !isMobile));
     }
-  }, [activeFileTabId, fileTabs, rightPanelOpen]);
+  }, [activeFileTabId, auxiliaryView, fileTabs, isMobile, rightPanelOpen]);
 
   // Same @mention format as the chat input's @ autocomplete, so the agent's
   // read tool resolves it the same way (it strips the @ prefix).
@@ -955,6 +965,7 @@ export function AppShell() {
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
     onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
+    onDefaultNewSession: () => sidebarControlRef.current?.openDefaultDirectoryForNewSession(target => sidebarControlRef.current?.startNewSessionIn(target)),
     activeCwd,
   });
 
@@ -1406,7 +1417,9 @@ export function AppShell() {
   const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
   // Subagent work tabs: like files, only the active one is mounted.
   const activeAgentTab = agentTabs.find((tab) => `agent:${tab.sessionId}` === activeFileTabId) ?? null;
-  const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
+  const activeProjectAlias = sidebarNewSessionContext?.cwd === activeCwd ? sidebarNewSessionContext.project.alias : null;
+  const activeCwdName = activeProjectAlias || (activeCwd ? getFileName(activeCwd) || activeCwd : null);
+  const activeBranch = selectedSession?.branch || (sidebarNewSessionContext?.cwd === activeCwd ? sidebarNewSessionContext.worktrees?.find(item => item.path === activeCwd)?.branch : null);
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Imagin` : "Pi Imagin";
 
   useEffect(() => {
@@ -2014,274 +2027,10 @@ export function AppShell() {
     );
   };
 
-  return (
-    <>
-    <style>{`
-      @keyframes session-info-pop {
-        0% {
-          opacity: 0;
-          transform: translateY(-24px);
-          filter: blur(6px);
-          box-shadow: 0 2px 8px rgba(0,0,0,0);
-        }
-        55% {
-          opacity: 1;
-          transform: translateY(0);
-          filter: blur(0);
-          background: color-mix(in srgb, var(--accent) 8%, var(--bg-panel));
-          box-shadow: 0 18px 44px rgba(37,99,235,0.16);
-        }
-        100% {
-          opacity: 1;
-          transform: translateY(0);
-          filter: blur(0);
-          background: var(--bg-panel);
-          box-shadow: 0 10px 28px rgba(0,0,0,0.10);
-        }
-      }
-      @keyframes session-info-light-wash {
-        0% {
-          opacity: 0;
-          transform: translateX(-110%) skewX(-16deg);
-        }
-        24% {
-          opacity: 0.42;
-        }
-        100% {
-          opacity: 0;
-          transform: translateX(115%) skewX(-16deg);
-        }
-      }
-      .session-info-popover {
-        position: relative;
-        overflow: hidden;
-        transform-origin: top right;
-        animation: session-info-pop 360ms ease-out both;
-        will-change: transform, opacity, filter, background, box-shadow;
-      }
-      .session-info-popover::after {
-        content: "";
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        left: 0;
-        width: 44%;
-        pointer-events: none;
-        background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 24%, transparent), transparent);
-        animation: session-info-light-wash 620ms ease-out both;
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .session-info-popover,
-        .session-info-popover::after {
-          animation: none;
-        }
-      }
-      .mobile-session-stats {
-        container-type: inline-size;
-      }
-      @container (max-width: 158px) {
-        .mobile-session-stat-io {
-          display: none !important;
-        }
-      }
-      @container (max-width: 88px) {
-        .mobile-session-stat-cost {
-          display: none !important;
-        }
-      }
-      @media (max-width: 640px) {
-        .sidebar-overlay-backdrop.sidebar-mobile-pending {
-          opacity: 0 !important;
-          pointer-events: none !important;
-        }
-        .sidebar-container.sidebar-mobile-pending.sidebar-open {
-          transform: translateX(calc(-100% - env(safe-area-inset-left)));
-          box-shadow: none;
-        }
-      }
-    `}</style>
-    <div className="workspace-shell" style={{
-      display: "flex",
-      width: "100%",
-      height: "var(--app-viewport-height, 100dvh)",
-      paddingLeft: "env(safe-area-inset-left)",
-      paddingRight: "env(safe-area-inset-right)",
-      overflow: "hidden",
-      background: "var(--bg)",
-    }}>
-      <WorkspaceRail onHome={() => { setSettingsSection(null); setActiveTopPanel(null); }} />
-      {/* Mobile overlay backdrop */}
-      <div
-        className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
-        onClick={() => setSidebarOpen(false)}
-        style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 199,
-          background: "rgba(0,0,0,0.4)",
-          opacity: sidebarOpen ? 1 : 0,
-          pointerEvents: sidebarOpen ? "auto" : "none",
-          transition: "opacity 0.25s ease",
-        }}
-      />
-
-      {/* Left sidebar */}
-      <div
-        ref={sidebarResizer.panelRef}
-        id="session-sidebar"
-        inert={rightPanelFullWidth}
-        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
-        style={{
-          "--sidebar-width": `${sidebarResizer.width}px`,
-          background: "var(--bg-panel)",
-          borderRight: "1px solid var(--border)",
-          display: "flex",
-          flexDirection: "column",
-          flexShrink: 0,
-          paddingTop: "env(safe-area-inset-top)",
-          paddingBottom: "env(safe-area-inset-bottom)",
-          zIndex: 200,
-        } as React.CSSProperties}
-      >
-        {sidebarContent}
-      </div>
-      {sidebarOpen && (
-        <div
-          {...sidebarResizer.separatorProps}
-          inert={rightPanelFullWidth}
-          aria-controls="session-sidebar"
-          className={`panel-resize-handle sidebar-resize-handle${sidebarResizer.isResizing ? " is-resizing" : ""}`}
-          data-resize-handle="sidebar"
-          title={`${translate("layout.resizeSidebar")}: ${translate("layout.resizeHint")}`}
-        />
-      )}
-
-      {/* Center: chat */}
-      <div className="workspace-center" inert={rightPanelFullWidth || settingsSection !== null} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-        {/* Top bar with sidebar toggle */}
-        <div className="workspace-toolbar" ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
-        <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
-          <button
-            onClick={handleSidebarToggle}
-             title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
-             aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-              background: "none", border: "none", borderRight: "1px solid var(--border)",
-              color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
-          >
-            {sidebarOpen ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
-              </svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            )}
-          </button>
-          {isMobile && (
-            <div
-              ref={mobileToolbarRef}
-              data-mobile-toolbar="true"
-              style={{
-                position: "relative",
-                display: "flex",
-                alignItems: "stretch",
-                flex: 1,
-                minWidth: 0,
-                height: "100%",
-              }}
-            >
-              {isNarrowMobile && (
-                <button
-                  type="button"
-                  onClick={handleMobileToolbarMoreToggle}
-                  title={mobileToolbarMoreOpen ? translate("chat.close") : translate("chat.moreControls")}
-                  aria-label={mobileToolbarMoreOpen ? translate("chat.close") : translate("chat.moreControls")}
-                  aria-controls="mobile-toolbar-actions"
-                  aria-expanded={mobileToolbarMoreOpen}
-                  data-mobile-toolbar-more="true"
-                  style={{
-                    position: "relative",
-                    zIndex: mobileToolbarMoreOpen ? 21 : undefined,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-                    background: mobileToolbarMoreOpen ? "var(--bg-selected)" : "none",
-                    border: "none", borderRight: "1px solid var(--border)",
-                    color: mobileToolbarMoreOpen ? "var(--text)" : "var(--text-muted)",
-                    cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
-                  }}
-                >
-                  {mobileToolbarMoreOpen ? (
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                      <line x1="5" y1="5" x2="19" y2="19" /><line x1="19" y1="5" x2="5" y2="19" />
-                    </svg>
-                  ) : (
-                    <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                      <circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" />
-                    </svg>
-                  )}
-                </button>
-              )}
-              {!isNarrowMobile && renderChatToolbarActions(true)}
-              {renderSessionStatsButton(true)}
-              {renderMainFileToggle(true)}
-              {isNarrowMobile && mobileToolbarMoreOpen && (
-                <div
-                  id="mobile-toolbar-actions"
-                  role="toolbar"
-                  aria-label={translate("chat.moreControls")}
-                  data-mobile-toolbar-actions="true"
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    right: 0,
-                    bottom: 0,
-                    left: TOP_BAR_ICON_BUTTON_SIZE,
-                    zIndex: 20,
-                    display: "flex",
-                    alignItems: "stretch",
-                    background: "color-mix(in srgb, var(--bg-panel) 94%, var(--bg))",
-                    boxShadow: "4px 0 18px rgba(0,0,0,0.12)",
-                    backdropFilter: "blur(10px)",
-                  }}
-                >
-                  {renderChatToolbarActions(true)}
-                </div>
-              )}
-            </div>
-          )}
-          {!isMobile && (
-            <>
-              {renderProjectTrustWarning(false)}
-              {renderChatToolbarActions(false)}
-              {renderSessionStatsButton(false)}
-            </>
-          )}
-          {!isMobile && renderMainFileToggle(false)}
-          {isMobile && sessionHasBranches && (
-            <BranchNavigator
-              tree={branchTree}
-              activeLeafId={branchActiveLeafId}
-              onLeafChange={handleBranchLeafChange}
-              locked={branchSwitchLocked}
-              inline
-              compact
-              containerRef={topBarRef}
-              open={activeTopPanel === "branches"}
-              onToggle={() => toggleTopPanel("branches")}
-              hasSession={showChat}
-              hideInlineButton
-            />
-          )}
-          {/* Top panel dropdown — shared, only one active at a time */}
-          {activeTopPanel && topPanelPos && (
-            <div style={{
+  // 系统、工具与统计进入右侧辅助区，保留实际数据和现有复制操作。
+  const dockTopPanel = activeTopPanel === "system" || activeTopPanel === "tools" || activeTopPanel === "session";
+  const topPanelView = activeTopPanel && topPanelPos ? (
+<div className="workspace-inspector-content" style={dockTopPanel ? { minWidth: 0, minHeight: 0, height: "100%", overflowY: "auto" } : {
               position: "fixed",
               top: topPanelPos.top,
               left: topPanelPos.left,
@@ -2496,7 +2245,7 @@ export function AppShell() {
                     return (
                       <div style={{
                         display: "grid",
-                        gridTemplateColumns: isMobile
+                        gridTemplateColumns: isMobile || dockTopPanel
                           ? "1fr"
                           : "minmax(360px, 1.7fr) minmax(140px, 0.55fr) minmax(190px, 0.75fr)",
                         gap: isMobile ? 16 : 24,
@@ -2520,13 +2269,286 @@ export function AppShell() {
                 </div>
               )}
             </div>
+  ) : null;
+
+  return (
+    <>
+    <style>{`
+      @keyframes session-info-pop {
+        0% {
+          opacity: 0;
+          transform: translateY(-24px);
+          filter: blur(6px);
+          box-shadow: 0 2px 8px rgba(0,0,0,0);
+        }
+        55% {
+          opacity: 1;
+          transform: translateY(0);
+          filter: blur(0);
+          background: color-mix(in srgb, var(--accent) 8%, var(--bg-panel));
+          box-shadow: 0 18px 44px rgba(37,99,235,0.16);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0);
+          filter: blur(0);
+          background: var(--bg-panel);
+          box-shadow: 0 10px 28px rgba(0,0,0,0.10);
+        }
+      }
+      @keyframes session-info-light-wash {
+        0% {
+          opacity: 0;
+          transform: translateX(-110%) skewX(-16deg);
+        }
+        24% {
+          opacity: 0.42;
+        }
+        100% {
+          opacity: 0;
+          transform: translateX(115%) skewX(-16deg);
+        }
+      }
+      .session-info-popover {
+        position: relative;
+        overflow: hidden;
+        transform-origin: top right;
+        animation: session-info-pop 360ms ease-out both;
+        will-change: transform, opacity, filter, background, box-shadow;
+      }
+      .session-info-popover::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 44%;
+        pointer-events: none;
+        background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 24%, transparent), transparent);
+        animation: session-info-light-wash 620ms ease-out both;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .session-info-popover,
+        .session-info-popover::after {
+          animation: none;
+        }
+      }
+      .mobile-session-stats {
+        container-type: inline-size;
+      }
+      @container (max-width: 158px) {
+        .mobile-session-stat-io {
+          display: none !important;
+        }
+      }
+      @container (max-width: 88px) {
+        .mobile-session-stat-cost {
+          display: none !important;
+        }
+      }
+      @media (max-width: 640px) {
+        .sidebar-overlay-backdrop.sidebar-mobile-pending {
+          opacity: 0 !important;
+          pointer-events: none !important;
+        }
+        .sidebar-container.sidebar-mobile-pending.sidebar-open {
+          transform: translateX(calc(-100% - env(safe-area-inset-left)));
+          box-shadow: none;
+        }
+      }
+    `}</style>
+    <header className="workspace-titlebar"><PiImaginTitle /><span>工作区</span></header>
+    <div className="workspace-shell" style={{
+      display: "flex",
+      width: "100%",
+      height: "calc(var(--app-viewport-height, 100dvh) - 43px)",
+      paddingLeft: "env(safe-area-inset-left)",
+      paddingRight: "env(safe-area-inset-right)",
+      overflow: "hidden",
+      background: "var(--bg)",
+    }}>
+      <WorkspaceRail onHome={() => { setSettingsSection(null); setActiveTopPanel(null); }} />
+      {/* Mobile overlay backdrop */}
+      <div
+        className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
+        onClick={() => setSidebarOpen(false)}
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 199,
+          background: "rgba(0,0,0,0.4)",
+          opacity: sidebarOpen ? 1 : 0,
+          pointerEvents: sidebarOpen ? "auto" : "none",
+          transition: "opacity 0.25s ease",
+        }}
+      />
+
+      {/* Left sidebar */}
+      <div
+        ref={sidebarResizer.panelRef}
+        id="session-sidebar"
+        inert={rightPanelFullWidth}
+        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
+        style={{
+          "--sidebar-width": `${sidebarResizer.width}px`,
+          background: "var(--bg-panel)",
+          borderRight: "1px solid var(--border)",
+          display: "flex",
+          flexDirection: "column",
+          flexShrink: 0,
+          paddingTop: "env(safe-area-inset-top)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+          zIndex: 200,
+        } as React.CSSProperties}
+      >
+        {sidebarContent}
+      </div>
+      {sidebarOpen && (
+        <div
+          {...sidebarResizer.separatorProps}
+          inert={rightPanelFullWidth}
+          aria-controls="session-sidebar"
+          className={`panel-resize-handle sidebar-resize-handle${sidebarResizer.isResizing ? " is-resizing" : ""}`}
+          data-resize-handle="sidebar"
+          title={`${translate("layout.resizeSidebar")}: ${translate("layout.resizeHint")}`}
+        />
+      )}
+
+      {/* Center: chat */}
+      <main className="workspace-workbench">
+        <div className="workspace-top" inert={rightPanelFullWidth || settingsSection !== null}>
+        {/* Top bar with sidebar toggle */}
+        <div className="workspace-toolbar" ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
+        <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
+          <button
+            onClick={handleSidebarToggle}
+             title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
+             aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+              background: "none", border: "none", borderRight: "1px solid var(--border)",
+              color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+          >
+            {sidebarOpen ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            )}
+          </button>
+          {isMobile && (
+            <div
+              ref={mobileToolbarRef}
+              data-mobile-toolbar="true"
+              style={{
+                position: "relative",
+                display: "flex",
+                alignItems: "stretch",
+                flex: 1,
+                minWidth: 0,
+                height: "100%",
+              }}
+            >
+              {isNarrowMobile && (
+                <button
+                  type="button"
+                  onClick={handleMobileToolbarMoreToggle}
+                  title={mobileToolbarMoreOpen ? translate("chat.close") : translate("chat.moreControls")}
+                  aria-label={mobileToolbarMoreOpen ? translate("chat.close") : translate("chat.moreControls")}
+                  aria-controls="mobile-toolbar-actions"
+                  aria-expanded={mobileToolbarMoreOpen}
+                  data-mobile-toolbar-more="true"
+                  style={{
+                    position: "relative",
+                    zIndex: mobileToolbarMoreOpen ? 21 : undefined,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+                    background: mobileToolbarMoreOpen ? "var(--bg-selected)" : "none",
+                    border: "none", borderRight: "1px solid var(--border)",
+                    color: mobileToolbarMoreOpen ? "var(--text)" : "var(--text-muted)",
+                    cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
+                  }}
+                >
+                  {mobileToolbarMoreOpen ? (
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                      <line x1="5" y1="5" x2="19" y2="19" /><line x1="19" y1="5" x2="5" y2="19" />
+                    </svg>
+                  ) : (
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" />
+                    </svg>
+                  )}
+                </button>
+              )}
+              {!isNarrowMobile && renderChatToolbarActions(true)}
+              {renderSessionStatsButton(true)}
+              {renderMainFileToggle(true)}
+              {isNarrowMobile && mobileToolbarMoreOpen && (
+                <div
+                  id="mobile-toolbar-actions"
+                  role="toolbar"
+                  aria-label={translate("chat.moreControls")}
+                  data-mobile-toolbar-actions="true"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                    left: TOP_BAR_ICON_BUTTON_SIZE,
+                    zIndex: 20,
+                    display: "flex",
+                    alignItems: "stretch",
+                    background: "color-mix(in srgb, var(--bg-panel) 94%, var(--bg))",
+                    boxShadow: "4px 0 18px rgba(0,0,0,0.12)",
+                    backdropFilter: "blur(10px)",
+                  }}
+                >
+                  {renderChatToolbarActions(true)}
+                </div>
+              )}
+            </div>
           )}
+          {!isMobile && (
+            <>
+              {renderProjectTrustWarning(false)}
+              {renderChatToolbarActions(false)}
+              {renderSessionStatsButton(false)}
+            </>
+          )}
+          {!isMobile && renderMainFileToggle(false)}
+          {isMobile && sessionHasBranches && (
+            <BranchNavigator
+              tree={branchTree}
+              activeLeafId={branchActiveLeafId}
+              onLeafChange={handleBranchLeafChange}
+              locked={branchSwitchLocked}
+              inline
+              compact
+              containerRef={topBarRef}
+              open={activeTopPanel === "branches"}
+              onToggle={() => toggleTopPanel("branches")}
+              hasSession={showChat}
+              hideInlineButton
+            />
+          )}
+          {/* Top panel dropdown — shared, only one active at a time */}
+          {!dockTopPanel && topPanelView}
 
         </div>
         {isMobile && renderProjectTrustWarning(true)}
         </div>
 
-        <header className="workspace-conversation-heading"><strong>{selectedSession?.name || selectedSession?.firstMessage || "新会话"}</strong><span>{activeCwd && /[\\/]pi-cwd[\\/]\d{8}$/.test(activeCwd) ? "默认工作区" : activeCwdName || "默认工作区"}</span><button type="button" onClick={() => activeCwd && handleOpenTerminal(activeCwd)} disabled={!activeCwd}>终端</button></header>
+        <header className="workspace-conversation-heading"><div className="workspace-heading-copy"><strong>{selectedSession?.name || selectedSession?.firstMessage || "新会话"}</strong><div className="workspace-heading-scope">{selectedSession === null && newSessionContextBar ? newSessionContextBar : <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 7h7l2 2h9v11H3z" /></svg><span>{activeCwd && /[\\/]pi-cwd[\\/]\d{8}$/.test(activeCwd) ? "默认工作区" : activeCwdName || "默认工作区"}</span>{activeBranch && <span className="workspace-heading-branch">⑂ {activeBranch}</span>}</>}</div></div>{selectedSession && <button type="button" aria-label="当前会话操作" title="当前会话操作" onClick={event => sidebarControlRef.current?.openSessionMenu(selectedSession.id, event.currentTarget)}>···</button>}</header>
+        </div>
+        <div className="workspace-workbench-row">
+      <div className="workspace-center" inert={rightPanelFullWidth || settingsSection !== null} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {showChat ? (
@@ -2541,7 +2563,7 @@ export function AppShell() {
               sessionRunning={Boolean(selectedSession && runningSessionIds.has(selectedSession.id))}
               newSessionCwd={effectiveNewSessionCwd}
               newSessionDraftKey={newSessionDraftKey}
-              newSessionContextBar={newSessionContextBar}
+              newSessionContextBar={null}
               initialNewSessionChoices={selectedSession === null ? carriedNewSessionChoices : null}
               onNewSessionChoicesChange={handleNewSessionChoicesChange}
               onAgentEnd={handleAgentEnd}
@@ -2614,10 +2636,7 @@ export function AppShell() {
             )
           ) : null}
         </div>
-        <section className="workspace-terminal" hidden={!terminalOpen} aria-label="项目终端">
-          <header><TabBar tabs={terminalTabs.map(tab => ({ id: tab.id, label: getFileName(tab.cwd) || tab.cwd, filePath: tab.cwd, kind: "terminal" as const, closing: Boolean(tab.closing) }))} activeTabId={activeTerminalId ?? ""} onSelectTab={setActiveTerminalId} onCloseTab={handleCloseFileTab} /><button type="button" onClick={() => activeCwd && handleNewTerminal(activeCwd)} disabled={!activeCwd} aria-label="新建终端">＋</button><button type="button" onClick={() => setTerminalOpen(false)} aria-label="收起终端">⌄</button></header>
-          {terminalTabs.map(tab => <div key={tab.id} hidden={tab.id !== activeTerminalId} className="workspace-terminal-content"><TerminalPanel tab={tab} active={terminalOpen && tab.id === activeTerminalId} onRestart={() => setTerminalTabs(tabs => tabs.map(item => item.id === tab.id ? { ...item, closing: "restart" } : item))} onClosed={() => handleTerminalClosed(tab)} onCloseError={() => setTerminalTabs(tabs => tabs.map(item => item.id === tab.id ? { ...item, closing: undefined } : item))} /></div>)}
-        </section>
+
       </div>
 
       <div
@@ -2651,11 +2670,14 @@ export function AppShell() {
         } as React.CSSProperties}
       >
         <nav className="workspace-aux-tabs" aria-label="辅助面板">
-          <button type="button" aria-pressed={auxiliaryView === "files"} onClick={() => setAuxiliaryView("files")}>文件</button>
-          <button type="button" aria-pressed={auxiliaryView === "outline"} onClick={() => setAuxiliaryView("outline")}>会话目录</button>
+          <button type="button" aria-pressed={auxiliaryView === "files"} onClick={() => setAuxiliaryView("files")}><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M5 3h9l5 5v13H5zM14 3v6h5M8 13h8M8 17h8" /></svg>文件</button>
+          <button type="button" aria-pressed={auxiliaryView === "outline"} onClick={() => setAuxiliaryView("outline")}><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 4v16h5M4 8h5M12 8h8M12 14h8M12 20h8" /></svg>会话目录</button>
+          {dockTopPanel && <button type="button" aria-pressed={auxiliaryView === "inspect"} onClick={() => setAuxiliaryView("inspect")}>{activeTopPanel === "system" ? "系统" : activeTopPanel === "tools" ? "工具" : "会话信息"}</button>}
           <button type="button" className="workspace-aux-close" aria-label="关闭辅助面板" onClick={() => setRightPanelOpen(false)}>×</button>
         </nav>
         <div ref={setOutlineHost} className="workspace-outline-host" hidden={auxiliaryView !== "outline"} />
+        <div ref={setInspectionHost} className="workspace-inspection-host" hidden={auxiliaryView !== "inspect"} />
+        {dockTopPanel && inspectionHost && createPortal(topPanelView, inspectionHost)}
         {/* Right panel tab bar */}
         <div hidden={auxiliaryView !== "files"} style={{
           display: "flex",
@@ -2754,6 +2776,12 @@ export function AppShell() {
           )}
         </div>
       </div>
+        </div>
+        <section className="workspace-terminal" hidden={!terminalOpen} aria-label="项目终端">
+          <header><TabBar tabs={terminalTabs.map(tab => ({ id: tab.id, label: getFileName(tab.cwd) || tab.cwd, filePath: tab.cwd, kind: "terminal" as const, closing: Boolean(tab.closing) }))} activeTabId={activeTerminalId ?? ""} onSelectTab={setActiveTerminalId} onCloseTab={handleCloseFileTab} /><button type="button" onClick={() => activeCwd && handleNewTerminal(activeCwd)} disabled={!activeCwd} aria-label="新建终端">＋</button><button type="button" onClick={() => setTerminalOpen(false)} aria-label="收起终端">⌄</button></header>
+          {terminalTabs.map(tab => <div key={tab.id} hidden={tab.id !== activeTerminalId} className="workspace-terminal-content"><TerminalPanel tab={tab} active={terminalOpen && tab.id === activeTerminalId} onRestart={() => setTerminalTabs(tabs => tabs.map(item => item.id === tab.id ? { ...item, closing: "restart" } : item))} onClosed={() => handleTerminalClosed(tab)} onCloseError={() => setTerminalTabs(tabs => tabs.map(item => item.id === tab.id ? { ...item, closing: undefined } : item))} /></div>)}
+        </section>
+        <footer className="workspace-status"><span className="workspace-status-ready">本地工作区</span><button type="button" onClick={() => terminalOpen ? setTerminalOpen(false) : activeCwd && handleOpenTerminal(activeCwd)} disabled={!activeCwd}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m4 5 6 6-6 6M13 19h7" /></svg>{terminalOpen ? "收起终端" : "终端"}</button><span className="workspace-status-version">Pi Imagin {process.env.NEXT_PUBLIC_APP_VERSION}</span></footer>      </main>
     </div>
     {settingsSection && (
       <SettingsPanel

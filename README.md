@@ -3,9 +3,8 @@
 源码来源：本项目基于 [pi-web](https://github.com/agegr/pi-web)，保留原 MIT 许可证和作者声明。
 
 
-[pi 编程智能体](https://github.com/earendil-works/pi)的本地浏览器界面。Pi Imagin 与 pi 共用本机配置和会话文件，可在浏览器中查找和继续对话、运行智能体、配置模型与资源，并查看项目文件。
+[pi 编程智能体](https://github.com/earendil-works/pi)的本地桌面工作区，也保留浏览器开发入口。Pi Imagin 与 pi 共用本机配置和会话文件，可查找和继续对话、运行智能体、配置模型与资源，并查看项目文件。
 
-![Pi Imagin 展示包含结构化 Markdown、工具调用和项目导航的 pi 会话](./docs/screenshot2.png)
 
 ## 功能
 
@@ -18,6 +17,14 @@
 - **英文、简体中文和繁体中文界面**：首次打开默认浅色与简体中文，已有偏好继续保留，可在设置中切换。
 
 ## 快速开始
+
+### Windows 桌面版
+
+安装 `dist-desktop/Pi-Imagin-Setup-0.1.0-x64.exe`，之后双击桌面或开始菜单的 **Pi Imagin**。程序自动打开独立窗口并启动本机服务，安装包自带运行依赖。首次使用在窗口内的**设置 → 模型**中配置服务商，已有 pi 配置继续可用。
+
+安装包目前是本机生成的 Windows x64 版本。数据位置、构建方式和验证记录见 [桌面版说明](docs/desktop.md)。
+
+### 源码开发
 
 Pi Imagin 当前为本地项目，尚未发布到 npm。需要 Node.js 22.19.0 或更新版本，在项目目录运行：
 

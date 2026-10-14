@@ -44,6 +44,8 @@ export function handleGlobalEscape(event: KeyboardEvent): boolean {
 interface UseGlobalKeyboardShortcutsOptions {
   /** Called when Ctrl+Alt+N is pressed. Receives current cwd. */
   onNewSession?: (cwd: string) => void;
+  /** Ctrl/Cmd+N 直接新建默认工作区会话。 */
+  onDefaultNewSession?: () => void;
   /** The currently selected project directory (sidebar cwd). */
   activeCwd?: string | null;
 }
@@ -64,13 +66,19 @@ interface UseGlobalKeyboardShortcutsOptions {
 export function useGlobalKeyboardShortcuts(
   options: UseGlobalKeyboardShortcutsOptions,
 ): void {
-  const { onNewSession, activeCwd } = options;
+  const { onNewSession, onDefaultNewSession, activeCwd } = options;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
       // ---- Esc: stop agent ----
       if (e.key === "Escape") {
         handleGlobalEscape(e);
+        return;
+      }
+
+      if (e.key.toLowerCase() === "n" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && !e.defaultPrevented && onDefaultNewSession) {
+        e.preventDefault();
+        onDefaultNewSession();
         return;
       }
 
@@ -84,5 +92,5 @@ export function useGlobalKeyboardShortcuts(
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeCwd, onNewSession]);
+  }, [activeCwd, onDefaultNewSession, onNewSession]);
 }

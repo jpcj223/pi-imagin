@@ -337,6 +337,7 @@ export function TreeNode({
   return (
     <div>
       <div
+        className="workspace-file-row"
         onClick={handleClick}
         onContextMenu={event => { event.preventDefault(); openFileActionMenu({ cwd, path: node.fullPath, name: node.name, x: event.clientX, y: event.clientY }); }}
         onMouseEnter={() => setHovered(true)}
@@ -378,7 +379,7 @@ export function TreeNode({
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
             flex: 1,
-            marginRight: hovered ? (node.isDir ? 78 : 102) : 24,
+            marginRight: node.isDir ? 54 : 78,
           }}
           title={hidden ? `${node.fullPath}\n${t(HIDDEN_REASON_KEYS[hidden])}` : node.fullPath}
         >
@@ -434,6 +435,7 @@ export function TreeNode({
               onAtMention(getRelativeFilePath(node.fullPath, cwd), node.isDir);
             }}
             title={t("files.insertPath")}
+            aria-label={t("files.mention")}
             style={{
               position: "absolute",
               right: !node.isDir ? 56 : 30,
@@ -443,7 +445,8 @@ export function TreeNode({
               alignItems: "center",
               justifyContent: "center",
               gap: 4,
-              padding: "0 8px",
+              padding: 0,
+              width: 20,
               height: 20,
               background: "var(--bg-panel)",
               border: "1px solid var(--border)",
@@ -456,7 +459,6 @@ export function TreeNode({
             }}
           >
             <MentionIcon />
-            {t("files.mention")}
           </button>
         )}
         {hovered && !node.isDir && (

@@ -469,6 +469,29 @@ export function SettingsPanel({
     </div>
   ) : null;
 
+  const sectionNavigation = (
+<nav aria-label={t("settings.title")} className="settings-section-tabs">
+            {sections.map((item) => {
+              const selected = section === item.id;
+              const disabled = item.requiresProject && !cwd;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="settings-section-tab"
+                  disabled={disabled}
+                  title={disabled ? t("settings.projectRequired") : item.label}
+                  aria-current={selected ? "page" : undefined}
+                  onClick={() => activateSection(item.id)}
+                >
+                  <SettingsSectionIcon section={item.id} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+  );
+
   return (
     <div
       ref={dialogRef}
@@ -496,29 +519,12 @@ export function SettingsPanel({
               </option>
             ))}
           </select>
-          <nav aria-label={t("settings.title")} className="settings-section-tabs">
-            {sections.map((item) => {
-              const selected = section === item.id;
-              const disabled = item.requiresProject && !cwd;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="settings-section-tab"
-                  disabled={disabled}
-                  title={disabled ? t("settings.projectRequired") : item.label}
-                  aria-current={selected ? "page" : undefined}
-                  onClick={() => activateSection(item.id)}
-                >
-                  <SettingsSectionIcon section={item.id} />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </nav>
+          {!embedded && sectionNavigation}
           <button type="button" onClick={onClose} title={t("i18n.close")} aria-label={t("i18n.close")} className="config-close-button settings-dialog-close">×</button>
         </div>
 
+        <div className={embedded ? "workspace-settings-body" : undefined}>
+          {embedded && sectionNavigation}
         <main className="settings-dialog-main">
           {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
           {sectionHost("models", <ModelsConfig embedded cwd={cwd} onClose={onClose} />)}
@@ -530,6 +536,7 @@ export function SettingsPanel({
           {/* No project needed: the global mcp.json is listed alone, and a project adds its group. */}
           {sectionHost("mcp", <McpConfig embedded key={cwd ?? ""} cwd={cwd} trust={projectTrust} onTrustProject={onOpenTrustDialog} onProjectTrustChanged={onProjectTrustChanged} onClose={onClose} />)}
         </main>
+        </div>
       </div>
     </div>
   );

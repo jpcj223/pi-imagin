@@ -24,14 +24,14 @@ function getMessages(): Record<string, Record<string, string>> {
   }));
 }
 
-function readInitialLocale(): Locale {
+function readInitialLocale(fallback: Locale = defaultLocale): Locale {
   try {
     const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
     if (stored === "en" || stored === "zh-CN" || stored === "zh-TW") return stored;
   } catch {
     // 存储不可用时使用项目默认语言。
   }
-  return defaultLocale;
+  return fallback;
 }
 
 /**
@@ -39,8 +39,8 @@ function readInitialLocale(): Locale {
  * @param props React 子节点
  * @returns 包含语言上下文的 React 节点
  */
-export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(defaultLocale);
+export function I18nProvider({ children, initialLocale = defaultLocale }: { children: React.ReactNode; initialLocale?: Locale }) {
+  const [locale, setLocaleState] = useState<Locale>(initialLocale);
   const [hydrated, setHydrated] = useState(false);
   const supportedLocales = useMemo(
     () => getSupportedLocales().map((id) => getLocalePlugin(id)).filter((plugin): plugin is LocalePlugin => Boolean(plugin)),
@@ -49,11 +49,11 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const messages = useMemo(() => getMessages(), []);
 
   useEffect(() => {
-    const next = readInitialLocale();
+    const next = readInitialLocale(initialLocale);
     setLocaleState(next);
     document.documentElement.lang = next;
     setHydrated(true);
-  }, []);
+  }, [initialLocale]);
 
   const setLocale = useCallback((next: Locale) => {
     if (!getLocalePlugin(next)) return;
@@ -67,7 +67,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const t = useCallback((key: string, params?: TranslationParams) => translateMessage(locale, key, messages, params), [locale, messages]);
-  const value = useMemo(() => ({ locale: hydrated ? locale : defaultLocale, setLocale, t, supportedLocales }), [hydrated, locale, setLocale, t, supportedLocales]);
+  const value = useMemo(() => ({ locale: hydrated ? locale : initialLocale, setLocale, t, supportedLocales }), [hydrated, initialLocale, locale, setLocale, t, supportedLocales]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }

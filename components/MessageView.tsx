@@ -811,8 +811,8 @@ function AssistantMessageView({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Model label */}
-      <div
+      {/* 回复身份与模型信息沿用实际消息元数据。 */}
+      <div className="workspace-answer-brand"
         style={{
           fontSize: 11,
           color: "var(--text-dim)",
@@ -822,8 +822,11 @@ function AssistantMessageView({
           gap: 6,
         }}
       >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/icons/icon-ocean-192.png" alt="" width={22} height={22} />
+        <strong>Pi Imagin</strong>
         {message.provider && (
-          <span>{getModelDisplayName(message.provider, message.model, modelNames)}</span>
+          <span className="workspace-answer-model">{getModelDisplayName(message.provider, message.model, modelNames)}</span>
         )}
         {isStreaming && (() => {
           const est = Math.round(estimatedTokens);

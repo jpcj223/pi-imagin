@@ -2260,7 +2260,7 @@ span.token.table {
 }
 
 /* Wide desktop file panel: participate in the split layout. */
-@media (min-width: 960px) {
+@media (min-width: 880px) {
   .right-panel-container {
     overflow: hidden;
     transition: width 0.2s ease, min-width 0.2s ease;
@@ -2287,7 +2287,7 @@ span.token.table {
 }
 
 /* Compact desktop file panel: overlay the chat instead of collapsing it. */
-@media (min-width: 641px) and (max-width: 959px) {
+@media (min-width: 641px) and (max-width: 879px) {
   .right-panel-resize-handle {
     display: none;
   }

@@ -2360,6 +2360,11 @@ export function getRunningRpcSessionIds(): string[] {
   return [...ids];
 }
 
+/** 桌面退出沿用已有关闭流程，等待扩展处理并保存会话。 */
+export async function shutdownAllRpcSessions(): Promise<void> {
+  await Promise.allSettled(Array.from(getRegistry().values(), session => session.shutdown()));
+}
+
 /**
  * The running sessions parked on an extension's dialog, a subset of
  * getRunningRpcSessionIds(): same poll, so the sidebar can tell a run that needs

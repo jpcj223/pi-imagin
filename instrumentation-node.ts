@@ -15,6 +15,22 @@ export function registerNodeInstrumentation(): void {
   process.on("SIGINT", shutdownStreams);
   process.on("SIGTERM", shutdownStreams);
 
+  if (process.env.PI_IMAGIN_DESKTOP === "1" && process.send) {
+    process.on("message", async message => {
+      if ((message as { type?: string })?.type !== "pi-imagin:prepare-shutdown") return;
+      shutdownStreams();
+      try {
+        const [{ shutdownAllRpcSessions }, { shutdownAllTerminals }] = await Promise.all([
+          import("@/lib/rpc-manager"), import("@/lib/terminal-manager"),
+        ]);
+        shutdownAllTerminals();
+        await shutdownAllRpcSessions();
+      } finally {
+        process.send?.({ type: "pi-imagin:shutdown-ready" });
+      }
+    });
+  }
+
   // Next 在路由首次请求时才加载其模块，
   // 首次会话列表请求曾需要额外导入整个 pi SDK，
   // 尤其在 Windows 上耗时明显；现在提前异步导入，保持注册快速。

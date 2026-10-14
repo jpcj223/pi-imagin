@@ -1,83 +1,49 @@
 import assert from "node:assert/strict";
 
-/*
- * The sidebar's sessions and files in either layout: on a desktop the files
- * sit below the sessions by default (both in view; the files section may be
- * folded to its header row), phones and Settings › General › File browser
- * "Separate tab" show one tab at a time. Both panels keep their ids in both.
- */
-
-/** Shows the explorer: the Files tab, or the files section opened. */
+/** 文件与会话共用左侧空间，文件树在切换时保持挂载。 */
 export async function showSidebarFiles(page) {
   const files = page.locator("#session-sidebar-panel-files");
-  const tab = page.getByRole("tab", { name: "Files", exact: true });
-  const toggle = files.locator(".sidebar-files-section-toggle");
-  await tab.or(toggle).first().waitFor();
-  if (await tab.count()) {
-    if (await tab.getAttribute("aria-selected") !== "true") await tab.click();
-  } else if (await toggle.getAttribute("aria-expanded") !== "true") {
-    await toggle.click();
+  if (!(await files.isVisible())) {
+    await showSidebarSessions(page);
+    const current = page.locator(".session-tree-group.is-current");
+    const project = await current.count() ? current.first() : page.locator(".session-tree-group").first();
+    await project.hover();
+    await project.locator('.session-tree-group-action[aria-haspopup="menu"]').click();
+    await page.getByRole("menuitem", { name: "Open in Files", exact: true }).click();
   }
   await files.locator(".sidebar-files-body").waitFor({ state: "visible" });
 }
 
-/** Shows the session rows: the Sessions tab, or nothing to do below the files. */
+/** 从文件树返回项目和会话，不依赖已隐藏的旧标签按钮。 */
 export async function showSidebarSessions(page) {
-  const tab = page.getByRole("tab", { name: "Sessions", exact: true });
-  await tab.or(page.locator(".sidebar-brand")).first().waitFor();
-  if (await tab.count() && await tab.getAttribute("aria-selected") !== "true") await tab.click();
+  const back = page.locator(".workspace-files-back");
+  await page.locator(".sidebar-brand").waitFor();
+  if (await back.isVisible()) await back.click();
   await page.locator("#session-sidebar-panel-sessions").waitFor({ state: "visible" });
 }
 
-/**
- * On a desktop both regions show by default; "Separate tab" brings the tabs
- * back and "Below sessions" returns, the file tree mounted throughout: its
- * own root stays on the page and its file search keeps its query, which a
- * remount would lose (open folders would come back from the per-folder
- * memory, so they prove nothing).
- */
+/** 验证项目文件入口、窗口内设置和文件搜索状态的连续性。 */
 export async function checkFilesPlacement(page) {
   const showSidebar = page.getByRole("button", { name: "Show sidebar", exact: true });
   if (await showSidebar.isVisible()) await showSidebar.click();
-  const sessions = page.getByRole("region", { name: "Sessions", exact: true });
-  const files = page.getByRole("region", { name: "Files", exact: true });
-  const tablist = page.getByRole("tablist", { name: "Sidebar view", exact: true });
-  await sessions.waitFor();
-  await files.waitFor();
-  assert.equal(await tablist.count(), 0, "No tabs while the files sit below the sessions");
   await showSidebarFiles(page);
-  await page.getByRole("separator", { name: "Resize file browser", exact: true }).waitFor();
-  const fileSearch = files.getByRole("button", { name: "Search files", exact: true });
+  const files = page.locator("#session-sidebar-panel-files");
+  const fileSearch = page.locator(".sidebar-search-toggle");
   const fileQuery = page.locator("#file-search-input");
   if (await fileSearch.getAttribute("aria-expanded") !== "true") await fileSearch.click();
   await fileQuery.fill("e2e-placement");
-  // FileExplorer's root, not the scroll box the sidebar always renders around it.
-  const tree = await page.locator("#session-sidebar-panel-files .sidebar-files-scroll > *").first().elementHandle();
-  const choose = async (label) => {
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await page.locator(".settings-section-tabs").getByRole("button", { name: "General", exact: true }).click();
-    const radio = page.getByRole("radio", { name: label, exact: true });
-    await radio.locator("..").click();
-    assert.equal(await radio.isChecked(), true);
-    await page.keyboard.press("Escape");
-    await page.getByRole("dialog", { name: "Settings", exact: true }).waitFor({ state: "hidden" });
-  };
-
-  await choose("Separate tab");
-  await tablist.waitFor();
-  assert.equal(await tablist.getByRole("tab").count(), 2);
-  assert.equal(await tablist.getByRole("tab", { name: "Files", exact: true }).count(), 1);
-  assert.equal(await sessions.count() + await files.count(), 0, "The panels are the tabs' again");
-  assert.equal(await page.locator(".sidebar-files-section").count(), 0);
+  const tree = await files.locator(".sidebar-files-scroll > *").first().elementHandle();
+  await showSidebarSessions(page);
+  assert.equal(await files.isVisible(), false);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("region", { name: "Settings", exact: true });
+  await settings.waitFor();
+  assert.equal(await page.getByRole("dialog", { name: "Settings", exact: true }).count(), 0);
+  await page.keyboard.press("Escape");
+  await settings.waitFor({ state: "hidden" });
   await showSidebarFiles(page);
-  await page.getByRole("tabpanel", { name: "Files", exact: true }).waitFor();
-
-  await choose("Below sessions");
-  await sessions.waitFor();
-  await files.waitFor();
-  assert.equal(await tablist.count(), 0);
-  assert.equal(await tree.evaluate((element) => element.isConnected), true, "Switching layouts keeps the file tree mounted");
-  assert.equal(await fileQuery.inputValue(), "e2e-placement", "and its file search");
+  assert.equal(await tree.evaluate(element => element.isConnected), true, "切换入口不重建文件树");
+  assert.equal(await fileQuery.inputValue(), "e2e-placement", "返回文件树后保留搜索条件");
   await tree.dispose();
   await fileQuery.fill("");
   await fileSearch.click();

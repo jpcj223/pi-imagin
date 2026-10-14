@@ -491,10 +491,9 @@ try {
       await hideSidebar.or(showSidebar).waitFor({ state: "visible" });
       if (await showSidebar.isVisible()) await showSidebar.click();
       await hideSidebar.waitFor({ state: "visible" });
-      // The files sit below the sessions on a desktop; Settings › General ›
-      // File browser brings the tabs back, and goes back.
+      // 项目菜单进入文件树，返回项目会话后保留文件搜索状态。
       await checkFilesPlacement(page);
-      console.log("PASS: files below the sessions by default, tabs from Settings and back");
+      console.log("PASS: project file navigation preserves the mounted tree and search");
       await checkModelDiscovery(page);
     }
     await page.goto(`${base}/?session=${CODE_BACKGROUND}`, { waitUntil: "domcontentloaded" });

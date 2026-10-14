@@ -17,6 +17,8 @@ try {
 const gfmAutolinkEmailLoader = join(configDir, "lib/gfm-autolink-email-loader.cjs");
 
 const nextConfig: NextConfig = {
+  devIndicators: false,
+  output: process.env.PI_IMAGIN_DESKTOP_BUILD === "1" ? "standalone" : undefined,
   outputFileTracingRoot: configDir,
   experimental: {
     // 存在 proxy.ts 时，Next 会缓存 API 请求体，

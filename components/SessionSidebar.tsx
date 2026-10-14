@@ -77,6 +77,7 @@ import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { useSessionUiState } from "@/hooks/useSessionUiState";
 import { archiveViewState, filesFoldState, useSidebarMotion } from "@/hooks/useSidebarMotion";
 import { DirectoryPicker } from "./DirectoryPicker";
+import { chooseDesktopDirectory } from "@/lib/desktop-bridge";
 import { DismissButton } from "./DismissButton";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { PiImaginTitle } from "./PiImaginTitle";
@@ -233,6 +234,8 @@ interface Props {
 export interface SessionSidebarControl {
   /** Identity, then the sidebar's cwd, then `onNewSession`, as any new session. */
   startNewSessionIn(target: NewSessionTarget): void;
+  /** 标题区和侧栏共用同一个会话操作菜单。 */
+  openSessionMenu(id: string, opener: HTMLElement): void;
   /**
    * Opens the folder picker; the validated folder goes to `onPicked`, which
    * decides whether to start there. Focus goes back to `returnFocusTo` when
@@ -1141,6 +1144,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const currentWorktreePath = currentWorktree?.path ?? null;
 
   // `purpose`: who asked, the folder picker's opener by default ("Use default directory" names its own).
+  // 置顶与归档立即更新界面；保存失败由共享状态回滚，并记录提示。
+  const applyUiState = useCallback(async (request: SessionUiStateRequest) => {
+    const ok = await applyUiStateRequest(request);
+    if (!ok) setUiWriteFailures((count) => count + 1);
+    return ok;
+  }, [applyUiStateRequest]);
+
   const commitCustomPath = useCallback(async (candidate?: string, { remember = true, purpose = customPathOpen } = {}) => {
     const path = (candidate ?? customPathValue).trim();
     if (!path || customPathValidating) return;
@@ -1164,6 +1174,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         return;
       }
       if (remember) {
+        // 明确添加的项目保留在导航中，空项目也不因切换会话而消失。
+        if (purpose === "files") await applyUiState({ action: "pin-project", projectKey: data.projectKey, root: data.projectRoot, pinned: true });
         saveLastCustomCwd(data.cwd);
         setCustomPathValue(data.cwd);
       }
@@ -1191,12 +1203,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     } finally {
       setCustomPathValidating(false);
     }
-  }, [customPathOpen, customPathValue, customPathValidating, focusAfterCommit]);
+  }, [applyUiState, customPathOpen, customPathValue, customPathValidating, focusAfterCommit]);
 
   const handleCustomPathClick = useCallback(() => {
-    setCustomPathOpen("files");
     setCustomPathError(null);
-  }, []);
+    void chooseDesktopDirectory().then(candidate => {
+      if (candidate === undefined) setCustomPathOpen("files");
+      else if (candidate) void commitCustomPath(candidate, { purpose: "files" });
+    }).catch(error => { setCustomPathOpen("files"); setCustomPathError(String(error)); });
+  }, [commitCustomPath]);
+  const commitCustomPathRef = useRef(commitCustomPath);
+  commitCustomPathRef.current = commitCustomPath;
   const handleDefaultCwd = useCallback(async (purpose: "files" | "new-session" = "files") => {
     try {
       const res = await fetch("/api/default-cwd", { method: "POST" });
@@ -1292,13 +1309,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const startNewSessionInRef = useRef(startNewSessionIn);
   startNewSessionInRef.current = startNewSessionIn;
 
+  const externalSessionMenuRef = useRef<((id: string, opener: HTMLElement) => void) | null>(null);
   useImperativeHandle(controlRef, () => ({
+    openSessionMenu: (id, opener) => externalSessionMenuRef.current?.(id, opener),
     startNewSessionIn: (target) => startNewSessionInRef.current(target),
     openFolderForNewSession: (onPicked, returnFocusTo) => {
       folderPickRef.current = onPicked;
       folderReturnFocusRef.current = returnFocusTo;
       setCustomPathError(null);
-      setCustomPathOpen("new-session");
+      void chooseDesktopDirectory().then(candidate => {
+        if (candidate === undefined) setCustomPathOpen("new-session");
+        else if (candidate) void commitCustomPathRef.current(candidate, { purpose: "new-session" });
+        else { folderPickRef.current = null; folderReturnFocusRef.current = null; returnFocusTo?.focus(); }
+      }).catch(error => { setCustomPathOpen("new-session"); setCustomPathError(String(error)); });
     },
     openDefaultDirectoryForNewSession: (onPicked) => {
       folderPickRef.current = onPicked;
@@ -1311,6 +1334,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // Header "+": a new session in the sidebar's current cwd (worktree).
   const handleNewSession = useCallback(() => {
+    folderPickRef.current = (target) => startNewSessionInRef.current(target);
+    folderReturnFocusRef.current = null;
     void handleDefaultCwdRef.current("new-session");
   }, []);
 
@@ -1529,13 +1554,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     return button && button.getClientRects().length > 0 ? button : selectedTabButton();
   }, [selectedTabButton]);
 
-  // Pin and archive changes apply at once and are saved in the background; a
-  // refused save rolls back (useSessionUiState) and says why in a toast.
-  const applyUiState = useCallback(async (request: SessionUiStateRequest) => {
-    const ok = await applyUiStateRequest(request);
-    if (!ok) setUiWriteFailures((count) => count + 1);
-    return ok;
-  }, [applyUiStateRequest]);
   useEffect(() => {
     if (uiWriteFailures === shownUiWriteFailuresRef.current) return;
     shownUiWriteFailuresRef.current = uiWriteFailures;
@@ -1948,6 +1966,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     if (row.status.transient) return;
     setMenu({ kind: "row", row, anchor, opener });
   }, []);
+
+  externalSessionMenuRef.current = (id, opener) => {
+    const row = model.rows.find((item): item is SessionRow => item.kind === "session" && item.family.root.id === id);
+    if (row) openRowMenu(row, buttonAnchor(opener, "end"), opener);
+  };
 
   // 右键先派发下游集成事件；没有集成处理时才打开内置菜单。
 // 未保存的临时会话没有可用操作，继续使用浏览器默认菜单。
@@ -2593,7 +2616,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           title="新建会话 · 默认工作区"
         >
           <PlusIcon size={12} />
-          <span className="sidebar-new-label">新建会话</span>
+          <span className="sidebar-new-label">新建会话</span><kbd className="workspace-new-shortcut">Ctrl N</kbd>
         </button>
         <button
           ref={searchButtonRef}
@@ -2622,6 +2645,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         </button>
       </div>
 
+      <div className="workspace-project-heading" hidden={sidebarTab === "files"}><span>项目</span><button type="button" onClick={handleCustomPathClick} aria-label="添加项目" title="添加项目"><PlusIcon size={15} /></button></div>
       <button type="button" className="workspace-files-back" hidden={sidebarTab !== "files"} onClick={() => switchTab("sessions")}>← 返回项目会话</button>
 
       {/* Sessions: every project's sessions, or the archive. A tab's panel,

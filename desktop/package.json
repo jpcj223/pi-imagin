@@ -1,0 +1,78 @@
+{
+  "name": "pi-imagin-desktop",
+  "productName": "Pi Imagin",
+  "version": "0.1.0",
+  "description": "Pi Imagin 本地智能体桌面工作区",
+  "author": "Pi Imagin",
+  "license": "MIT",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --win nsis --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.7.2",
+    "electron-builder": "26.15.3",
+    "extract-zip": "2.0.1"
+  },
+  "build": {
+    "appId": "local.pi-imagin.desktop",
+    "directories": {
+      "output": "../dist-desktop"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "loading.html",
+      "runtime.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "../bin/rotate-preview-secrets.js", "to": "rotate-preview-secrets.cjs" },
+      { "from": "../build/desktop-server/node_modules", "to": "server/node_modules" },
+      { "from": "../build/desktop-node/node_modules", "to": "node/node_modules" },
+      {
+        "from": "server.cjs",
+        "to": "server-launcher.cjs"
+      },
+      {
+        "from": "../build/desktop-server",
+        "to": "server"
+      },
+      {
+        "from": "../build/desktop-node",
+        "to": "node"
+      },
+      {
+        "from": "../build/desktop-icons",
+        "to": "icons"
+      },
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE-pi-imagin"
+      }
+    ],
+    "npmRebuild": false,
+    "win": {
+      "target": "nsis",
+      "icon": "../build/desktop-icons/icon.ico",
+      "signAndEditExecutable": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Pi Imagin",
+      "deleteAppDataOnUninstall": false,
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ],
+      "artifactName": "Pi-Imagin-Setup-${version}-${arch}.${ext}"
+    }
+  }
+}

@@ -137,6 +137,10 @@ export function hasTerminal(id: string): boolean {
   return registry().has(id);
 }
 
+export function shutdownAllTerminals(): void {
+  for (const id of registry().keys()) killTerminal(id, true);
+}
+
 export function getTerminalCwd(id: string): string | undefined {
   return registry().get(id)?.cwd;
 }
@@ -189,9 +193,10 @@ export function killTerminal(id: string, force = false): boolean {
   if (record.cleanupTimer) clearTimeout(record.cleanupTimer);
   registry().delete(id);
   if (!record.exited) {
-    record.pty.kill(force ? "SIGKILL" : undefined);
+    // Windows ConPTY 不接受信号名称，由原生 kill 回收控制台进程。
+    record.pty.kill(force && process.platform !== "win32" ? "SIGKILL" : undefined);
     // A shell may trap SIGHUP; explicit close and lease expiry must still finish.
-    if (!force) {
+    if (!force && process.platform !== "win32") {
       record.cleanupTimer = setTimeout(() => {
         if (!record.exited) record.pty.kill("SIGKILL");
       }, 2000);

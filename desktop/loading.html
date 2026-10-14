@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';"><title>Pi Imagin</title>
+<style>
+body {margin:0;height:100vh;display:grid;place-items:center;background:#f6f8fa;color:#293842;font:14px system-ui,sans-serif;}
+main {width:min(520px,80vw);text-align:center;}h1 {font-size:24px;font-weight:500;}p {color:#607482;line-height:1.8;overflow-wrap:anywhere;}button {border:1px solid #dbe4ea;background:white;color:#165e82;padding:10px 22px;border-radius:8px;cursor:pointer;}#error {color:#9f4242;}[hidden]{display:none;}
+</style></head>
+<body><main><h1>Pi Imagin</h1><p id="status">正在准备你的工作区…</p><p id="error" hidden></p><button id="retry" hidden>重新启动</button></main>
+<script>
+window.piImaginDesktop?.onStartupStatus(status => {
+  document.getElementById('status').textContent = status.message;
+  document.getElementById('error').textContent = status.error || '';
+  document.getElementById('error').hidden = !status.error;
+  document.getElementById('retry').hidden = !status.error;
+});
+document.getElementById('retry').addEventListener('click', () => window.piImaginDesktop?.retryStartup());
+</script></body></html>

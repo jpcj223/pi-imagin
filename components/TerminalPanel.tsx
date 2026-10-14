@@ -85,6 +85,11 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
         fontWeight: readFontWeight(style.getPropertyValue("--font-mono-weight")),
       };
     };
+    // 使用实际主题变量，切换外观只更新终端颜色，不重启终端进程。
+    const readTerminalTheme = () => {
+      const style = getComputedStyle(container);
+      return { background: style.getPropertyValue("--terminal-bg").trim() || "#fbfcfd", foreground: style.getPropertyValue("--text-muted").trim(), cursor: style.getPropertyValue("--accent").trim(), selectionBackground: "#b8d2e455", black: "#25323b", red: "#b85b64", green: "#4a8a73", yellow: "#aa893e", blue: "#397699", magenta: "#85729e", cyan: "#468c91", white: "#dfe5e9", brightBlack: "#8b98a3" };
+    };
     const terminal = new Terminal({
       cursorBlink: true,
       ...readTerminalFont(),
@@ -93,20 +98,23 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
       scrollback: 8000,
       screenReaderMode: true,
       disableStdin: true,
-      theme: {
-        background: "#111318", foreground: "#d7dce5", cursor: "#60a5fa",
-        selectionBackground: "#365b8a",
-        black: "#1d222b", red: "#f87171", green: "#4ade80", yellow: "#facc15",
-        blue: "#60a5fa", magenta: "#c084fc", cyan: "#22d3ee", white: "#e5e7eb",
-        brightBlack: "#6b7280", brightRed: "#fca5a5", brightGreen: "#86efac",
-        brightYellow: "#fde047", brightBlue: "#93c5fd", brightMagenta: "#d8b4fe",
-        brightCyan: "#67e8f9", brightWhite: "#ffffff",
-      },
+      theme: readTerminalTheme(),
     });
     terminalRef.current = terminal;
+    const themeObserver = new MutationObserver(() => { terminal.options.theme = readTerminalTheme(); });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "style"] });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(container);
+    // 字体加载后的真实字宽可能不同于回退字体，重新测量避免终端字距被拉开。
+    const refreshLoadedFont = () => {
+      if (disposed) return;
+      terminal.options.fontFamily = "monospace";
+      terminal.options.fontFamily = readTerminalFont().fontFamily;
+      fit.fit();
+    };
+    void document.fonts.ready.then(refreshLoadedFont);
+    document.fonts.addEventListener("loadingdone", refreshLoadedFont);
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") return true;
       const key = event.key.toLowerCase();
@@ -217,6 +225,8 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
       events?.close();
       void writer.stop();
       resizeObserver.disconnect();
+      themeObserver.disconnect();
+      document.fonts.removeEventListener("loadingdone", refreshLoadedFont);
       unsubscribeFonts();
       onData.dispose();
       onResize.dispose();

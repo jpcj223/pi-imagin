@@ -906,6 +906,7 @@ const GroupRowView = memo(function GroupRowView({
       style={rowStyle(top, height)}
       data-row-key={row.key}
       onPointerDown={canDrag ? (event) => drag.onPointerDown(event, project.key) : undefined}
+      onContextMenu={(event) => { event.preventDefault(); handlers.current.onGroupMenu(project, event.currentTarget); }}
     >
       <button
         type="button"
@@ -918,7 +919,7 @@ const GroupRowView = memo(function GroupRowView({
             column of its own, so the name starts where the session titles
             below it do and every header's chevron lines up. */}
         <ChevronIcon size={12} strokeWidth={3} className={`session-tree-chevron${expanded ? " is-open" : ""}`} />
-        <span className="session-tree-group-name">{project.name}</span>
+        <svg className="workspace-project-folder" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 7h7l2 2h9v11H3z" /></svg><span className="session-tree-group-name">{project.name}</span>
         {project.pinned && <PinIcon size={10} className="session-tree-group-pin" label={t("sidebar.pinnedProject")} />}
         {!expanded && <ActivitySummary running={row.running} unread={row.unread} t={t} />}
       </button>

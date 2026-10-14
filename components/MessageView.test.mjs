@@ -18,7 +18,9 @@ const {
   getToolCallInputText,
   replaceUserMessageText,
 } = await jiti.import("./MessageView.tsx");
-const { I18nProvider } = await jiti.import("@/hooks/useI18n");
+const { I18nProvider: LocaleProvider } = await jiti.import("@/hooks/useI18n");
+// 这些断言验证英文界面，明确固定测试语言，不依赖项目默认语言。
+const I18nProvider = ({ children }) => React.createElement(LocaleProvider, { initialLocale: "en" }, children);
 const { splitFinalAssistantBlocks } = await jiti.import("@/lib/message-display");
 const { clearExpandedToolCalls, setToolCallExpanded } = await jiti.import("@/lib/tool-call-expansion");
 

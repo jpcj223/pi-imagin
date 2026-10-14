@@ -25,6 +25,8 @@
 
 # production
 /build
+/desktop/node_modules/
+/dist-desktop/
 **/.pi-imagin-trash/
 
 # misc

@@ -26,7 +26,7 @@ export async function checkModelDiscovery(page) {
   });
   try {
     await page.getByRole("button", { name: "Settings", exact: true }).click();
-    const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+    const settings = page.getByRole("region", { name: "Settings", exact: true });
     await settings.getByRole("button", { name: "Models", exact: true }).click();
     await settings.locator(".config-sidebar-item").filter({ hasText: /^anthropic$/ }).click();
     const api = settings.locator(".config-field-label").filter({ hasText: /^API$/ }).locator("..").locator("select");
