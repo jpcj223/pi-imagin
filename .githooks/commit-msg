@@ -1,0 +1,2 @@
+#!/bin/sh
+exec node .githooks/validate-commit-message.cjs "$1"
