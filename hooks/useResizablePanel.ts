@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -242,7 +243,7 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
     }
   }, [axis, commitWidth, effectiveMaxWidth, growthDirection, minWidth, persistClamp, resetWidth, widthRef]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (restoredRef.current) return;
     restoredRef.current = true;
 

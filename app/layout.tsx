@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
 import { PwaRegistration } from "@/components/PwaRegistration";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
+import { WORKSPACE_LAYOUT_INIT_SCRIPT } from "@/lib/workspace-layout-bootstrap";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 import "./settings.css";
@@ -73,7 +74,7 @@ export default function RootLayout({
         <meta name="google" content="notranslate" />
         <script
           dangerouslySetInnerHTML={{
-            __html: THEME_INIT_SCRIPT,
+            __html: THEME_INIT_SCRIPT + WORKSPACE_LAYOUT_INIT_SCRIPT,
           }}
         />
       </head>

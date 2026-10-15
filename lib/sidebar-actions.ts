@@ -64,8 +64,6 @@ export function sessionMenuEntries(
       ? { kind: "action", id: "archive", shortcut: "A", disabledReason: "running" }
       : { kind: "action", id: "archive", shortcut: "A" },
     openNewTab,
-    { kind: "separator" },
-    { kind: "action", id: "delete", shortcut: "D" },
   ];
 }
 

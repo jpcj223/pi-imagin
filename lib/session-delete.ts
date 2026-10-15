@@ -26,12 +26,18 @@ import {
   resolveSessionPath,
 } from "./session-reader";
 import { sessionPathKey } from "./session-path";
-import { forgetSessionUiState } from "./session-ui-state";
+import { forgetSessionUiState, readSessionUiState } from "./session-ui-state";
+import { listSessionFamilies } from "./session-family";
+import { isFamilyArchived } from "./session-tree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
 import type { SessionEntry } from "./types";
 
 /** Most ids one POST /api/sessions/delete takes; the sidebar sends a bigger project in parts. */
 export const MAX_SESSION_DELETE_IDS = 500;
+
+export class SessionNotArchivedError extends Error {
+  constructor() { super("请先归档会话，再在归档区删除。"); }
+}
 
 export interface SessionDeleteResult {
   /** Every session removed: the named ones and the subagent sessions below them. */
@@ -55,7 +61,7 @@ function addChild(childrenByParent: Map<string, string[]>, parentId: string, chi
  */
 export async function deleteSessions(
   ids: readonly string[],
-  options: { keepRunning?: boolean } = {},
+  options: { keepRunning?: boolean; archivedOnly?: boolean } = {},
 ): Promise<SessionDeleteResult> {
   const targets = new Map<string, string>();
   const missing: string[] = [];
@@ -86,6 +92,19 @@ export async function deleteSessions(
     await listAllSessions({ force: true }),
     getRpcSessionInfos({ includeTransient: true }),
   );
+  // 网页删除必须先归档；整批在任何文件改写或运行实例关闭前检查。
+  if (options.archivedOnly) {
+    const state = readSessionUiState();
+    const families = listSessionFamilies(sessions);
+    const runningIds = new Set(getRunningRpcSessionIds());
+    for (const id of targets.keys()) {
+      const family = families.find(item => item.root.id === id);
+      if (!family || (!isFamilyArchived(family, state, new Set())
+        && !(options.keepRunning && [family.root, ...family.subagents].some(member => runningIds.has(member.id))))) {
+        throw new SessionNotArchivedError();
+      }
+    }
+  }
   const childrenByParent = new Map<string, string[]>();
   for (const session of sessions) {
     if (session.relation?.kind === "subagent") addChild(childrenByParent, session.relation.parentSessionId, session.id);

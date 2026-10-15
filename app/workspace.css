@@ -27,7 +27,7 @@ html:not([data-theme="light"]) {--terminal-bg:var(--bg-panel);}
 .workspace-toolbar>div:first-child {height:46px!important;background:var(--bg);padding:9px 12px;gap:2px;}
 .workspace-toolbar button {border:0!important;border-radius:5px;font-size:11px!important;}
 .workspace-toolbar button:hover:not(:disabled) {background:var(--bg-hover)!important;}
-.workspace-conversation-heading {display:flex;align-items:flex-start;justify-content:space-between;gap:15px;padding:20px var(--workspace-space) 13px;flex:none;}
+.workspace-conversation-heading {display:flex;align-items:flex-start;justify-content:space-between;gap:15px;padding:16px var(--workspace-space) 12px;flex:none;width:100%;max-width:calc(var(--chat-content-max-width,820px) + 2 * var(--workspace-space));margin-inline:auto;box-sizing:border-box;}
 .workspace-heading-copy {min-width:0;}
 .workspace-heading-copy>strong {display:block;font-size:17px;font-weight:500;letter-spacing:-.4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .workspace-heading-scope {display:flex;align-items:center;gap:5px;margin-top:4px;color:var(--text-muted);font-size:11px;}
@@ -123,10 +123,12 @@ html:not([data-theme="light"]) {--terminal-bg:var(--bg-panel);}
 .workspace-shell .sidebar-search-toggle {width:30px;min-width:30px;height:36px;border-radius:6px;display:grid;place-items:center;}
 .workspace-new-shortcut {font-size:10px;opacity:.75;}
 .workspace-project-heading {margin:19px 19px 7px;}
-.workspace-project-tree {display:flex;flex:1;min-height:95px;min-width:0;}
-.workspace-default-sessions {display:flex;flex-direction:column;flex:0 1 29%;min-height:115px;max-height:320px;padding-top:14px;margin-top:14px;border-top:1px solid var(--border);}
+/* 项目保留上部工作区，默认与归档在下部预留适量空间，折叠不挪动分区标题。 */
+.workspace-project-tree {display:flex;flex:1 1 0%;min-height:48px;min-width:0;}
+.workspace-default-sessions {display:flex;flex-direction:column;flex:0 1 clamp(112px,16vh,156px);min-height:62px;max-height:28%;padding-top:10px;margin-top:10px;border-top:1px solid var(--border);box-sizing:border-box;}
 .workspace-default-heading {padding:0 9px 9px;color:var(--text-muted);font-size:11px;flex:none;}
-.workspace-default-sessions .session-tree-session {padding-left:7px;}
+.workspace-shell .workspace-project-tree .session-tree-session {left:35px;padding-left:7px;}
+.workspace-shell .workspace-default-sessions .session-tree-session,.workspace-shell .workspace-archive-list .session-tree-session {left:27px;padding-left:7px;border-radius:6px;}
 .workspace-default-sessions .session-tree-message {font-size:11px;padding:7px 9px;}
 .workspace-project-menu {padding:5px;border-radius:8px;background:var(--bg-panel);border:1px solid var(--border);box-shadow:0 5px 18px #182c4314;}
 .workspace-project-menu .sidebar-menu-item {min-height:32px;padding:7px 8px;gap:8px;font-size:12px;border-radius:5px;}
@@ -209,12 +211,11 @@ html:not([data-theme="light"]) {--terminal-bg:var(--bg-panel);}
 .workspace-heading-actions .workspace-branch-trigger {gap:5px;padding:0 8px;font-size:11px;}
 .workspace-heading-actions>button:hover,.workspace-heading-actions>button[aria-expanded="true"] {background:var(--bg-hover);color:var(--accent);}
 .workspace-heading-actions>button:disabled {opacity:.4;cursor:default;}
-#workspace-branches {flex:none;min-width:0;max-height:clamp(80px,22vh,200px);overflow:auto;margin:0 var(--workspace-space) 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-panel);}
+#workspace-branches {flex:none;min-width:0;width:calc(100% - 2 * var(--workspace-space));max-width:var(--chat-content-max-width,820px);max-height:clamp(72px,18vh,160px);overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;margin:0 auto 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-panel);box-sizing:border-box;}
 .workspace-branch-panel {padding:8px 10px;min-width:0;}
 .workspace-branch-panel>div {min-width:0;}
 .workspace-branch-empty {padding:6px;color:var(--text-muted);font-size:12px;}
 .workspace-history {display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;}
-.workspace-history>header {display:flex;align-items:center;gap:8px;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text-dim);}
 .workspace-history button {flex:none;border:1px solid var(--border);border-radius:5px;padding:4px 7px;background:var(--bg);color:var(--text-muted);font-size:11px;cursor:pointer;}
 .workspace-history iframe {display:block;flex:1;width:100%;min-height:0;border:0;background:var(--bg);}
 .workspace-history-status {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;flex:1;color:var(--text-muted);font-size:12px;text-align:center;overflow-wrap:anywhere;}
@@ -228,7 +229,58 @@ html:not([data-theme="light"]) {--terminal-bg:var(--bg-panel);}
 .workspace-streaming-actions>button:disabled {opacity:.4;cursor:not-allowed;}
 .workspace-streaming-actions>button:focus-visible {outline:2px solid var(--accent);outline-offset:2px;}
 .workspace-composer-card.is-streaming .workspace-composer-primary {flex-basis:180px!important;}
-@media(max-width:640px){.workspace-composer-card.is-streaming .workspace-streaming-actions {flex:1 0 100%;}.workspace-heading-actions {gap:2px;}.workspace-heading-actions .workspace-branch-trigger {padding:0 6px;}#workspace-branches {max-height:24vh;}.workspace-streaming-actions>button {min-height:32px;}}
+@media(max-width:640px){.workspace-composer-card.is-streaming .workspace-streaming-actions {flex:1 0 100%;}.workspace-heading-actions {gap:2px;}.workspace-heading-actions .workspace-branch-trigger {padding:0 6px;}#workspace-branches {max-height:min(24vh,160px);}.workspace-streaming-actions>button {min-height:32px;}}
+
+/* 搜索在全局导航打开，弹窗独立于侧栏的变换及滚动容器。 */
+.workspace-rail-search {width:30px;height:30px;display:grid;place-items:center;flex:none;margin-top:6px;border:0;border-radius:8px;background:transparent;color:var(--text-muted);cursor:pointer;}
+.workspace-rail-search:hover {color:var(--accent);background:var(--bg-selected);}
+.workspace-search-backdrop {position:fixed;inset:0;z-index:1300;display:grid;place-items:center;padding:24px;background:#15263835;backdrop-filter:blur(3px);}
+.workspace-search-dialog {display:flex;flex-direction:column;width:min(680px,100%);height:min(640px,calc(100dvh - 48px));min-height:0;max-height:calc(100dvh - 48px);overflow:hidden;border:1px solid var(--border);border-radius:16px;background:var(--bg-panel);color:var(--text);box-shadow:0 18px 70px #10223530;}
+.workspace-search-dialog header {display:flex;align-items:center;justify-content:space-between;padding:16px 20px 10px;gap:12px;flex:none;}
+.workspace-search-dialog h2 {margin:0;font-size:15px;font-weight:600;}
+.workspace-search-dialog header button {width:28px;height:28px;background:transparent;border:0;border-radius:6px;color:var(--text-muted);font-size:22px;cursor:pointer;}
+.workspace-search-dialog header button:hover {background:var(--bg-hover);}
+.workspace-search-field {display:flex;align-items:center;gap:10px;margin:0 20px 12px;padding:9px 12px;border:1px solid var(--border);border-radius:10px;color:var(--text-muted);flex:none;}
+.workspace-search-field:focus-within {border-color:var(--accent);}
+.workspace-search-field input {width:100%;min-width:0;background:transparent;border:0;outline:none;font:inherit;font-size:14px;color:var(--text);}
+.workspace-search-field kbd {font-size:10px;color:var(--text-dim);}
+.workspace-search-empty {flex:1;min-height:0;overflow:auto;padding:40px 24px;text-align:center;font-size:13px;line-height:1.8;color:var(--text-muted);}
+.workspace-search-dialog>div[aria-busy] {padding:0 8px 12px;}
+
+/* 归档与主列表共存，不覆盖项目列表或普通会话。 */
+.workspace-archive-section {display:flex;flex-direction:column;flex:0 1 clamp(144px,20vh,210px);min-height:44px;max-height:30%;margin-top:10px;padding-top:8px;border-top:1px solid var(--border);min-width:0;box-sizing:border-box;}
+.workspace-archive-toggle {display:flex;flex:none;align-items:center;gap:7px;width:100%;padding:8px 9px;border:0;border-radius:6px;background:transparent;color:var(--text-muted);font-size:11px;cursor:pointer;}
+.workspace-archive-toggle:hover {background:var(--bg-hover);color:var(--text);}
+.workspace-archive-count {font-size:10px;color:var(--text-dim);}
+.workspace-archive-toggle>svg:last-child {margin-left:auto;transform:rotate(0);}
+.workspace-archive-toggle[aria-expanded="true"]>svg:last-child {transform:rotate(90deg);}
+.workspace-archive-list {display:flex;flex:1;min-height:0;}
+
+/* 标签只在当前栏内展开，允许换行，不挤压关闭按钮。 */
+.workspace-aux-switcher {align-items:flex-start;gap:5px;padding:8px 10px;min-height:46px;}
+.workspace-aux-tab-list {display:flex;align-items:center;flex-wrap:wrap;gap:2px;min-width:0;flex:1;}
+.workspace-aux-tab-list>button {display:none;align-items:center;min-height:28px;padding:4px 8px;border-radius:6px;white-space:nowrap;font-size:11px;}
+.workspace-aux-tab-list>button[data-active="true"],.workspace-aux-switcher.is-expanded .workspace-aux-tab-list>button {display:inline-flex;}
+.workspace-aux-tab-list>button[aria-selected="true"] {background:var(--bg-selected);color:var(--accent);}
+.workspace-aux-tab-list>button:hover {background:var(--bg-hover);}
+.workspace-aux-tab-list>button:disabled {opacity:.45;cursor:not-allowed;}
+.workspace-aux-tab-list>button[data-aux-tab] {cursor:grab;touch-action:none;}
+.workspace-aux-tab-list>button:active {cursor:grabbing;}
+.workspace-shell .session-tree-time-group {display:flex;align-items:center;justify-content:space-between;padding:0 9px;color:var(--text-dim);font-size:10px;border-radius:0;}
+.workspace-shell .session-tree-time-group>span:last-child {font-variant-numeric:tabular-nums;}
+.workspace-shell .workspace-archive-list .session-tree-archive-group {padding-left:9px;font-weight:500;color:var(--text-muted);}
+.workspace-shell .workspace-archive-list .session-tree-time-group {padding-left:16px;}
+.workspace-search-retry {margin:0 12px 12px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px;cursor:pointer;}
+.workspace-search-retry:hover {background:var(--bg-hover);}
+.workspace-aux-switcher .workspace-aux-close {margin:0 0 0 auto;display:grid;place-items:center;}
+.workspace-aux-agents {flex:none;}
+
+/* 创建入口位于目录消息标题旁，沿用原编辑后发送流程。 */
+.workspace-outline-user {display:flex;align-items:flex-start;gap:5px;}
+.workspace-outline-user>button:first-child {flex:1;min-width:0;}
+.workspace-outline-branch {flex:none;align-self:center;width:25px;height:25px;border:0;border-radius:5px;background:transparent;color:var(--text-muted);font-size:17px;cursor:pointer;}
+.workspace-outline-branch:hover {background:var(--bg-selected);color:var(--accent);}
+@media(max-width:640px){.workspace-search-backdrop{padding:12px;}.workspace-search-dialog{height:min(640px,calc(100dvh - 24px));max-height:calc(100dvh - 24px);border-radius:12px;}.workspace-heading-actions{flex-wrap:wrap;justify-content:flex-end;}.workspace-aux-tab-list>button{min-height:32px;}}
 .workspace-composer-footer {flex-wrap:wrap;align-items:center;gap:6px;}
 .workspace-composer-primary {flex:1 1 240px!important;}
 .workspace-composer-actions {margin-top:0!important;flex:0 0 auto;gap:2px!important;}
@@ -241,3 +293,55 @@ html:not([data-theme="light"]) {--terminal-bg:var(--bg-panel);}
 @media(max-width:640px){
   .workspace-new-project {padding:0 14px 12px;}
 }
+
+.workspace-branch-editing {display:flex;align-items:center;justify-content:space-between;gap:10px;width:calc(100% - 32px);max-width:960px;margin:0 auto 4px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg-selected);color:var(--text-muted);font-size:11px;}
+.workspace-branch-editing button {flex:none;background:transparent;border:0;color:var(--accent);cursor:pointer;font-size:11px;}
+
+/* 用量只作为打开详情的入口，不显示选中底色。 */
+.workspace-toolbar button.workspace-session-stats:hover:not(:disabled) {background:transparent!important;}
+
+/* 首次 HTML 与交互恢复使用同一尺寸，避免从默认宽度动画到保存值。 */
+.workspace-shell:not([data-layout-ready="true"]) .sidebar-container {--sidebar-width:var(--workspace-initial-sidebar-width,220px)!important;transition:none!important;}
+.workspace-shell:not([data-layout-ready="true"]) .right-panel-container {--right-panel-width:var(--workspace-initial-right-width,300px)!important;transition:none!important;}
+@media(min-width:880px){html[data-workspace-right-open="false"] .workspace-shell:not([data-layout-ready="true"]) .right-panel-container {width:0;min-width:0;border-left:0!important;}}
+@media(max-width:879px){html[data-workspace-right-open="false"] .workspace-shell:not([data-layout-ready="true"]) .right-panel-container {visibility:hidden;transform:translateX(100%);}}
+.workspace-workbench-row {position:relative;}
+@media(min-width:641px){.workspace-shell .right-panel-container.right-panel-open.right-panel-full-width {position:absolute;inset:0;z-index:220;width:auto;min-width:0;height:auto;max-width:none;box-shadow:none;}}
+/* 历史操作并入标签栏旁，悬停图标不展开标签，减少重复工具栏。 */
+.workspace-aux-header {display:flex;align-items:flex-start;flex:none;min-width:0;border-bottom:1px solid var(--border);}
+.workspace-aux-header>.workspace-aux-switcher {flex:1;min-width:0;border-bottom:0;}
+.workspace-history-actions {display:flex;align-items:center;gap:4px;flex:none;padding:8px 10px 8px 0;}
+.workspace-history-actions[hidden] {display:none;}
+.workspace-history-actions.is-fallback {justify-content:flex-end;border-bottom:1px solid var(--border);}
+.workspace-history-actions .workspace-history-icon {display:grid;place-items:center;width:30px;height:30px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--text-muted);cursor:pointer;}
+.workspace-history-icon:hover {background:var(--bg-hover);color:var(--text);}
+.workspace-history-icon:focus-visible {outline:2px solid var(--accent);outline-offset:-2px;}
+.workspace-history-icon[aria-pressed="true"] {color:var(--accent);background:var(--bg-selected);}
+/* 下部两区尺寸只随可用窗口调整，分组展开收起不改变分区边界。 */
+.workspace-default-heading {font-size:12px;font-weight:500;padding-bottom:7px;}
+.workspace-shell .session-tree-time-group,.workspace-shell .workspace-archive-list .session-tree-time-group,.workspace-shell .workspace-archive-list .session-tree-archive-group {padding:0;}
+.session-tree-time-group>button,.session-tree-archive-group>button {display:flex;align-items:center;gap:6px;width:100%;height:100%;padding:0 9px;border:0;border-radius:5px;background:transparent;color:var(--text-muted);font:inherit;text-align:left;cursor:pointer;min-width:0;}
+.session-tree-time-group>button {font-size:11px;}
+.session-tree-archive-group>button {font-size:12px;font-weight:500;}
+.workspace-archive-list .session-tree-time-group>button {padding-left:21px;}
+.session-tree-section-count {margin-left:auto;font-size:10px;color:var(--text-dim);font-variant-numeric:tabular-nums;}
+.session-tree-time-group>button:hover,.session-tree-archive-group>button:hover {background:var(--bg-hover);color:var(--text);}
+.session-tree-time-group>button:focus-visible,.session-tree-archive-group>button:focus-visible {outline:2px solid var(--accent);outline-offset:-2px;}
+/* 静态加载占位不闪烁，不保存会话正文，错误仍由原流程展示。 */
+.workspace-conversation-loading {display:flex;flex-direction:column;gap:24px;height:100%;min-height:0;padding:16px var(--workspace-space) 10px;box-sizing:border-box;}
+.workspace-conversation-loading>div {width:100%;max-width:var(--chat-content-max-width,820px);margin-inline:auto;}
+.workspace-conversation-loading i,.workspace-outline-loading i {display:block;height:12px;background:var(--bg-hover);border-radius:5px;}
+.workspace-loading-heading {display:grid;gap:10px;padding-bottom:6px;}
+.workspace-loading-heading i:first-child {width:110px;height:19px;}.workspace-loading-heading i:last-child {width:90px;height:11px;}
+.workspace-loading-messages {display:flex;flex-direction:column;gap:18px;flex:1;min-height:0;overflow:hidden;}
+.workspace-loading-messages i {width:85%;flex:none;}.workspace-loading-messages i:nth-child(3n) {width:63%;}.workspace-loading-messages .workspace-loading-user {align-self:flex-end;width:28%;height:40px;margin:12px 0 22px;}
+.workspace-loading-composer {display:flex;flex-direction:column;justify-content:space-between;min-height:114px;flex:none;border:1px solid var(--border);border-radius:13px;padding:14px;box-sizing:border-box;font-size:11px;color:var(--text-dim);}
+.workspace-loading-composer i {width:40%;height:10px;}
+.workspace-outline-loading {padding:28px 18px;display:grid;gap:25px;}.workspace-outline-loading i {width:85%;height:26px;}
+/* 隐藏右栏统一使用顶部开关，紧凑窗口也不能被遮罩挡住。 */
+.workspace-top {position:relative;z-index:260;}
+.workspace-shell .right-panel-overlay-backdrop {top:76px;}
+@media(max-width:640px){.workspace-shell .right-panel-container {top:76px;height:calc(var(--app-viewport-height,100dvh) - 76px);}}
+.workspace-top[inert] {z-index:auto;}
+/* 手机抽屉置于辅助栏和顶部工具栏之上，保留原有模态交互。 */
+@media(max-width:640px){.workspace-shell .sidebar-container {z-index:400!important;}.workspace-shell .sidebar-overlay-backdrop {z-index:399!important;}}

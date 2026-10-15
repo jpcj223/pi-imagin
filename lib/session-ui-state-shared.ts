@@ -43,6 +43,8 @@ export interface SessionUiState {
   projectOrder?: string[];
   /** 会话家族根 ID 的手动顺序；每个项目独立展示，不移动会话目录。 */
   sessionOrder?: string[];
+  /** 从侧栏移除的项目；保留磁盘文件和会话，重新添加目录时恢复。 */
+  removedProjects?: string[];
   /**
    * Display names by projectKey, shown instead of the folder name (the group
    * menu's Rename…). Only a label: the root, the key and the sessions stay as
@@ -61,6 +63,7 @@ export type SessionUiStateRequest =
   /** Undo: writes back exact prior values (null = absent). */
   | { action: "restore"; entries: SessionUiFlagsSnapshot[] }
   | { action: "pin-project"; projectKey: string; root: string; pinned: boolean }
+  | { action: "remove-project"; projectKey: string }
   /** New projects, top first: the ones `projectOrder` lacks go in front of it. Never pushes a key out. */
   | { action: "add-projects"; keys: string[] }
   /**
@@ -212,6 +215,10 @@ export function normalizeSessionUiState(value: unknown): SessionUiState | null {
     const project = normalizeProject(entry);
     if (project) state.projects[key] = project;
   }
+  if (Array.isArray(value.removedProjects)) {
+    const keys = fitProjectOrder([...new Set(value.removedProjects.filter(isProjectString))]);
+    if (keys.length) state.removedProjects = keys;
+  }
   // Anything but an array reads as no order: it is cheap to rebuild, and no
   // reason to set pins and archive aside with a file taken for corrupt.
   if (Array.isArray(value.projectOrder)) {
@@ -333,6 +340,10 @@ export function parseSessionUiStateRequest(body: unknown): ParseResult {
       }
       return { ok: true, request: { action: "restore", entries } };
     }
+    case "remove-project": {
+      if (!isProjectString(body.projectKey)) return { ok: false, error: "Invalid projectKey" };
+      return { ok: true, request: { action: "remove-project", projectKey: body.projectKey } };
+    }
     case "pin-project": {
       if (!isProjectString(body.projectKey)) {
         return { ok: false, error: `projectKey must be a non-empty string of at most ${MAX_PROJECT_STRING_LENGTH} characters` };
@@ -434,6 +445,7 @@ function copyState(state: SessionUiState): SessionUiState {
   const copy: SessionUiState = { ...state, sessions, projects };
   // Only when present: an explicit undefined would not equal an absent field.
   if (state.projectOrder) copy.projectOrder = [...state.projectOrder];
+  if (state.removedProjects) copy.removedProjects = [...state.removedProjects];
   if (state.sessionOrder) copy.sessionOrder = [...state.sessionOrder];
   if (state.projectNames) copy.projectNames = { ...state.projectNames };
   return copy;
@@ -586,7 +598,22 @@ export function applySessionUiStateRequest(
         if (writeFamily(next.sessions, entry.id, family)) changed = true;
       }
       break;
+    case "remove-project": {
+      if (!(next.removedProjects ?? []).includes(request.projectKey)) {
+        const keys = [...(next.removedProjects ?? []), request.projectKey];
+        if (!orderFits(keys.length, orderBytes(keys))) break;
+        next.removedProjects = keys;
+        changed = true;
+      }
+      if (hasOwn(next.projects, request.projectKey)) { delete next.projects[request.projectKey]; changed = true; }
+      break;
+    }
     case "pin-project": {
+      if (request.pinned && next.removedProjects?.includes(request.projectKey)) {
+        const kept = next.removedProjects.filter(key => key !== request.projectKey);
+        if (kept.length) next.removedProjects = kept; else delete next.removedProjects;
+        changed = true;
+      }
       const { projectKey, root } = request;
       const previous = hasOwn(next.projects, projectKey) ? next.projects[projectKey] : undefined;
       if (request.pinned) {

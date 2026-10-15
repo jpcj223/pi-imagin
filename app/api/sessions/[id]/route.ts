@@ -19,7 +19,7 @@ import type { SessionEntry } from "@/lib/types";
 import { readSubagentRun, readSubagentSessionResources } from "@/lib/subagents";
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
 import { jsonResponse } from "@/lib/json-response";
-import { deleteSessions } from "@/lib/session-delete";
+import { deleteSessions, SessionNotArchivedError } from "@/lib/session-delete";
 
 export async function GET(
   req: Request,
@@ -196,12 +196,13 @@ export async function DELETE(
 ) {
   const { id } = await params;
   try {
-    const { missing } = await deleteSessions([id]);
+    const { missing, running } = await deleteSessions([id], { keepRunning: true, archivedOnly: true });
+    if (running.length > 0) return NextResponse.json({ error: "会话仍在运行，暂时不能删除。" }, { status: 409 });
     if (missing.length > 0) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: String(error) }, { status: error instanceof SessionNotArchivedError ? 409 : 500 });
   }
 }

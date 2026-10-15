@@ -16,6 +16,7 @@ import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
+import { ConversationPlaceholder } from "./ConversationPlaceholder";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
@@ -249,6 +250,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const [quoteSubmitting, setQuoteSubmitting] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const quotePopoverRef = useRef<HTMLDivElement | null>(null);
+  const beginBranch = useCallback((message: import("@/lib/types").UserMessage, entryId: string) => {
+    if (!handleEditContent(message, entryId)) {
+      addNotice({ type: "info", message: "输入框中已有草稿或附件，请先处理后再创建分支。" });
+      return;
+    }
+    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>(".chat-input-shell textarea")?.focus());
+  }, [handleEditContent, addNotice]);
   const quoteChatInputRef = useRef<ChatInputHandle | null>(null);
   const closeQuotedSelection = useCallback(() => {
     setQuotedSelection(null);
@@ -445,7 +453,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     const container = scrollContainerRef.current;
     const content = messageContentRef.current;
     if (!sessionId || !onScrollPositionChange || !container || !content) return;
-    return () => {
+    const capture = () => {
       if (pendingScrollRestoreRef.current) return;
       if (isScrollAtTail(container.scrollTop, container.clientHeight, container.scrollHeight)) {
         onScrollPositionChange(sessionId, { atBottom: true });
@@ -464,6 +472,22 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         ...anchor,
         oldestEntryId: searchHistoryRef.current.historyCursor,
       });
+    };
+    let frame: number | null = null;
+    const schedule = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => { frame = null; capture(); });
+    };
+    // 刷新不保证 React 卸载；捕获阶段先更新定位，再由父工作区保存。
+    container.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("pagehide", capture, true);
+    document.addEventListener("visibilitychange", capture, true);
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      capture();
+      container.removeEventListener("scroll", schedule);
+      window.removeEventListener("pagehide", capture, true);
+      document.removeEventListener("visibilitychange", capture, true);
     };
   }, [loading, onScrollPositionChange, scrollContainerRef, session?.id]);
 
@@ -921,9 +945,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center text-text-muted">
-         {t("chat.loadingSession")}
-      </div>
+      <><ConversationPlaceholder />{outlineHost && createPortal(<div className="workspace-outline-loading" role="status" aria-label="正在恢复会话目录"><i /><i /><i /></div>, outlineHost)}</>
     );
   }
 
@@ -1072,7 +1094,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     searchBlock={entryIds[idx] === pendingSearchScroll?.entryId ? searchBlock : undefined}
                     onFork={bashRunning || isNew ? undefined : handleFork}
                     forking={forkingEntryId === entryIds[idx]}
-                    onEditContent={sessionBusy ? undefined : handleEditContent}
+                    onEditContent={sessionBusy ? undefined : beginBranch}
                     onCancelEdit={cancelEdit}
                     isEditing={editEntryId === entryIds[idx]}
                     showTimestamp={showTimestamp}
@@ -1253,7 +1275,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           </div>
         </div>
         {pendingScrollRestore ? null : outlineHost ? createPortal(
-          <ChatMinimap docked messages={messages} getStreamingMessage={getStreamingMessage} scrollContainer={scrollContainerRef} messageRefs={messageRefs} onRevealHistory={revealHistoryForMinimap} turnsBefore={earlierTurnCount} />,
+          <ChatMinimap docked onCreateBranch={agentRunning || bashRunning || isCompacting || isNew ? undefined : message => {
+            const index = messages.indexOf(message);
+            if (index >= 0 && entryIds[index]) beginBranch(message, entryIds[index]);
+          }} messages={messages} getStreamingMessage={getStreamingMessage} scrollContainer={scrollContainerRef} messageRefs={messageRefs} onRevealHistory={revealHistoryForMinimap} turnsBefore={earlierTurnCount} />,
           outlineHost,
         ) : isMobile ? null : (
           <ChatMinimap
@@ -1375,6 +1400,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             </button>
           </div>
         )}
+        {editEntryId && <div className="workspace-branch-editing" role="status"><span>正在创建分支 · 修改消息并发送，原记录保留</span><button type="button" onClick={cancelEdit}>取消创建分支</button></div>}
         {chatInputElement}
         {isEmptyNew && newSessionContextBar && <div className="workspace-new-project">{newSessionContextBar}</div>}
         <ExtensionStatusBar

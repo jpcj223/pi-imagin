@@ -12,6 +12,7 @@ const jiti = createJiti(import.meta.url, {
   moduleCache: false,
 });
 const { POST: deleteSessionsRoute } = await jiti.import("./delete/route.ts");
+const { DELETE: deleteSessionRoute } = await jiti.import("./[id]/route.ts");
 const { MAX_SESSION_DELETE_IDS } = await jiti.import("../../../lib/session-delete.ts");
 const { PROJECT_DELETE_IDS_PER_REQUEST } = await jiti.import("../../../lib/sidebar-actions.ts");
 const { invalidateSessionListCache, invalidateSessionPathCache } = await jiti.import("../../../lib/session-reader.ts");
@@ -101,7 +102,7 @@ test("deletes a project's sessions in one request, with their subagents, keeping
   globalThis.__piSessions.set("run-x", wrapper("run-x", true));
   globalThis.__piSessions.set("del-b", wrapper("del-b", false));
   await updateSessionUiState({ action: "set", ids: ["del-a", "keep-root"], pinned: true });
-  await updateSessionUiState({ action: "set", ids: ["del-b"], archived: true });
+  await updateSessionUiState({ action: "set", ids: ["del-a", "del-b"], archived: true });
 
   const response = await post({ ids: ["del-a", "del-b", "run-x", "gone-elsewhere"] });
 
@@ -134,6 +135,7 @@ test("what stays is re-pointed at its nearest ancestor left, or loses a parent n
   const sub = await writeSession(sessionsDir, "sub", { id: "keep-sub", cwd, parentSession: child, subagentOf: { id: "keep-middle", path: middle } });
   ids.push("del-root", "keep-middle", "del-child", "keep-grandchild", "keep-sub");
 
+  await updateSessionUiState({ action: "set", ids: ["del-root", "del-child"], archived: true });
   const result = await (await post({ ids: ["del-root", "del-child"] })).json();
 
   assert.deepEqual(result.deleted.toSorted(), ["del-child", "del-root"]);
@@ -163,4 +165,23 @@ test("a delete request must be a trusted JSON list of session ids, at most one p
   const response = await post({ ids: ["nobody", "nobody"] });
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { deleted: [], missing: ["nobody"], running: [] });
+});
+
+test("普通会话和恢复后的会话不能删除，混合批次拒绝且不改写任何文件", async t => {
+  const { sessionsDir, ids } = await scratchAgentDir(t);
+  const a = await writeSession(sessionsDir, "active", { id: "active", cwd: "/work/alpha" });
+  const b = await writeSession(sessionsDir, "archived", { id: "archived", cwd: "/work/alpha" });
+  ids.push("active", "archived");
+  await updateSessionUiState({ action: "set", ids: ["archived"], archived: true });
+  const before = [a, b].map(path => readFileSync(path, "utf8"));
+  assert.equal((await post({ ids: ["archived", "active"] })).status, 409);
+  assert.deepEqual([a, b].map(path => readFileSync(path, "utf8")), before);
+  const remove = id => deleteSessionRoute(new Request(`http://localhost/api/sessions/${id}`, { method: "DELETE" }), { params: Promise.resolve({ id }) });
+  assert.equal((await remove("active")).status, 409);
+  await updateSessionUiState({ action: "set", ids: ["archived"], archived: false });
+  assert.equal((await remove("archived")).status, 409);
+  await updateSessionUiState({ action: "set", ids: ["archived"], archived: true });
+  assert.equal((await remove("archived")).status, 200);
+  assert.equal(existsSync(a), true);
+  assert.equal(existsSync(b), false);
 });

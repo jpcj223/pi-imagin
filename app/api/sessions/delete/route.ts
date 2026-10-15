@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
-import { deleteSessions, MAX_SESSION_DELETE_IDS, type SessionDeleteResult } from "@/lib/session-delete";
+import { deleteSessions, MAX_SESSION_DELETE_IDS, SessionNotArchivedError, type SessionDeleteResult } from "@/lib/session-delete";
 import { SESSION_ID_PATTERN } from "@/lib/session-ui-state-shared";
 
 export const dynamic = "force-dynamic";
@@ -33,9 +33,9 @@ export async function POST(req: Request) {
   if (!ids.every((id) => typeof id === "string" && SESSION_ID_PATTERN.test(id))) return refusal(400, "ids must be session ids");
 
   try {
-    const result = await deleteSessions(ids as string[], { keepRunning: true });
+    const result = await deleteSessions(ids as string[], { keepRunning: true, archivedOnly: true });
     return NextResponse.json(result satisfies SessionDeleteResult, { headers: NO_STORE });
   } catch (error) {
-    return refusal(500, error instanceof Error ? error.message : String(error));
+    return refusal(error instanceof SessionNotArchivedError ? 409 : 500, error instanceof Error ? error.message : String(error));
   }
 }

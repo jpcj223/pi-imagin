@@ -25,7 +25,7 @@ import { workspaceKeyOf } from "./workspace-memory";
 export type SidebarLayout = "desktop" | "mobile";
 export type SidebarRowKind =
   | "pinned-header" | "session" | "pinned-more" | "group" | "group-more" | "group-empty"
-  | "spacer" | "footer-open" | "footer-archived" | "archive-group";
+  | "spacer" | "footer-open" | "footer-archived" | "archive-group" | "time-group";
 
 /**
  * Per-kind row heights: one rhythm. Session rows, the section headers (a
@@ -36,8 +36,8 @@ export type SidebarRowKind =
  * footer; groups themselves sit right on each other, with none between them.
  */
 export const SIDEBAR_ROW_HEIGHTS: Record<SidebarLayout, Record<SidebarRowKind, number>> = {
-  desktop: { "pinned-header": 28, session: 32, "pinned-more": 26, group: 39, "group-more": 26, "group-empty": 28, spacer: 8, "footer-open": 28, "footer-archived": 28, "archive-group": 28 },
-  mobile: { "pinned-header": 44, session: 44, "pinned-more": 36, group: 44, "group-more": 36, "group-empty": 44, spacer: 8, "footer-open": 44, "footer-archived": 44, "archive-group": 44 },
+  desktop: { "pinned-header": 28, session: 32, "pinned-more": 26, group: 39, "group-more": 26, "group-empty": 28, spacer: 8, "footer-open": 28, "footer-archived": 28, "archive-group": 28, "time-group": 24 },
+  mobile: { "pinned-header": 44, session: 44, "pinned-more": 36, group: 44, "group-more": 36, "group-empty": 44, spacer: 8, "footer-open": 44, "footer-archived": 44, "archive-group": 44, "time-group": 30 },
 };
 export const GROUP_VISIBLE_LIMIT = 6;
 export const PINNED_VISIBLE_LIMIT = 8;
@@ -63,7 +63,8 @@ export type SidebarRow =
   | { kind: "spacer"; key: "pinned-spacer" | "footer-spacer" }
   | { kind: "footer-open"; key: "footer-open" }
   | { kind: "footer-archived"; key: "footer-archived"; count: number }
-  | { kind: "archive-group"; key: string; project: SidebarProject; count: number };
+  | { kind: "archive-group"; key: string; project: SidebarProject; count: number; expanded?: boolean }
+  | { kind: "time-group"; key: string; label: string; count: number; expanded?: boolean };
 
 export interface SessionTreeInput {
   /** The full catalog (allSessions), subagents included. */
@@ -88,6 +89,9 @@ export interface SessionTreeInput {
   showPins?: boolean;
   /** 服务端提供的默认目录父路径；仅改变展示归属，原会话路径不变。 */
   defaultCwdParent?: string | null;
+  /** 本地日历分组的当前时间，测试可固定。 */
+  now?: number;
+  sectionExpansion?: Readonly<Record<string, boolean>>;
 }
 
 export interface SessionTreeModel {
@@ -430,6 +434,17 @@ export function sessionSortGroup(row: Extract<SidebarRow, { kind: "session" }>):
   return row.sortGroupKey ?? row.project.key;
 }
 
+const TIME_GROUPS = ["今日", "最近3日", "以往"] as const;
+/** 按最近活动分组：今日、之前三个本地自然日、更早；不依赖一天固定24小时。 */
+export function sessionTimeGroup(modified: string, now = Date.now()): typeof TIME_GROUPS[number] {
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const recent = new Date(today);
+  recent.setDate(recent.getDate() - 3);
+  const activity = timeOf(modified);
+  return activity >= today.getTime() ? "今日" : activity >= recent.getTime() ? "最近3日" : "以往";
+}
+
 export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
   const { uiState, runningIds, currentProject } = input;
   const families = listSessionFamilies(input.sessions);
@@ -443,6 +458,7 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
   // Projects with a live family that has a file (pinned families included).
   const savedKeys = new Set<string>();
   const defaultFamilies: SessionFamily[] = [];
+  const removedProjects = new Set(uiState.removedProjects ?? []);
 
   for (const family of families) {
     if (isFamilyArchived(family, uiState, runningIds)) {
@@ -450,7 +466,7 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
       continue;
     }
     resolver.noteFamily(family);
-    if (isDefaultWorkspace(familyProjectRoot(family), input.defaultCwdParent, uiState)) {
+    if (removedProjects.has(familyProjectKey(family)) || isDefaultWorkspace(familyProjectRoot(family), input.defaultCwdParent, uiState)) {
       defaultFamilies.push(family);
       continue;
     }
@@ -498,7 +514,7 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
   const projectKeys: string[] = [...projectFamilies.keys()];
   const seen = new Set(projectKeys);
   const addKey = (key: string) => {
-    if (seen.has(key)) return;
+    if (seen.has(key) || removedProjects.has(key)) return;
     seen.add(key);
     projectKeys.push(key);
   };
@@ -586,13 +602,21 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
     return ar === undefined ? (br === undefined ? 0 : -1) : br === undefined ? 1 : ar - br;
   });
   const defaultRows: SidebarRow[] = [];
-  const { visible, revealed, nextShown } = visibleFamilies(defaultFamilies, GROUP_VISIBLE_LIMIT, shownMoreFor(input.moreShown, DEFAULT_SESSIONS_KEY), input);
-  for (const family of visible) {
-    const row = sessionRow(family, "group", resolver.get(familyProjectKey(family)), input, null);
-    if (row.kind === "session") defaultRows.push({ ...row, sortGroupKey: DEFAULT_SESSIONS_KEY });
+  for (const label of TIME_GROUPS) {
+    const band = defaultFamilies.filter(family => sessionTimeGroup(family.latestModified, input.now) === label);
+    if (!band.length) continue;
+    const key = `${DEFAULT_SESSIONS_KEY}:${label}`;
+    const expanded = input.sectionExpansion?.[`time:${key}`] !== false;
+    defaultRows.push({ kind: "time-group", key: `time:${key}`, label, count: band.length, expanded });
+    if (!expanded) continue;
+    const { visible, revealed, nextShown } = visibleFamilies(band, GROUP_VISIBLE_LIMIT, shownMoreFor(input.moreShown, key), input);
+    for (const family of visible) {
+      const row = sessionRow(family, "group", resolver.get(familyProjectKey(family)), input, null);
+      if (row.kind === "session") defaultRows.push({ ...row, sortGroupKey: key });
+    }
+    const more = moreRowState(band.length, visible.length, revealed);
+    if (more) defaultRows.push({ kind: "group-more", key: `more:${key}`, projectKey: key, ...more, nextShown });
   }
-  const more = moreRowState(defaultFamilies.length, visible.length, revealed);
-  if (more) defaultRows.push({ kind: "group-more", key: `more:${DEFAULT_SESSIONS_KEY}`, projectKey: DEFAULT_SESSIONS_KEY, ...more, nextShown });
   return { rows: [...rows, ...defaultRows], projectRows: rows, defaultRows, projects: orderedProjects, archivedCount, unorderedKeysByBand, projectKeysToRecord };
 }
 
@@ -615,7 +639,7 @@ export function nextProjectKeysToRecord(toRecord: readonly string[], sent: Reado
  * Groups by their newest archivedAt (desc), families by archivedAt (desc).
  */
 export function buildArchiveRows(
-  input: Pick<SessionTreeInput, "sessions" | "uiState" | "runningIds" | "awaitingIds" | "unreadIds" | "selectedSessionId" | "currentProject">,
+  input: Pick<SessionTreeInput, "sessions" | "uiState" | "runningIds" | "awaitingIds" | "unreadIds" | "selectedSessionId" | "currentProject" | "defaultCwdParent" | "now" | "sectionExpansion">,
 ): SidebarRow[] {
   const { uiState, runningIds } = input;
   const flags: FamilyFlagsInput = input;
@@ -626,7 +650,7 @@ export function buildArchiveRows(
     if (!isFamilyArchived(family, uiState, runningIds)) continue;
     resolver.noteFamily(family);
     const archivedAt = finiteNumber(familyEntry(uiState, family.root.id)?.archivedAt) ?? 0;
-    const key = familyProjectKey(family);
+    const key = isDefaultWorkspace(familyProjectRoot(family), input.defaultCwdParent, uiState) ? DEFAULT_SESSIONS_KEY : familyProjectKey(family);
     const group = groups.get(key);
     if (group) {
       group.families.push({ family, archivedAt });
@@ -641,14 +665,17 @@ export function buildArchiveRows(
     .map(([key, group], index) => ({ key, group, index }))
     .sort((a, b) => compareDesc(a.group.newest, b.group.newest) || a.index - b.index);
   for (const { key, group } of ordered) {
-    const project = resolver.get(key);
-    rows.push({ kind: "archive-group", key: `archive:${key}`, project, count: group.families.length });
+    const project = key === DEFAULT_SESSIONS_KEY
+      ? { key, root: input.defaultCwdParent ?? "", name: "默认", customName: null, pinned: false, current: false }
+      : resolver.get(key);
+    const expanded = input.sectionExpansion?.[`archive:${key}`] !== false;
+    rows.push({ kind: "archive-group", key: `archive:${key}`, project, count: group.families.length, expanded });
+    if (!expanded) continue;
     const families = group.families
       .map((entry, index) => ({ ...entry, index }))
       .sort((a, b) => compareDesc(a.archivedAt, b.archivedAt) || a.index - b.index);
-    for (const { family, archivedAt } of families) {
-      rows.push(sessionRow(family, "archive", project, flags, archivedAt));
-    }
+    // 归档只按来源分组；旧时间折叠偏好不再隐藏已归档记录。
+    for (const { family, archivedAt } of families) rows.push(sessionRow(family, "archive", project, flags, archivedAt));
   }
   return rows;
 }

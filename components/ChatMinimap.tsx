@@ -16,6 +16,7 @@ import styles from "./ChatMinimap.module.css";
 interface Props {
   /** 固定在工作区右侧时，直接显示可点击的会话目录。 */
   docked?: boolean;
+  onCreateBranch?: (message: UserMessage) => void;
   messages: AgentMessage[];
   /** The reply being streamed, read when the turns are measured: it never re-renders the minimap. */
   getStreamingMessage: () => Partial<AgentMessage> | null;
@@ -250,6 +251,7 @@ function layoutNodes(allNodes: NodeInfo[], minimapHeight: number): NodeLayout {
 
 export const ChatMinimap = memo(function ChatMinimap({
   docked = false,
+  onCreateBranch,
   messages,
   getStreamingMessage,
   scrollContainer,
@@ -640,7 +642,8 @@ export const ChatMinimap = memo(function ChatMinimap({
         <div key={node.index} className={styles.turn} data-located={activeIndex === node.index ? "true" : undefined}>
           <span className={styles.number}>{String(turnsBefore + node.index + 1).padStart(2, "0")}</span>
           <div className={styles.content}>
-            <button className={styles.user} onClick={() => scrollToNode(node, "smooth")}><span className={styles.userText}>{getUserPreview(node.targetTurn.userMessage)}</span></button>
+            <div className="workspace-outline-user"><button className={styles.user} onClick={() => scrollToNode(node, "smooth")}><span className={styles.userText}>{getUserPreview(node.targetTurn.userMessage)}</span></button>
+            {onCreateBranch && node.targetTurn.userMessage.role === "user" && <button type="button" className="workspace-outline-branch" title="从这条消息创建会话分支" aria-label={`从第 ${turnsBefore + node.index + 1} 条消息创建分支`} onClick={() => onCreateBranch(node.targetTurn.userMessage as UserMessage)}>⑂</button>}</div>
             {node.targetTurn.assistantPreviews.map((assistant, index) => (
               <div key={index} className={styles.assistant}>
                 <button className={styles.assistantJump} aria-label={t("chatMinimap.locateAssistant")} onClick={() => scrollToAssistant(node, index)}>A</button>

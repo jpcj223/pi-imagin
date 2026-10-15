@@ -5,13 +5,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar, type SelectSessionOptions, type SessionSidebarControl } from "./SessionSidebar";
+import { AuxiliaryTabs } from "./AuxiliaryTabs";
 import { WorkspaceRail } from "./WorkspaceRail";
 import { SidebarMenu, type SidebarMenuAnchor } from "./SidebarMenu";
-import { MoreIcon, FolderIcon, ArchiveIcon, BranchIcon } from "./SidebarIcons";
+import { MoreIcon, FolderIcon, ArchiveIcon } from "./SidebarIcons";
 import { ChatWindow } from "./ChatWindow";
+import { ConversationPlaceholder } from "./ConversationPlaceholder";
 import { SessionHistoryPanel } from "./SessionHistoryPanel";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
-import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
+import { CHAT_SCROLL_POSITIONS_KEY, restoreChatScrollPositions, type ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { mutateFileWorkspace, openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
@@ -212,6 +214,16 @@ export function AppShell() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [sessionKey, setSessionKey] = useState(0);
   const sessionScrollPositionsRef = useRef(new Map<string, ChatScrollPosition>());
+  useLayoutEffect(() => {
+    try { sessionScrollPositionsRef.current = restoreChatScrollPositions(sessionStorage.getItem(CHAT_SCROLL_POSITIONS_KEY)); } catch { /* 内存内仍可恢复。 */ }
+    const save = () => {
+      try { sessionStorage.setItem(CHAT_SCROLL_POSITIONS_KEY, JSON.stringify([...sessionScrollPositionsRef.current].slice(-20))); } catch { /* 不影响刷新和导航。 */ }
+    };
+    const onVisibility = () => { if (document.visibilityState === "hidden") save(); };
+    window.addEventListener("pagehide", save);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { save(); window.removeEventListener("pagehide", save); document.removeEventListener("visibilitychange", onVisibility); };
+  }, []);
   const handleSessionScrollPositionChange = useCallback((sessionId: string, position: ChatScrollPosition) => {
     sessionScrollPositionsRef.current.set(sessionId, position);
   }, []);
@@ -231,11 +243,21 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(() => !initialNavigation.sidebarCollapsed);
   const desktopSidebarOpenRef = useRef(!initialNavigation.sidebarCollapsed);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [layoutReady, setLayoutReady] = useState(false);
+  useLayoutEffect(() => {
+    try { if (localStorage.getItem("pi-workspace-right-open") === "false") setRightPanelOpen(false); } catch { /* 使用默认布局。 */ }
+    setLayoutReady(true);
+  }, []);
+  useEffect(() => {
+    if (!layoutReady || isMobile) return;
+    try { localStorage.setItem("pi-workspace-right-open", String(rightPanelOpen)); } catch { /* 存储不可用时继续使用当前布局。 */ }
+  }, [layoutReady, rightPanelOpen, isMobile]);
   const [workspaceMenuAnchor, setWorkspaceMenuAnchor] = useState<SidebarMenuAnchor | null>(null);
   const workspaceMenuOpener = useRef<HTMLButtonElement | null>(null);
   const [auxiliaryView, setAuxiliaryView] = useState<"files" | "outline" | "inspect" | "history">("outline");
   const [outlineHost, setOutlineHost] = useState<HTMLDivElement | null>(null);
   const [inspectionHost, setInspectionHost] = useState<HTMLDivElement | null>(null);
+  const [historyActionsHost, setHistoryActionsHost] = useState<HTMLDivElement | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
   const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
@@ -310,7 +332,7 @@ export function AppShell() {
   useEffect(() => {
     setMobileSidebarReady(true);
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!rightPanelOpen) return;
     reclampSidebarWidth();
     reclampRightPanelWidth();
@@ -413,15 +435,15 @@ export function AppShell() {
   ) => {
     if (isMobile) setSidebarOpen(false);
     if (["system", "tools", "session"].includes(panel)) {
-      setActiveTopPanel((cur) => cur === panel && rightPanelOpen && auxiliaryView === "inspect" ? null : panel);
+      setActiveTopPanel(panel);
       setAuxiliaryView("inspect");
-      setRightPanelOpen(!(rightPanelOpen && auxiliaryView === "inspect" && activeTopPanel === panel));
+      setRightPanelOpen(true);
     } else {
       // 分支及子代理使用自己的区域，沿用原有独立开关。
       setActiveTopPanel(cur => cur === panel ? null : panel);
     }
     if (isMobile && isNarrowMobile && keepMobileToolbarOpen) setMobileToolbarMoreOpen(true);
-  }, [activeTopPanel, auxiliaryView, rightPanelOpen, isMobile, isNarrowMobile]);
+  }, [isMobile, isNarrowMobile]);
 
   const handleSystemInfoToggle = useCallback((
     panel: "system" | "tools",
@@ -627,9 +649,10 @@ export function AppShell() {
     // 终端独立于右侧面板，切换项目时保留底部连接。
     if (!activeFileTabId || activeFileId || activeFileTabId.startsWith("agent:")) {
       setActiveFileTabId(next.activeTabId);
-      setRightPanelOpen(next.open || (auxiliaryView === "outline" && !isMobile));
+      // 文件工作区恢复只管理文件视图，不覆盖辅助栏的显示偏好。
+      if (auxiliaryView === "files") setRightPanelOpen(next.open);
     }
-  }, [activeFileTabId, auxiliaryView, fileTabs, isMobile, rightPanelOpen]);
+  }, [activeFileTabId, auxiliaryView, fileTabs, rightPanelOpen]);
 
   // Same @mention format as the chat input's @ autocomplete, so the agent's
   // read tool resolves it the same way (it strips the @ prefix).
@@ -1314,6 +1337,7 @@ export function AppShell() {
     />
   ) : null;
   const showChat = navigationReady && initialSessionRestored && initialCwdStatus !== "validating" && (selectedSession !== null || effectiveNewSessionCwd !== null);
+  const restoringSession = !navigationReady || Boolean(initialSessionId && !initialSessionRestored);
   const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = navigationReady && initialSessionRestored && !initialNavigation.requestedCwd && !showChat;
@@ -1562,9 +1586,9 @@ export function AppShell() {
         tabIndex={covered ? -1 : undefined}
         title={tooltip || translate("session.title")}
         aria-label={translate("session.title")}
-        aria-pressed={activeTopPanel === "session"}
+        aria-expanded={rightPanelOpen && auxiliaryView === "inspect" && activeTopPanel === "session"}
         aria-hidden={covered ? true : undefined}
-        className={mobile ? "mobile-session-stats" : undefined}
+        className={`workspace-session-stats${mobile ? " mobile-session-stats" : ""}`}
         data-mobile-toolbar-stats={mobile ? "true" : undefined}
         style={{
           marginLeft: mobile ? 0 : "auto",
@@ -1578,9 +1602,9 @@ export function AppShell() {
           overflow: "hidden",
           visibility: covered ? "hidden" : "visible",
           pointerEvents: covered ? "none" : "auto",
-          background: activeTopPanel === "session" ? "var(--bg-selected)" : "none",
+          background: "none",
           border: "none",
-          borderTop: activeTopPanel === "session" ? "2px solid var(--accent)" : "2px solid transparent",
+          borderTop: "2px solid transparent",
           fontSize: 11, color: "var(--text-muted)",
           whiteSpace: "nowrap", cursor: showChat ? "pointer" : "default",
           fontVariantNumeric: "tabular-nums",
@@ -1590,7 +1614,7 @@ export function AppShell() {
           if (showChat && !covered) event.currentTarget.style.color = "var(--text)";
         }}
         onMouseLeave={(event) => {
-          event.currentTarget.style.color = activeTopPanel === "session" ? "var(--text)" : "var(--text-muted)";
+          event.currentTarget.style.color = "var(--text-muted)";
         }}
       >
         {mobile ? (
@@ -2038,7 +2062,7 @@ export function AppShell() {
       }
     `}</style>
     <header className="workspace-titlebar"><PiImaginTitle /></header>
-    <div className="workspace-shell" style={{
+    <div className="workspace-shell" data-layout-ready={layoutReady} style={{
       display: "flex",
       width: "100%",
       height: "calc(var(--app-viewport-height, 100dvh) - 36px)",
@@ -2047,7 +2071,7 @@ export function AppShell() {
       overflow: "hidden",
       background: "var(--bg)",
     }}>
-      <WorkspaceRail settingsOpen={settingsSection !== null} onSettings={() => settingsSection ? closeSettings() : openSettingsSection(getLastSettingsSection(projectTrustCwd))} onHome={() => { if (settingsSection) closeSettings(); }} />
+      <WorkspaceRail onSearch={() => sidebarControlRef.current?.openSearch()} settingsOpen={settingsSection !== null} onSettings={() => settingsSection ? closeSettings() : openSettingsSection(getLastSettingsSection(projectTrustCwd))} onHome={() => { if (settingsSection) closeSettings(); }} />
       {/* Mobile overlay backdrop */}
       <div
         className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
@@ -2067,7 +2091,7 @@ export function AppShell() {
       <div
         ref={sidebarResizer.panelRef}
         id="session-sidebar"
-        inert={rightPanelFullWidth}
+        inert={settingsSection !== null}
         className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
@@ -2086,7 +2110,7 @@ export function AppShell() {
       {sidebarOpen && (
         <div
           {...sidebarResizer.separatorProps}
-          inert={rightPanelFullWidth}
+          inert={settingsSection !== null}
           aria-controls="session-sidebar"
           className={`panel-resize-handle sidebar-resize-handle${sidebarResizer.isResizing ? " is-resizing" : ""}`}
           data-resize-handle="sidebar"
@@ -2096,7 +2120,7 @@ export function AppShell() {
 
       {/* Center: chat */}
       <main className="workspace-workbench">
-        <div className="workspace-top" inert={rightPanelFullWidth || settingsSection !== null}>
+        <div className="workspace-top" inert={settingsSection !== null}>
         {/* Top bar with sidebar toggle */}
         <div className="workspace-toolbar" ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
@@ -2216,7 +2240,7 @@ export function AppShell() {
         {showChat && (<header className="workspace-conversation-heading">
           <div className="workspace-heading-copy"><strong>{selectedSession?.name || selectedSession?.firstMessage || "新会话"}</strong><div className="workspace-heading-scope">{selectedSession && <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 7h7l2 2h9v11H3z" /></svg><span>{activeCwd && /[\\/]pi-cwd[\\/]\d{8}$/.test(activeCwd) ? "默认工作区" : activeCwdName || "默认工作区"}</span>{activeBranch && <span className="workspace-heading-branch">⑂ {activeBranch}</span>}</>}</div></div>
           {selectedSession && <div className="workspace-heading-actions">
-            <button type="button" className="workspace-branch-trigger" aria-label="会话分支" title={sessionHasBranches ? "会话分支" : "当前会话没有分支"} disabled={!sessionHasBranches} aria-expanded={activeTopPanel === "branches"} aria-controls="workspace-branches" onClick={() => toggleTopPanel("branches")}><BranchIcon size={14} /><span>分支</span></button>
+            <button type="button" className="workspace-branch-trigger" aria-label="会话分支" title={sessionHasBranches ? "会话分支" : "当前会话没有分支"} disabled={!sessionHasBranches} aria-expanded={activeTopPanel === "branches"} aria-controls="workspace-branches" onClick={() => toggleTopPanel("branches")}><span>切换分支</span></button>
             <button type="button" aria-label="当前会话操作" title="当前会话操作" onClick={event => sidebarControlRef.current?.openSessionMenu(selectedSession.id, event.currentTarget)}>···</button>
           </div>}
         </header>)}
@@ -2266,7 +2290,7 @@ export function AppShell() {
               unlockAudio={unlockAudio}
               holdAudio={holdAudio}
             />
-          ) : initialCwdStatus === "validating" ? (
+          ) : restoringSession ? <ConversationPlaceholder heading /> : initialCwdStatus === "validating" ? (
             <div
               role="status"
               style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 24, color: "var(--text-muted)", textAlign: "center" }}
@@ -2319,7 +2343,7 @@ export function AppShell() {
       {rightPanelOpen && (
         <div
           {...rightPanelResizer.separatorProps}
-          inert={rightPanelFullWidth}
+          inert={settingsSection !== null}
           aria-controls="file-panel"
           className={`panel-resize-handle right-panel-resize-handle${rightPanelResizer.isResizing ? " is-resizing" : ""}`}
           data-resize-handle="right-panel"
@@ -2341,17 +2365,20 @@ export function AppShell() {
           background: "var(--bg)",
         } as React.CSSProperties}
       >
-        <nav className="workspace-aux-tabs" aria-label="辅助面板">
-          <span className="workspace-aux-label">
-            {auxiliaryView === "files" ? "文件" : auxiliaryView === "history" ? "完整历史" : auxiliaryView === "inspect" ? activeTopPanel === "system" ? "系统" : activeTopPanel === "tools" ? "工具" : "会话信息" : "会话目录"}
-          </span>
-          {renderChatToolbarActions(false)}
-          <button type="button" className="workspace-aux-close" aria-label="关闭辅助面板" onClick={() => setRightPanelOpen(false)}>×</button>
-        </nav>
+        <div className="workspace-aux-header"><AuxiliaryTabs active={auxiliaryView === "inspect" ? activeTopPanel === "system" || activeTopPanel === "tools" ? activeTopPanel : "session" : auxiliaryView}
+          historyAvailable={Boolean(selectedSession && !selectedSession.transient)}
+          onSelect={tab => {
+            if (tab === "history") handleViewFullHistory();
+            else if (tab === "session") toggleTopPanel("session");
+            else if (tab === "system" || tab === "tools") handleSystemInfoToggle(tab);
+            else { setAuxiliaryView(tab); setActiveTopPanel(null); setRightPanelOpen(true); }
+          }}>
+          {hasSubagentSessions && <button type="button" className="workspace-aux-agents" title="子代理" onClick={() => toggleTopPanel("agents")}>子代理</button>}
+        </AuxiliaryTabs><div ref={setHistoryActionsHost} className="workspace-history-actions" hidden={auxiliaryView !== "history"} /></div>
         <div ref={setOutlineHost} className="workspace-outline-host" hidden={auxiliaryView !== "outline"} />
         <div ref={setInspectionHost} className="workspace-inspection-host" hidden={auxiliaryView !== "inspect"} />
         {dockTopPanel && inspectionHost && createPortal(topPanelView, inspectionHost)}
-        {auxiliaryView === "history" && selectedSession && !selectedSession.transient && <SessionHistoryPanel key={selectedSession.id} sessionId={selectedSession.id} />}
+        {auxiliaryView === "history" && selectedSession && !selectedSession.transient && <SessionHistoryPanel key={selectedSession.id} sessionId={selectedSession.id} expanded={rightPanelFullWidth} onExpand={handleRightPanelExpandToggle} expandable={!isMobile} actionsHost={historyActionsHost} />}
         {/* Right panel tab bar */}
         <div hidden={auxiliaryView !== "files"} style={{
           display: "flex",
@@ -2385,26 +2412,7 @@ export function AppShell() {
                 : "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M3 3l6 6m12-6-6 6M3 21l6-6m12 6-6-6"} />
             </svg>
           </button>
-          <button
-            type="button"
-            onClick={() => setRightPanelOpen(false)}
-            aria-controls="file-panel"
-            aria-expanded={rightPanelOpen}
-            title={translate("files.hidePanel")}
-            aria-label={translate("files.hidePanel")}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-              background: "var(--bg-selected)", border: "none", borderLeft: "1px solid var(--border)",
-              color: "var(--text)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
-            }}
-            onMouseEnter={(event) => { event.currentTarget.style.color = "var(--accent)"; }}
-            onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text)"; }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
-            </svg>
-          </button>
+
         </div>
 
         {/* Only the active viewer is mounted. Lightweight per-tab state is restored on activation. */}

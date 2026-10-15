@@ -112,6 +112,7 @@ export interface SessionTreeProps {
   /** Back to the base limit; key is a projectKey or PINNED_MORE_KEY. */
   onShowLess(key: string): void;
   onTogglePinned(): void;
+  onToggleSection?(key: string): void;
   onArchiveFamily(family: SessionFamily): void;
   onRestoreFamily(family: SessionFamily): void;
   onOpenRowMenu(row: SessionRow, anchor: SidebarMenuAnchor, opener: HTMLElement | null): void;
@@ -398,7 +399,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     }
   }, [visibleIndices]);
 
-  const hasTreeRows = rows.some((row) => row.kind === "session" || row.kind === "group");
+  const hasTreeRows = rows.some((row) => row.kind === "session" || row.kind === "group" || row.kind === "time-group" || row.kind === "archive-group");
   const showEmpty = !loading && !error && emptyLabel !== null && !hasTreeRows;
   // While dragging: the group's block is dimmed in place (groups never fold
   // up under the pointer), a line marks the drop, and a pill with the
@@ -1084,11 +1085,12 @@ const PlainRowView = memo(function PlainRowView({
           </button>
         </div>
       );
+    case "time-group":
+      return <div className="session-tree-row session-tree-time-group" style={style} data-row-key={row.key}><button type="button" aria-expanded={row.expanded !== false} onClick={() => handlers.current.onToggleSection?.(row.key)}><ChevronIcon size={10} className={`session-tree-chevron${row.expanded === false ? "" : " is-open"}`} /><span>{row.label}</span><span className="session-tree-section-count">{row.count}</span></button></div>;
     case "archive-group":
       return (
         <div className="session-tree-row session-tree-archive-group" style={style} data-row-key={row.key} title={row.project.root}>
-          <span className="session-tree-archive-group-name">{row.project.name}</span>
-          <span className="session-tree-archive-group-count">· {row.count}</span>
+          <button type="button" aria-expanded={row.expanded !== false} onClick={() => handlers.current.onToggleSection?.(row.key)}><ChevronIcon size={11} className={`session-tree-chevron${row.expanded === false ? "" : " is-open"}`} /><span className="session-tree-archive-group-name">{row.project.name}</span><span className="session-tree-section-count">{row.count}</span></button>
         </div>
       );
   }

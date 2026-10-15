@@ -5,6 +5,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import type { SessionInfo } from "@/lib/types";
 import type { SessionSearchResponse } from "@/lib/session-search";
+import { fetchSessionSearch } from "@/lib/session-search-client";
 
 export function SessionSearch({ open, query, children, selectedSessionId, onSelectSession, archivedSessionIds }: {
   open: boolean;
@@ -18,6 +19,7 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
   const { t, locale } = useI18n();
   const [state, setState] = useState<{ query: string; response?: SessionSearchResponse; failed?: boolean }>({ query: "" });
   const search = query.trim();
+  const [retry, setRetry] = useState(0);
   const response = state.query === search ? state.response : undefined;
   const failed = state.query === search && state.failed;
 
@@ -31,9 +33,7 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
     setState({ query: search });
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/sessions/search?${new URLSearchParams({ q: search })}`, { signal: controller.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json() as SessionSearchResponse;
+        const data = await fetchSessionSearch(search, controller.signal);
         if (!controller.signal.aborted) setState({ query: search, response: data });
       } catch {
         if (!controller.signal.aborted) setState({ query: search, failed: true });
@@ -43,7 +43,7 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
       clearTimeout(timer);
       controller.abort();
     };
-  }, [open, search]);
+  }, [open, search, retry]);
 
   return !open || !search ? children : (
     <div className="min-h-20 flex-1 overflow-y-auto" aria-busy={!response && !failed}>
@@ -52,6 +52,7 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
           : response.results.length === 0 ? t("sidebar.sessionSearchEmpty")
           : t("sidebar.sessionSearchCount", { count: response.results.length })}
       </div>
+      {failed && <button type="button" className="workspace-search-retry" onClick={() => setRetry(value => value + 1)}>重新搜索</button>}
       {response?.truncated && (
         <div role="status" className="px-3 pb-2 text-xs text-text-muted">{t("sidebar.sessionSearchPartial")}</div>
       )}

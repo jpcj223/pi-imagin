@@ -14,7 +14,6 @@ import {
   sessionSortGroup,
   effectiveGroupExpansion,
   familiesToArchive,
-  familiesToDelete,
   familyIds,
   forgetKeptOpenGroups,
   forgetShownMoreOfFolded,
@@ -45,7 +44,6 @@ import {
   type SidebarTab,
 } from "@/lib/sidebar-prefs";
 import {
-  deleteProjectSessions,
   forkFailureMessage,
   projectRenameRequest,
   sessionMenuEntries,
@@ -75,7 +73,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { useSessionUiState } from "@/hooks/useSessionUiState";
-import { archiveViewState, filesFoldState, useSidebarMotion } from "@/hooks/useSidebarMotion";
+import { filesFoldState, useSidebarMotion } from "@/hooks/useSidebarMotion";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { chooseDesktopDirectory } from "@/lib/desktop-bridge";
 import { DismissButton } from "./DismissButton";
@@ -83,7 +81,7 @@ import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { PiImaginTitle } from "./PiImaginTitle";
 import { registeredWorkspace, validateWorkspaceSelection } from "@/lib/workspace-selection";
 import { ProjectWorktreePicker, type ProjectWorktreePickerHandle, type WorktreeRemoval } from "./ProjectWorktreePicker";
-import { SessionSearch } from "./SessionSearch";
+import { SessionSearchDialog } from "./SessionSearchDialog";
 import { SessionTree, sessionRowTitle, type SessionTreeReveal } from "./SessionTree";
 import { SidebarMenu, type SidebarMenuAnchor, type SidebarMenuItem } from "./SidebarMenu";
 import { SidebarToast, type SidebarToastAction, type SidebarToastData } from "./SidebarToast";
@@ -233,6 +231,7 @@ interface Props {
  * move goes through here, as the sidebar's own "+" buttons do.
  */
 export interface SessionSidebarControl {
+  openSearch(): void;
   /** Identity, then the sidebar's cwd, then `onNewSession`, as any new session. */
   startNewSessionIn(target: NewSessionTarget): void;
   /** 标题区和侧栏共用同一个会话操作菜单。 */
@@ -281,10 +280,10 @@ interface ValidatedProject {
 
 type SessionRow = Extract<SidebarRow, { kind: "session" }>;
 
-/** The one popup menu of the sidebar; kept here, above the virtualized rows. `askDelete`: a group menu turned into its "Delete all sessions" question. */
+/** 侧栏唯一的浮动菜单，独立于虚拟列表挂载。 */
 type SidebarMenuState =
   | { kind: "row"; row: SessionRow; anchor: SidebarMenuAnchor; opener: HTMLElement | null }
-  | { kind: "group"; project: SidebarProject; olderCount: number; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: boolean };
+  | { kind: "group"; project: SidebarProject; olderCount: number; anchor: SidebarMenuAnchor; opener: HTMLElement };
 
 const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
 const LAST_CUSTOM_CWD_STORAGE_KEY = "pi-web:last-custom-cwd";
@@ -569,17 +568,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // a resize or a layout switch, and not at all under reduced motion. The
   // current values tell a change from a repeat, which starts nothing.
   const { phase: filesFoldPhase, start: startFilesFold, end: endFilesFold } = useSidebarMotion();
-  const { phase: archivePhase, start: startArchiveMotion, end: endArchiveMotion } = useSidebarMotion();
+  const filesFold = filesFoldState(filesCollapsed, filesFoldPhase);
   const filesCollapsedRef = useRef(filesCollapsed);
   filesCollapsedRef.current = filesCollapsed;
-  const archiveViewRef = useRef(archiveView);
-  archiveViewRef.current = archiveView;
-  const setArchiveView = useCallback((open: boolean) => {
-    if (open !== archiveViewRef.current) startArchiveMotion(open ? "in" : "out");
-    setArchiveViewState(open);
-  }, [startArchiveMotion]);
-  const filesFold = filesFoldState(filesCollapsed, filesFoldPhase);
-  const archiveMotion = archiveViewState(archiveView, archivePhase);
+  const setArchiveView = useCallback((open: boolean) => setArchiveViewState(open), []);
+
   // Row states that must survive virtualization live here, not in the rows.
   const [renamingRootId, setRenamingRootId] = useState<string | null>(null);
   const [renamingProjectKey, setRenamingProjectKey] = useState<string | null>(null);
@@ -717,7 +710,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Files tab would make the first client render differ from the server's
   // HTML (a hydration error, and the server markup thrown away). The group
   // choices load before the retired keys go: the old ones move to v2 then.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const tab = loadSidebarTab();
     if (tab !== "sessions") setSidebarTab(tab);
     const groups = loadGroupExpansion();
@@ -1351,6 +1344,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const externalSessionMenuRef = useRef<((id: string, opener: HTMLElement) => void) | null>(null);
   useImperativeHandle(controlRef, () => ({
+    openSearch: () => setSessionSearchOpen(true),
     openSessionMenu: (id, opener) => externalSessionMenuRef.current?.(id, opener),
     startNewSessionIn: (target) => startNewSessionInRef.current(target),
     openFolderForNewSession: (onPicked, returnFocusTo) => {
@@ -1380,6 +1374,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, []);
 
   const recentProjects = useMemo(() => getRecentProjects(allSessions), [allSessions]);
+  const [groupingDay, setGroupingDay] = useState(() => new Date().setHours(0, 0, 0, 0));
+  useEffect(() => {
+    const refresh = () => setGroupingDay(new Date().setHours(0, 0, 0, 0));
+    const timer = setInterval(refresh, 60_000);
+    window.addEventListener("focus", refresh);
+    return () => { clearInterval(timer); window.removeEventListener("focus", refresh); };
+  }, []);
 
   const sessionFamilies = useMemo(() => listSessionFamilies(allSessions), [allSessions]);
   const familyByRootId = useMemo(
@@ -1468,10 +1469,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     pinnedCollapsed,
     showPins: false,
     defaultCwdParent,
-  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed, defaultCwdParent]);
-  // Built while the archive view is rendered, its way out included: it
-  // leaves as it was, not empty.
-  const archiveMounted = archiveMotion.archiveMounted;
+    now: groupingDay,
+    sectionExpansion: groupExpansion,
+  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed, defaultCwdParent, groupingDay, groupExpansion]);
+  // 仅在展开时构建归档行，普通项目与默认会话始终保留。
+  const archiveMounted = archiveView;
   const archiveRows = useMemo(() => (archiveMounted ? buildArchiveRows({
     sessions: allSessions,
     uiState,
@@ -1480,7 +1482,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     unreadIds: unreadSessionIds,
     selectedSessionId,
     currentProject,
-  }) : []), [archiveMounted, allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject]);
+    defaultCwdParent,
+    now: groupingDay,
+    sectionExpansion: groupExpansion,
+  }) : []), [archiveMounted, allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, defaultCwdParent, groupingDay, groupExpansion]);
   const projectByKey = useMemo(
     () => new Map(model.projects.map((project) => [project.key, project])),
     [model.projects],
@@ -1517,7 +1522,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // with the names the user gave them.
   const projectNames = uiState.projectNames;
   const projectChoiceList = useMemo(
-    () => mergeProjectChoices(model.projects, recentProjects.filter(project => !isDefaultWorkspace(project.root, defaultCwdParent, uiState)), projectNames),
+    () => mergeProjectChoices(model.projects, recentProjects.filter(project => !uiState.removedProjects?.includes(project.key) && !isDefaultWorkspace(project.root, defaultCwdParent, uiState)), projectNames),
     [model.projects, recentProjects, projectNames, defaultCwdParent, uiState],
   );
 
@@ -1679,12 +1684,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     switchTab("sessions");
   }, [setArchiveView, switchTab]);
 
-  // Opening the archive hides the tree that held focus (the footer link, a
-  // menu's opener, the toast's View) and Back removes the archive's own
-  // controls; while the view slides in or away, what it covers or what
-  // leaves is inert first (focusIfHidden counts both). Focus that went with
-  // them moves to the archive's Back button, then back to the footer link,
-  // or to the tab when that row is not shown.
+  // 原位收起归档时，把归档行上的焦点交回仍可见的展开按钮。
   const archiveBackRef = useRef<HTMLButtonElement>(null);
   const previousArchiveViewRef = useRef(archiveView);
   // Where closing the archive put focus: a fork opened from the archive
@@ -1697,8 +1697,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       focusIfHidden(archiveBackRef.current);
       return;
     }
-    const footer = sessionsPanelRef.current?.querySelector<HTMLElement>('[data-row-key="footer-archived"] button');
-    const target = footer && footer.getClientRects().length > 0 ? footer : selectedTabButton();
+    const target = archiveBackRef.current ?? selectedTabButton();
     focusIfHidden(target);
     if (target && document.activeElement === target) archiveCloseFocusRef.current = target;
   }, [archiveView, selectedTabButton]);
@@ -1877,17 +1876,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const performDelete = useCallback(async (family: SessionFamily) => {
     const session = family.root;
-    if (session.transient) return;
+    const current = familyByRootId.get(session.id);
+    if (session.transient || !current || !isFamilyArchived(current, uiState, runningSessionIds)) return;
     setConfirmDeleteRootId((current) => (current === session.id ? null : current));
     try {
       // The server deletes the family's subagent sessions with it.
-      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      if (!response.ok) { showToast("删除未完成，请刷新归档列表后重试。"); return; }
       onSessionDeleted?.(session.id);
       void loadSessions();
     } catch {
       // The row stays; the next refresh shows what happened.
     }
-  }, [loadSessions, onSessionDeleted]);
+  }, [loadSessions, onSessionDeleted, familyByRootId, uiState, runningSessionIds, showToast]);
 
   // Only Shift skips the confirmation (Shift+click, Shift+Enter or Shift+D in the menu).
   const requestDelete = useCallback((family: SessionFamily, shiftKey: boolean) => {
@@ -2084,42 +2085,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }));
   }, [archiveFamilies, familyByRootId, treeSelectionInput]);
 
-  // A project's "Delete all sessions…": the menu turns into its question,
-  // focus on Cancel (the sheet's on a phone), so Enter deletes nothing; Cancel
-  // goes back to the list. Delete closes the menu and sends the families the
-  // question counts at that moment, pinned and archived ones included,
-  // running ones kept (the server also keeps one that started since); toasts
-  // say how it went. One run per project at a time.
-  const askProjectDelete = useCallback((projectKey: string, askDelete: boolean) => {
-    setMenu((current) => (current?.kind === "group" && current.project.key === projectKey ? { ...current, askDelete } : current));
-  }, []);
-
-  const deletingProjectsRef = useRef(new Set<string>());
-  const deleteAllProjectSessions = useCallback(async (project: SidebarProject) => {
-    setMenu(null);
-    const { ids } = familiesToDelete(treeSelectionInput, project.key);
-    if (ids.length === 0 || deletingProjectsRef.current.has(project.key)) return;
-    deletingProjectsRef.current.add(project.key);
-    showToast(t("sidebar.deletingSessions"));
-    try {
-      const outcome = await deleteProjectSessions(ids, fetch);
-      for (const id of outcome.deleted) onSessionDeleted?.(id);
-      // The group goes with its last session unless it is current or pinned:
-      // focus that fell to the page with it goes to the tab.
-      void loadSessions().then(() => focusAfterCommit(() => groupHeaderButton(project.key)));
-      if (outcome.error !== null) {
-        showToast(t("sidebar.deleteFailed", { error: outcome.error }));
-        return;
-      }
-      const count = outcome.deletedRoots.length;
-      const parts = [count === 1 ? t("sidebar.deletedOneToast") : t("sidebar.deletedManyToast", { count })];
-      if (outcome.running.length > 0) parts.push(t("sidebar.keptRunningToast", { count: outcome.running.length }));
-      showToast(parts.join(" · "));
-    } finally {
-      deletingProjectsRef.current.delete(project.key);
-    }
-  }, [focusAfterCommit, groupHeaderButton, loadSessions, onSessionDeleted, showToast, t, treeSelectionInput]);
-
   // A group's "+": a new session at once. The current project starts in the
   // sidebar's worktree, another one in its root (the main checkout); the bar
   // above the fresh composer picks another worktree. The group's own key and
@@ -2149,7 +2114,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // A row whose menu is open can leave the tree (archived or deleted in
   // another window): its menu goes with it.
-  const visibleRows = archiveView ? archiveRows : model.rows;
+  const visibleRows = useMemo(() => archiveView ? [...model.rows, ...archiveRows] : model.rows, [archiveView, archiveRows, model.rows]);
   useEffect(() => {
     if (menu?.kind !== "row") return;
     if (!visibleRows.some((row) => row.key === menu.row.key)) setMenu(null);
@@ -2270,7 +2235,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const groupMenuItems = (project: SidebarProject, olderCount: number): SidebarMenuItem[] => {
     const archivedCount = archiveIndex.countByProject.get(project.key) ?? 0;
-    const deletable = familiesToDelete(treeSelectionInput, project.key);
     return [
       { type: "item", id: "rename-project", label: t("sidebar.renameProject"), icon: <PencilIcon />, onSelect: () => startProjectRename(project) },
       { type: "item", id: "open-in-files", label: t("sidebar.openInFilesTab"), icon: <FolderIcon />, onSelect: () => openProjectInFiles(project) },
@@ -2291,51 +2255,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         onSelect: openArchiveView,
       },
       { type: "separator", id: "separator-delete" },
-      {
-        type: "item",
-        id: "delete-all",
-        label: t("sidebar.deleteProjectSessions", { count: deletable.ids.length }),
-        icon: <TrashIcon />,
-        danger: true,
-        disabled: deletable.ids.length === 0,
-        onSelect: ({ keepOpen }) => {
-          keepOpen();
-          askProjectDelete(project.key, true);
-        },
-      },
+      { type: "item", id: "remove-project", label: "从侧栏移除项目", icon: <TrashIcon />, danger: true, onSelect: () => {
+        void applyUiState({ action: "remove-project", projectKey: project.key }).then(ok => {
+          if (ok) showToast("项目已移除，文件和会话均保留，可通过添加项目恢复。");
+        });
+      } },
     ];
-  };
-
-  // The question behind "Delete all sessions…"; its counts are live.
-  const projectDeleteBody = (project: SidebarProject): ReactNode => {
-    const { ids, running } = familiesToDelete(treeSelectionInput, project.key);
-    return (
-      <div className="sidebar-menu-question">
-        <div className="sidebar-menu-header" title={project.root}>{t("sidebar.deleteProjectSessionsHeading", { name: project.name })}</div>
-        <p className="sidebar-menu-question-text">{t("sidebar.deleteProjectSessionsMessage")}</p>
-        {running > 0 && <p className="sidebar-menu-question-text">{t("sidebar.deleteProjectSessionsRunning", { count: running })}</p>}
-        <div className="sidebar-menu-question-buttons">
-          <button
-            type="button"
-            className="sidebar-menu-question-confirm"
-            disabled={ids.length === 0}
-            onClick={() => { void deleteAllProjectSessions(project); }}
-          >
-            {t("sidebar.deleteCount", { count: ids.length })}
-          </button>
-          {!isMobile && (
-            <button
-              type="button"
-              className="sidebar-menu-question-cancel"
-              data-sidebar-menu-autofocus=""
-              onClick={() => askProjectDelete(project.key, false)}
-            >
-              {t("sidebar.cancel")}
-            </button>
-          )}
-        </div>
-      </div>
-    );
   };
 
   let menuTitle: string | undefined;
@@ -2343,7 +2268,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Room for "Archive sessions older than 7 days · N".
   let menuWidth: number | undefined;
   let menuItems: SidebarMenuItem[] | undefined;
-  let menuBody: ReactNode = null;
+  const menuBody: ReactNode = null;
   if (menu?.kind === "row" && menuRow) {
     menuTitle = sessionRowTitle(menuRow.family.root);
     menuLabel = t("sidebar.sessionActions");
@@ -2354,7 +2279,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     menuTitle = project.name;
     menuLabel = t("sidebar.projectActions", { name: project.name });
     menuItems = groupMenuItems(project, menu.olderCount);
-    if (menu.askDelete) menuBody = projectDeleteBody(project);
     menuWidth = 218;
   }
 
@@ -2366,7 +2290,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const treeLayout = isMobile ? "mobile" : "desktop";
   // Until pins and archive have loaded, archived rows would flash in.
   const treeLoading = loading || !uiStateLoaded || !defaultCwdLoaded;
+  const projectRows = model.projectRows.filter(row => row.kind !== "footer-archived");
   const treeProps = {
+    onToggleSection: (key: string) => saveGroupChoices({ ...groupExpansion, [key]: groupExpansion[key] === false }, []),
     layout: treeLayout,
     loading: treeLoading,
     error,
@@ -2400,7 +2326,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onOpenArchive: openArchiveView,
     // The archive view has no group rows: only the main tree's can be dragged.
     onMoveGroup: moveProject,
-    onMoveSession: archiveView ? undefined : moveSession,
+    onMoveSession: moveSession,
   } as const;
 
   const explorerCwd = selectedCwd === authorizedCwd ? selectedCwd : null;
@@ -2422,8 +2348,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // The toolbar row's search button searches the files on the files tab:
   // the head has no search of its own. Below the sessions it is the
   // sessions' search alone; the files section's header has the files'.
-  const sessionsShown = stacked || sidebarTab === "sessions";
-  const searchesFiles = !stacked && sidebarTab === "files" && explorerCwd !== null;
   // What the toolbar row's widths depend on: New's label, and the tabs (the
   // chosen tab's label is bolder, the files tab carries the count). The
   // brand's text reports its own changes (fitHeader).
@@ -2613,54 +2537,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           <PlusIcon size={12} />
           <span className="sidebar-new-label">新建会话</span><kbd className="workspace-new-shortcut">Ctrl N</kbd>
         </button>
-        <button
-          ref={searchButtonRef}
-          type="button"
-          onClick={() => {
-            // The search of the tab in view: the files tab's searches its
-            // files; without a folder there, it opens the sessions tab's.
-            if (searchesFiles) {
-              setFileSearchOpen((open) => !open);
-              return;
-            }
-            if (!sessionsShown) {
-              switchTab("sessions");
-              setSessionSearchOpen(true);
-              return;
-            }
-            setSessionSearchOpen((open) => !open);
-          }}
-          title={searchesFiles ? t("sidebar.searchFiles") : t("sidebar.toggleSessionSearch")}
-          aria-label={searchesFiles ? t("sidebar.searchFiles") : t("sidebar.toggleSessionSearch")}
-          aria-expanded={searchesFiles ? fileSearchOpen : sessionSearchOpen}
-          aria-controls={searchesFiles ? "file-search-input" : "session-search-input"}
-          className={`sidebar-search-toggle${(searchesFiles ? fileSearchOpen : sessionSearchOpen) ? " is-active" : ""}`}
-        >
-          <SearchIcon size={16} />
-        </button>
+        {isMobile && <button ref={searchButtonRef} type="button" className="sidebar-search-toggle" aria-label="搜索会话" onClick={() => setSessionSearchOpen(true)}><SearchIcon size={16} /></button>}
       </div>
 
-        {sessionSearchOpen && sessionsShown && (
-          <div className="sidebar-search">
-            <input
-              id="session-search-input"
-              type="search"
-              autoFocus
-              value={sessionSearchQuery}
-              maxLength={200}
-              aria-label={t("sidebar.searchSessions")}
-              placeholder={t("sidebar.searchSessions")}
-              onChange={(event) => setSessionSearchQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
-                  event.stopPropagation();
-                  setSessionSearchQuery("");
-                }
-              }}
-              className="sidebar-search-input"
-            />
-          </div>
-        )}
+      {sessionSearchOpen && <SessionSearchDialog query={sessionSearchQuery} onQueryChange={setSessionSearchQuery} onClose={() => setSessionSearchOpen(false)} selectedSessionId={selectedSessionId} onSelectSession={handleSelectSessionFromList} archivedSessionIds={archiveIndex.ids} />}
 
       <div className="workspace-project-heading" hidden={sidebarTab === "files"}><span>项目</span><button type="button" onClick={handleCustomPathClick} aria-label="添加项目" title="添加项目"><PlusIcon size={15} /></button></div>
       <button type="button" className="workspace-files-back" hidden={sidebarTab !== "files"} onClick={() => switchTab("sessions")}>← 返回项目会话</button>
@@ -2677,60 +2557,27 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         className="sidebar-panel sidebar-sessions-panel"
         onScrollCapture={rememberScroll}
       >
-        <SessionSearch
-          open={sessionSearchOpen}
-          query={sessionSearchQuery}
-          selectedSessionId={selectedSessionId}
-          onSelectSession={handleSelectSessionFromList}
-          archivedSessionIds={archiveIndex.ids}
-        >
-          {/* The tree and the archive view share one cell: the archive
-              slides in over the tree and away from it again. */}
-          <div className="sidebar-sessions-views">
-            {/* Kept mounted under the archive view, so going back finds it as
-                it was: inert while the archive slides in, then hidden. */}
-            <div className="sidebar-sessions-view" hidden={archiveMotion.mainHidden} inert={archiveMotion.mainInert}>
-              <div className="workspace-project-tree"><SessionTree
-                {...treeProps}
-                rows={model.projectRows}
-                emptyLabel={t("sidebar.noSessions")}
-                reveal={treeReveal && !model.defaultRows.some(row => row.key === treeReveal.rowKey) ? treeReveal : null}
-                onRevealHandled={handleRevealHandled}
-              /></div>
-              <section className="workspace-default-sessions" aria-label="默认">
-                <div className="workspace-default-heading">默认</div>
-                <SessionTree {...treeProps} rows={model.defaultRows} emptyLabel="还没有会话"
-                  reveal={treeReveal && model.defaultRows.some(row => row.key === treeReveal.rowKey) ? treeReveal : null}
-                  onRevealHandled={handleRevealHandled} />
-              </section>
-            </div>
-            {/* Mounted while open and on its way out, inert then, so nothing
-                in it is clicked twice; the tree is back under it at once. */}
-            {archiveMotion.archiveMounted && (
-              <div
-                className={`sidebar-sessions-view sidebar-archive-view${archiveMotion.archiveClass ? ` ${archiveMotion.archiveClass}` : ""}`}
-                inert={archiveMotion.archiveInert}
-                onAnimationEnd={(event) => { if (event.target === event.currentTarget) endArchiveMotion(); }}
-              >
-                <div className="sidebar-archive-bar">
-                  <button
-                    ref={archiveBackRef}
-                    type="button"
-                    className="sidebar-archive-back"
-                    title={t("sidebar.backToSessions")}
-                    aria-label={`${t("sidebar.backToSessions")}: ${t("sidebar.archivedCount", { count: archivedCount })}`}
-                    onClick={() => setArchiveView(false)}
-                  >
-                    <ChevronIcon size={13} className="sidebar-icon-back" />
-                    <span>{t("sidebar.archived")}</span>
-                    <span className="sidebar-archive-count">· {archivedCount}</span>
-                  </button>
-                </div>
-                <SessionTree {...treeProps} rows={archiveRows} emptyLabel={t("sidebar.noArchived")} />
-              </div>
-            )}
+        <div className="sidebar-sessions-views">
+          <div className="sidebar-sessions-view">
+            <div className="workspace-project-tree"><SessionTree {...treeProps}
+              rows={projectRows}
+              emptyLabel={null}
+              reveal={treeReveal && !model.defaultRows.some(row => row.key === treeReveal.rowKey) ? treeReveal : null}
+              onRevealHandled={handleRevealHandled} /></div>
+            <section className="workspace-default-sessions" aria-label="默认">
+              <div className="workspace-default-heading">默认</div>
+              <SessionTree {...treeProps} rows={model.defaultRows} emptyLabel="还没有会话"
+                reveal={treeReveal && model.defaultRows.some(row => row.key === treeReveal.rowKey) ? treeReveal : null}
+                onRevealHandled={handleRevealHandled} />
+            </section>
+            {archivedCount > 0 && <section className={`workspace-archive-section${archiveView ? " is-open" : ""}`} aria-label="已归档会话">
+              <button ref={archiveBackRef} type="button" className="workspace-archive-toggle" aria-expanded={archiveView} aria-controls="workspace-archive-list" onClick={() => setArchiveView(!archiveView)}>
+                <ArchiveIcon size={13} /><span>已归档</span><span className="workspace-archive-count">{archivedCount}</span><ChevronIcon size={12} />
+              </button>
+              {archiveView && <div id="workspace-archive-list" className="workspace-archive-list"><SessionTree {...treeProps} onMoveSession={undefined} rows={archiveRows} emptyLabel={t("sidebar.noArchived")} /></div>}
+            </section>}
           </div>
-        </SessionSearch>
+        </div>
       </div>
 
       {/* Below the sessions, the separator: drag, arrows, Home/End, Enter

@@ -588,9 +588,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setEditEntryId(entryId);
   }, [session?.id]);
   const handleEditContent = useCallback((message: UserMessage, entryId: string) => {
-    if (!session?.id) return;
-    opts.chatInputRef?.current?.replaceMessage(message);
+    if (!session?.id || !opts.chatInputRef?.current?.replaceMessage(message)) return false;
     setEdit(entryId);
+    return true;
   }, [opts.chatInputRef, session?.id, setEdit]);
   const cancelEdit = useCallback(() => setEdit(null), [setEdit]);
 

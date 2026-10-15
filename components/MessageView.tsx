@@ -546,8 +546,8 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           {(canFork || canEdit || canCancelEdit) && (
             <div style={{
               display: "flex", gap: 3,
-              opacity: (hovered || forking || canCancelEdit) ? 1 : 0,
-              pointerEvents: (hovered || forking || canCancelEdit) ? "auto" : "none",
+              opacity: 1,
+              pointerEvents: "auto",
               transition: "opacity 0.12s",
             }}>
               {canEdit && !canCancelEdit && (
@@ -572,7 +572,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                     <polyline points="15 10 20 15 15 20" />
                     <path d="M4 4v7a4 4 0 0 0 4 4h12" />
                   </svg>
-                   {t("i18n.editFromHere")}
+                   创建分支
                 </button>
               )}
               {canCancelEdit && (
