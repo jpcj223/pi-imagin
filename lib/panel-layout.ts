@@ -1,11 +1,11 @@
 export const MOBILE_MAX_WIDTH = 640;
 export const SPLIT_PANEL_MIN_WIDTH = 880;
 
-export const SIDEBAR_DEFAULT_WIDTH = 202;
+export const SIDEBAR_DEFAULT_WIDTH = 220;
 export const SIDEBAR_MIN_WIDTH = 180;
 export const SIDEBAR_MAX_WIDTH = 480;
 
-export const RIGHT_PANEL_FALLBACK_WIDTH = 360;
+export const RIGHT_PANEL_FALLBACK_WIDTH = 300;
 export const RIGHT_PANEL_MIN_WIDTH = 260;
 export const RIGHT_PANEL_MAX_WIDTH = 1200;
 
@@ -19,7 +19,7 @@ export function clampPanelWidth(width: number, minWidth: number, maxWidth: numbe
 }
 
 export function getDefaultRightPanelWidth(viewportWidth: number): number {
-  return clampPanelWidth((viewportWidth - 48 - SIDEBAR_DEFAULT_WIDTH) / 2.48, 280, 680);
+  return clampPanelWidth((viewportWidth - 40 - SIDEBAR_DEFAULT_WIDTH) * 0.28, RIGHT_PANEL_MIN_WIDTH, 360);
 }
 
 export function getSidebarMaxWidth(options: {
@@ -33,7 +33,7 @@ export function getSidebarMaxWidth(options: {
   const compact = viewportWidth < 960;
   const chatWidth = compact ? COMPACT_CHAT_MIN_WIDTH : DESKTOP_CHAT_MIN_WIDTH;
   const visibleRightPanelWidth = viewportWidth >= SPLIT_PANEL_MIN_WIDTH && rightPanelOpen ? rightPanelWidth : 0;
-  return Math.min(SIDEBAR_MAX_WIDTH, viewportWidth - 48 - chatWidth - visibleRightPanelWidth);
+  return Math.min(SIDEBAR_MAX_WIDTH, viewportWidth - 40 - chatWidth - visibleRightPanelWidth);
 }
 
 export function getRightPanelMaxWidth(options: {
@@ -46,7 +46,8 @@ export function getRightPanelMaxWidth(options: {
 
   const visibleSidebarWidth = sidebarOpen ? sidebarWidth : 0;
   return Math.min(
-    RIGHT_PANEL_MAX_WIDTH,
-    viewportWidth - 48 - (viewportWidth < 960 ? COMPACT_CHAT_MIN_WIDTH : DESKTOP_CHAT_MIN_WIDTH) - visibleSidebarWidth,
+    480,
+    Math.max(RIGHT_PANEL_MIN_WIDTH, Math.round((viewportWidth - 40 - visibleSidebarWidth) * 0.34)),
+    viewportWidth - 40 - (viewportWidth < 960 ? COMPACT_CHAT_MIN_WIDTH : DESKTOP_CHAT_MIN_WIDTH) - visibleSidebarWidth,
   );
 }

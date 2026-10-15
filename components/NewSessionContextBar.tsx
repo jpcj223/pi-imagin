@@ -45,16 +45,7 @@ function loadHomeDir(): Promise<string> {
   return homeDirCheck;
 }
 
-/**
- * The project and worktree a fresh composer starts its session in: a row of
- * its own in the empty new-session page's header, under the brand and right
- * above the composer. The files tab's picker
- * (components/ProjectWorktreePicker.tsx) laid out inline: the project's name
- * and the worktree's branch as text, its group named by the label alone (no
- * visible one: the folder icon says it). Every pick starts the composer over
- * in the new folder (the shell remounts it, carrying the draft and its model
- * picks), so this bar only reports what was chosen; the sidebar keeps the cwd.
- */
+/** 输入框下方的项目标签与工作树入口；切换及取消关联都复用原目录选择流程，携带草稿与模型选择。 */
 export function NewSessionContextBar({
   context,
   mobile,
@@ -100,7 +91,9 @@ export function NewSessionContextBar({
       <ProjectWorktreePicker
         handleRef={pickerRef}
         layout="inline"
+        association
         context={context}
+        projectLabel={context.defaultWorkspace ? t("sidebar.selectProject") : undefined}
         mobile={mobile}
         label={t("workspace.newSessionContext")}
         homeDir={homeDir}

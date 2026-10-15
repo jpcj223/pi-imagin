@@ -8,7 +8,7 @@ import { createJiti } from "jiti";
 // localStorage, so what each path shows and saves can be played out.
 const shimPath = fileURLToPath(new URL("./__fixtures__/react-hook-shim.mjs", import.meta.url));
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true, alias: { react: shimPath } });
-const { renderHook } = await import(shimPath);
+const { renderHook } = await import(new URL("./__fixtures__/react-hook-shim.mjs", import.meta.url));
 const { useResizablePanel } = await jiti.import("./useResizablePanel.ts");
 
 function emitter(extra = {}) {

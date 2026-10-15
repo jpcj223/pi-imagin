@@ -95,6 +95,9 @@ export interface GroupDragHandlers {
 
 export interface GroupDragOptions {
   rows: SidebarRow[];
+  /** 会话复用相同手势与自动滚动，提供自己的行范围和投放规则。 */
+  blocks?: GroupBlock[];
+  dropAt?: (blocks: GroupBlock[], id: string, y: number) => GroupDrop | null;
   offsets: number[];
   layout: SidebarLayout;
   /** False while loading or without onMove: a drag under way is cancelled. */
@@ -134,7 +137,7 @@ export function useGroupDrag(options: GroupDragOptions): GroupDragApi {
   const { rows, offsets, enabled } = options;
   const optionsRef = useRef(options);
   optionsRef.current = options;
-  const blocks = useMemo(() => groupBlocks(rows, offsets), [rows, offsets]);
+  const blocks = useMemo(() => options.blocks ?? groupBlocks(rows, offsets), [rows, offsets, options.blocks]);
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
   const dragRef = useRef<DragState | null>(null);
@@ -155,7 +158,7 @@ export function useGroupDrag(options: GroupDragOptions): GroupDragApi {
     const dropFor = (drag: DragState): GroupDrop | null => {
       const inner = optionsRef.current.innerRef.current;
       if (!inner) return null;
-      return groupDropAt(blocksRef.current, drag.projectKey, drag.clientY - inner.getBoundingClientRect().top);
+      return (optionsRef.current.dropAt ?? groupDropAt)(blocksRef.current, drag.projectKey, drag.clientY - inner.getBoundingClientRect().top);
     };
 
     // The ghost follows the pointer through its style, not through React
@@ -418,7 +421,7 @@ export function useGroupDrag(options: GroupDragOptions): GroupDragApi {
         if (!optionsRef.current.enabled || dragRef.current) return;
         if (!event.isPrimary || event.button !== 0 || event.ctrlKey) return;
         // "+" and ⋯ keep their own clicks.
-        if (event.target instanceof Element && event.target.closest(".session-tree-group-actions")) return;
+        if (event.target instanceof Element && event.target.closest(".session-tree-group-actions, .session-tree-actions")) return;
         const element = event.currentTarget;
         const drag: DragState = {
           pointerId: event.pointerId,
@@ -466,9 +469,9 @@ export function useGroupDrag(options: GroupDragOptions): GroupDragApi {
   useLayoutEffect(() => {
     const drag = dragRef.current;
     if (!drag || (drag.phase !== "armed" && drag.phase !== "dragging")) return;
-    if (!rows.some((row) => row.kind === "group" && row.project.key === drag.projectKey)) machine.cancel();
+    if (!blocks.some((block) => block.key === drag.projectKey)) machine.cancel();
     else machine.updateDrag();
-  }, [rows, offsets, machine]);
+  }, [rows, offsets, blocks, machine]);
 
   useEffect(() => {
     if (!enabled) machine.cancel();

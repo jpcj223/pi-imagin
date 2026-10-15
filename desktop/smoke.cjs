@@ -143,7 +143,18 @@ async function run() {
   assert.equal(fs.readFileSync(renamed.path, "utf8"), "桌面文件验证");
   console.log("打包服务文件重命名、删除与恢复验证通过");
   await verifyTerminal();
-  await verifyModel();
+  // 布局更新可只复验本地功能，不重复产生模型费用。
+  if (!process.argv.includes("--skip-model")) await verifyModel();
+  if (process.argv.includes("--sidebar")) {
+    const defaults = await fetch(`${ready.origin}/api/default-cwd`, { headers });
+    assert.equal(defaults.status, 200);
+    assert.equal((await defaults.json()).parent, path.join(os.homedir(), "pi-cwd"), "默认会话范围应由安装版服务端提供");
+    const id = crypto.randomUUID();
+    const validation = await fetch(`${ready.origin}/api/sessions/ui-state`, { method: "POST", headers: { ...headers, Origin: ready.origin, "Content-Type": "application/json" }, body: JSON.stringify({ action: "move-session", sessionId: id, anchorId: id, position: "before", add: [] }) });
+    assert.equal(validation.status, 400);
+    assert.match((await validation.json()).error, /distinct session ids/, "安装版应包含新的会话排序校验，拒绝自身投放且不写入数据");
+    console.log("安装版侧栏排序接口与无效投放校验通过");
+  }
   fs.writeFileSync(path.join(profile, "smoke-quit"), "quit");
   assert.equal(await bounded(exit, 15000), 0);
   assert.throws(() => process.kill(ready.backendPid, 0), "退出后不应保留本地服务");

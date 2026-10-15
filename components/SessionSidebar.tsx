@@ -8,9 +8,10 @@ import { sessionDeepLink } from "@/lib/session-links";
 import { getProjectActivity, getRecentProjects } from "@/lib/project-groups";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import {
-  adjacentProjectMove,
   buildArchiveRows,
   buildSessionTree,
+  isDefaultWorkspace,
+  sessionSortGroup,
   effectiveGroupExpansion,
   familiesToArchive,
   familiesToDelete,
@@ -46,7 +47,6 @@ import {
 import {
   deleteProjectSessions,
   forkFailureMessage,
-  projectNameMenuEntries,
   projectRenameRequest,
   sessionMenuEntries,
   type SessionMenuActionId,
@@ -81,6 +81,7 @@ import { chooseDesktopDirectory } from "@/lib/desktop-bridge";
 import { DismissButton } from "./DismissButton";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { PiImaginTitle } from "./PiImaginTitle";
+import { registeredWorkspace, validateWorkspaceSelection } from "@/lib/workspace-selection";
 import { ProjectWorktreePicker, type ProjectWorktreePickerHandle, type WorktreeRemoval } from "./ProjectWorktreePicker";
 import { SessionSearch } from "./SessionSearch";
 import { SessionTree, sessionRowTitle, type SessionTreeReveal } from "./SessionTree";
@@ -499,6 +500,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
   const [validatedProject, setValidatedProject] = useState<ValidatedProject | null>(null);
+  const workspaceSelectionToken = useRef(0);
   // The files tab's project and worktree picker.
   const filesPickerRef = useRef<ProjectWorktreePickerHandle>(null);
   const [worktreeState, setWorktreeState] = useState<WorktreeState | null>(null);
@@ -583,6 +585,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [renamingProjectKey, setRenamingProjectKey] = useState<string | null>(null);
   const [confirmDeleteRootId, setConfirmDeleteRootId] = useState<string | null>(null);
   const [menu, setMenu] = useState<SidebarMenuState | null>(null);
+  const [defaultCwdParent, setDefaultCwdParent] = useState<string | null>(null);
+  const [defaultCwdLoaded, setDefaultCwdLoaded] = useState(false);
+  const [authorizedCwd, setAuthorizedCwd] = useState<string | null>(null);
+  const [workspaceAccessError, setWorkspaceAccessError] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/default-cwd", { signal: controller.signal }).then(res => res.ok ? res.json() : null).then(data => {
+      if (typeof data?.parent !== "string") throw new Error("默认目录信息加载失败，请刷新后重试");
+      setDefaultCwdParent(data.parent);
+      setDefaultCwdLoaded(true);
+    }).catch(error => { if (!controller.signal.aborted) setError(String(error)); });
+    return () => controller.abort();
+  }, []);
   // A row the main tree should scroll to (a fork's new row); see
   // SessionTreeReveal. Held until the tree says it is done with it.
   const [treeReveal, setTreeReveal] = useState<SessionTreeReveal | null>(null);
@@ -1007,6 +1022,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   /** Resolve both display root and stable identity from server-provided data. */
   const projectFor = useCallback((cwd: string | null): ProjectSelection | null => {
     if (!cwd) return null;
+    const registered = registeredWorkspace(cwd, uiState.projects);
+    if (registered) return registered;
     // /api/cwd/validate resolves identity before a custom path becomes active,
     // preventing one render with a raw path key from looking like a switch.
     if (validatedProject?.cwd === cwd) {
@@ -1026,7 +1043,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     return match
       ? projectSelection(match.projectRoot ?? match.cwd, workspaceKeyOf(match))
       : projectSelection(cwd, cwd);
-  }, [validatedProject, worktreeState, allSessions, projectSelection]);
+  }, [validatedProject, worktreeState, allSessions, projectSelection, uiState.projects]);
+
+  // 刷新及浏览已有项目也恢复原有目录授权，校验完成前不加载文件或通知工作区切换。
+  useEffect(() => {
+    if (!selectedCwd) return;
+    const controller = new AbortController();
+    setWorkspaceAccessError(null);
+    void validateWorkspaceSelection(selectedCwd, fetch, controller.signal).then(project => {
+      if (controller.signal.aborted) return;
+      setValidatedProject(project);
+      setAuthorizedCwd(selectedCwd);
+    }).catch(error => { if (!controller.signal.aborted) setWorkspaceAccessError(String(error)); });
+    return () => controller.abort();
+  }, [selectedCwd]);
 
   // The project of the sidebar's cwd: the files tab shows it, and its group in
   // the sessions tab exists even before it has a session.
@@ -1037,6 +1067,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // as identity hydration rather than a workspace switch.
   const lastNotifiedProjectRef = useRef<{ cwd: string | null; key: string | null } | null>(null);
   useEffect(() => {
+    if (selectedCwd && selectedCwd !== authorizedCwd) return;
     const project = projectFor(selectedCwd);
     const previous = lastNotifiedProjectRef.current;
     if (previous?.cwd === selectedCwd && previous.key === (project?.key ?? null)) return;
@@ -1046,7 +1077,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       project?.root ?? null,
       project?.key ?? null,
     );
-  }, [selectedCwd, onCwdChange, projectFor]);
+  }, [selectedCwd, authorizedCwd, onCwdChange, projectFor]);
 
   // Sync the worktree switcher to the selected session's cwd. Sessions of all
   // worktrees in a project share one group, so clicking a session from another
@@ -1070,7 +1101,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Load worktrees for the current effective cwd
   const [wtRefreshKey, setWtRefreshKey] = useState(0);
   useLayoutEffect(() => {
-    if (!selectedCwd) {
+    if (!selectedCwd || selectedCwd !== authorizedCwd) {
       setWorktreeState(null);
       setWorktreeLoadingCwd(null);
       return;
@@ -1106,7 +1137,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         }
       });
     return () => { cancelled = true; };
-  }, [selectedCwd, wtRefreshKey, refreshKey]);
+  }, [selectedCwd, authorizedCwd, wtRefreshKey, refreshKey]);
 
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
@@ -1281,6 +1312,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // picker read from the project list or the worktree listing: a pinned
   // project without sessions keeps its server key, as in startNewSessionIn.
   const handleFilesPick = useCallback(({ cwd, projectKey, projectRoot }: NewSessionTarget) => {
+    workspaceSelectionToken.current += 1;
     if (projectKey && projectRoot) setValidatedProject({ cwd, root: projectRoot, key: projectKey });
     setSelectedCwd(cwd);
   }, []);
@@ -1290,6 +1322,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // works when the prop value won't change — e.g. re-clicking the already
   // open session after manually switching worktrees.
   const handleSelectSessionFromList = useCallback((s: SessionInfo, entryId?: string, blockIndex?: number, options?: SelectSessionOptions) => {
+    workspaceSelectionToken.current += 1;
     setAllSessions((current) => current.some((session) => session.id === s.id) ? current : [s, ...current]);
     if (s.cwd) setSelectedCwd(s.cwd);
     onSelectSession(s, false, entryId, blockIndex, options);
@@ -1299,12 +1332,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // path like a session pick, and the shell gets the target's project so it
   // adopts it up front: a session in another project closes the previous
   // project's file tabs instead of being mistaken for identity hydration.
-  const startNewSessionIn = useCallback(({ cwd, projectKey, projectRoot, carryComposer }: NewSessionTarget) => {
-    // A worktree without sessions has no other source of identity yet.
-    if (projectKey && projectRoot) setValidatedProject({ cwd, root: projectRoot, key: projectKey });
-    setSelectedCwd(cwd);
-    onNewSession?.(createTempSessionId(), cwd, projectKey, carryComposer ? { carryComposer: true } : undefined);
-  }, [onNewSession]);
+  const startNewSessionIn = useCallback(async ({ cwd, carryComposer }: NewSessionTarget) => {
+    const token = ++workspaceSelectionToken.current;
+    try {
+      const project = await validateWorkspaceSelection(cwd);
+      if (token !== workspaceSelectionToken.current) return;
+      setValidatedProject(project);
+      setAuthorizedCwd(project.cwd);
+      setSelectedCwd(project.cwd);
+      onNewSession?.(createTempSessionId(), project.cwd, project.key, carryComposer ? { carryComposer: true } : undefined);
+    } catch (error) {
+      if (token === workspaceSelectionToken.current) showToast(String(error));
+    }
+  }, [onNewSession, showToast]);
   // The handle below is made once: it calls the newest closure.
   const startNewSessionInRef = useRef(startNewSessionIn);
   startNewSessionInRef.current = startNewSessionIn;
@@ -1405,8 +1445,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const currentProjectKey = selectedProject?.key ?? null;
   const currentProjectRoot = selectedProject?.root ?? null;
   const currentProject = useMemo(
-    () => (currentProjectKey && currentProjectRoot ? { key: currentProjectKey, root: currentProjectRoot } : null),
-    [currentProjectKey, currentProjectRoot],
+    () => (selectedCwd === authorizedCwd && currentProjectKey && currentProjectRoot ? { key: currentProjectKey, root: currentProjectRoot } : null),
+    [currentProjectKey, currentProjectRoot, selectedCwd, authorizedCwd],
   );
   // What the tree shows and every toggle reads: the saved choices over the
   // groups kept open for the page. Writes go to the saved choices alone
@@ -1426,7 +1466,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     groupExpansion: shownGroupExpansion,
     moreShown,
     pinnedCollapsed,
-  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed]);
+    showPins: false,
+    defaultCwdParent,
+  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed, defaultCwdParent]);
   // Built while the archive view is rendered, its way out included: it
   // leaves as it was, not empty.
   const archiveMounted = archiveMotion.archiveMounted;
@@ -1460,14 +1502,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const projectKeysToRecord = model.projectKeysToRecord;
   const storedOrderLength = uiState.projectOrder?.length ?? 0;
   useEffect(() => {
-    if (loading || !uiStateSynced || !sessionDetailsLoaded) return;
+    if (loading || !uiStateSynced || !sessionDetailsLoaded || !defaultCwdLoaded) return;
     if (storedOrderLength >= MAX_PROJECT_ORDER_KEYS) return;
     const recorded = recordedOrderKeysRef.current;
     const keys = nextProjectKeysToRecord(projectKeysToRecord, recorded, MAX_SESSION_UI_IDS_PER_REQUEST);
     if (keys.length === 0) return;
     for (const key of keys) recorded.add(key);
     void applyUiStateRequest({ action: "add-projects", keys });
-  }, [applyUiStateRequest, loading, projectKeysToRecord, sessionDetailsLoaded, storedOrderLength, uiStateSynced]);
+  }, [applyUiStateRequest, loading, projectKeysToRecord, sessionDetailsLoaded, storedOrderLength, uiStateSynced, defaultCwdLoaded]);
 
   // Every project in the groups' order, then those with sessions but no
   // group (all of them archived, or pinned while the project is not): the
@@ -1475,8 +1517,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // with the names the user gave them.
   const projectNames = uiState.projectNames;
   const projectChoiceList = useMemo(
-    () => mergeProjectChoices(model.projects, recentProjects, projectNames),
-    [model.projects, recentProjects, projectNames],
+    () => mergeProjectChoices(model.projects, recentProjects.filter(project => !isDefaultWorkspace(project.root, defaultCwdParent, uiState)), projectNames),
+    [model.projects, recentProjects, projectNames, defaultCwdParent, uiState],
   );
 
   // What both pickers show for this cwd: the project, its worktrees where the
@@ -1488,12 +1530,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const listed = showWorktreeSwitcher && worktreeState !== null;
     return {
       cwd: selectedCwd,
+      defaultWorkspace: isDefaultWorkspace(selectedCwd, defaultCwdParent, uiState),
       project: withProjectAlias(selectedProject, projectNames),
       worktrees: listed ? worktreeState.worktrees.map(({ path, branch, isMain }) => ({ path, branch, isMain })) : null,
       currentWorktreePath: listed ? currentWorktreePath : null,
       projects: projectChoiceList,
     };
-  }, [selectedCwd, selectedProject, showWorktreeSwitcher, worktreeState, currentWorktreePath, projectChoiceList, projectNames]);
+  }, [selectedCwd, selectedProject, showWorktreeSwitcher, worktreeState, currentWorktreePath, projectChoiceList, projectNames, defaultCwdParent, uiState]);
   const newSessionContextRef = useRef(newSessionContext);
   newSessionContextRef.current = newSessionContext;
   const newSessionContextSignature = newSessionContextKey(newSessionContext);
@@ -1577,6 +1620,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     treeRevealIdRef.current += 1;
     setTreeReveal({ id: treeRevealIdRef.current, at: Date.now(), rowKey: `group:${projectKey}` });
   }, [applyUiState, model.unorderedKeysByBand, projectByKey]);
+
+  // 拖动只改变家族根的显示顺序，复用现有状态请求、回滚及跨窗口同步。
+  const moveSession = useCallback((sessionId: string, anchorId: string, position: ProjectMovePosition) => {
+    const rows = model.rows.filter((row): row is SessionRow => row.kind === "session" && row.context === "group" && !row.status.transient);
+    const source = rows.find(row => row.family.root.id === sessionId);
+    const anchor = rows.find(row => row.family.root.id === anchorId);
+    if (!source || !anchor || sessionSortGroup(source) !== sessionSortGroup(anchor) || sessionId === anchorId) return;
+    const order = new Set(uiState.sessionOrder ?? []);
+    const add = rows.filter(row => sessionSortGroup(row) === sessionSortGroup(source) && !order.has(row.family.root.id)).map(row => row.family.root.id).slice(-MAX_SESSION_UI_IDS_PER_REQUEST);
+    void applyUiState({ action: "move-session", sessionId, anchorId, position, add });
+    treeRevealIdRef.current += 1;
+    setTreeReveal({ id: treeRevealIdRef.current, at: Date.now(), rowKey: source.key });
+  }, [applyUiState, model.rows, uiState.sessionOrder]);
 
   // With the files below the sessions there are no tabs: whatever would pick
   // one (the archive view, the search's fallback) leaves the saved tab as it
@@ -2171,7 +2227,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // "Open in Files" of another project is a deliberate project switch, the
   // same as choosing it in the files' project list.
   const openProjectInFiles = (project: SidebarProject) => {
-    if (!project.current) setSelectedCwd(project.root);
+    workspaceSelectionToken.current += 1;
+    setValidatedProject({ cwd: project.root, root: project.root, key: project.key });
+    setSelectedCwd(project.root);
     revealFiles("project-button");
   };
 
@@ -2194,7 +2252,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     else filesPickerRef.current?.button("project")?.focus({ preventScroll: true });
   }, [filesShown, filesFocusRequest]);
 
-  const sessionMenuItems = (row: SessionRow): SidebarMenuItem[] => sessionMenuEntries(row.context, row.status).map((entry, index) => {
+  const sessionMenuItems = (row: SessionRow): SidebarMenuItem[] => sessionMenuEntries(row.context, row.status).filter(entry => entry.kind !== "action" || (entry.id !== "pin" && entry.id !== "unpin")).map((entry, index) => {
     if (entry.kind === "separator") return { type: "separator", id: `separator-${index}` };
     const label = t(SESSION_ACTION_LABEL_KEYS[entry.id]);
     return {
@@ -2213,47 +2271,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const groupMenuItems = (project: SidebarProject, olderCount: number): SidebarMenuItem[] => {
     const archivedCount = archiveIndex.countByProject.get(project.key) ?? 0;
     const deletable = familiesToDelete(treeSelectionInput, project.key);
-    // Within the project's band; disabled at its edges.
-    const up = adjacentProjectMove(model.projects, project.key, "up");
-    const down = adjacentProjectMove(model.projects, project.key, "down");
-    const nameItems = projectNameMenuEntries(project).map((id): SidebarMenuItem => (id === "rename-project" ? {
-      type: "item",
-      id,
-      label: t("sidebar.renameProject"),
-      icon: <PencilIcon />,
-      onSelect: () => startProjectRename(project),
-    } : {
-      type: "item",
-      id,
-      label: t("sidebar.resetProjectName"),
-      icon: <RestoreIcon />,
-      onSelect: () => { void applyUiState({ action: "rename-project", projectKey: project.key, name: null }); },
-    }));
     return [
-      {
-        type: "item",
-        id: "pin-project",
-        label: t(project.pinned ? "sidebar.unpinProject" : "sidebar.pinProject"),
-        icon: project.pinned ? <PinOffIcon /> : <PinIcon />,
-        onSelect: () => { void applyUiState({ action: "pin-project", projectKey: project.key, root: project.root, pinned: !project.pinned }); },
-      },
-      ...nameItems,
-      {
-        type: "item",
-        id: "move-up",
-        label: t("sidebar.moveProjectUp"),
-        icon: <ChevronIcon className="sidebar-icon-up" />,
-        disabled: up === null,
-        onSelect: () => { if (up) moveProject(project.key, up.anchorKey, up.position); },
-      },
-      {
-        type: "item",
-        id: "move-down",
-        label: t("sidebar.moveProjectDown"),
-        icon: <ChevronIcon className="sidebar-icon-down" />,
-        disabled: down === null,
-        onSelect: () => { if (down) moveProject(project.key, down.anchorKey, down.position); },
-      },
+      { type: "item", id: "rename-project", label: t("sidebar.renameProject"), icon: <PencilIcon />, onSelect: () => startProjectRename(project) },
+      { type: "item", id: "open-in-files", label: t("sidebar.openInFilesTab"), icon: <FolderIcon />, onSelect: () => openProjectInFiles(project) },
       {
         type: "item",
         id: "archive-older",
@@ -2262,32 +2282,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         disabled: olderCount === 0,
         onSelect: () => archiveOlderSessions(project),
       },
-      {
-        type: "item",
-        id: "open-in-files",
-        label: t("sidebar.openInFilesTab"),
-        icon: <FolderIcon />,
-        onSelect: () => openProjectInFiles(project),
-      },
-      { type: "separator", id: "separator-groups" },
-      {
-        // This project open, every other one closed.
-        type: "item",
-        id: "collapse-others",
-        label: t("sidebar.collapseOtherGroups"),
-        icon: <ChevronIcon />,
-        disabled: model.projects.every((other) => isGroupExpanded(other, shownGroupExpansion) === (other.key === project.key)),
-        onSelect: () => setAllGroupsExpanded((other) => other.key === project.key),
-      },
-      {
-        type: "item",
-        id: "expand-all",
-        label: t("sidebar.expandAllGroups"),
-        icon: <ChevronIcon className="sidebar-icon-down" />,
-        disabled: model.projects.every((other) => isGroupExpanded(other, shownGroupExpansion)),
-        onSelect: () => setAllGroupsExpanded(() => true),
-      },
-      { type: "separator", id: "separator" },
       {
         type: "item",
         id: "view-archived",
@@ -2361,7 +2355,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     menuLabel = t("sidebar.projectActions", { name: project.name });
     menuItems = groupMenuItems(project, menu.olderCount);
     if (menu.askDelete) menuBody = projectDeleteBody(project);
-    menuWidth = 264;
+    menuWidth = 218;
   }
 
   // The tree row (and the button in it) that the open menu belongs to.
@@ -2371,7 +2365,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const treeLayout = isMobile ? "mobile" : "desktop";
   // Until pins and archive have loaded, archived rows would flash in.
-  const treeLoading = loading || !uiStateLoaded;
+  const treeLoading = loading || !uiStateLoaded || !defaultCwdLoaded;
   const treeProps = {
     layout: treeLayout,
     loading: treeLoading,
@@ -2406,9 +2400,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onOpenArchive: openArchiveView,
     // The archive view has no group rows: only the main tree's can be dragged.
     onMoveGroup: moveProject,
+    onMoveSession: archiveView ? undefined : moveSession,
   } as const;
 
-  const explorerCwd = selectedCwd ?? selectedCwdProp ?? null;
+  const explorerCwd = selectedCwd === authorizedCwd ? selectedCwd : null;
   const changedFilesTitle = explorerCwd && changesCount > 0 ? t("sidebar.changedFiles", { count: changesCount }) : undefined;
   // The changes view's key turns disabled once nothing is changed (a
   // commit, a revert), under a keyboard user too. The browser blurs it to
@@ -2645,22 +2640,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         </button>
       </div>
 
-      <div className="workspace-project-heading" hidden={sidebarTab === "files"}><span>项目</span><button type="button" onClick={handleCustomPathClick} aria-label="添加项目" title="添加项目"><PlusIcon size={15} /></button></div>
-      <button type="button" className="workspace-files-back" hidden={sidebarTab !== "files"} onClick={() => switchTab("sessions")}>← 返回项目会话</button>
-
-      {/* Sessions: every project's sessions, or the archive. A tab's panel,
-          or the top section, always shown, filling what the files leave. */}
-      <div
-        ref={sessionsPanelRef}
-        id="session-sidebar-panel-sessions"
-        role={stacked ? "region" : "tabpanel"}
-        aria-label={stacked ? t("sidebar.tabSessions") : undefined}
-        aria-labelledby={stacked ? undefined : "session-sidebar-tab-sessions"}
-        hidden={!stacked && sidebarTab !== "sessions"}
-        className="sidebar-panel sidebar-sessions-panel"
-        onScrollCapture={rememberScroll}
-      >
-        {sessionSearchOpen && (
+        {sessionSearchOpen && sessionsShown && (
           <div className="sidebar-search">
             <input
               id="session-search-input"
@@ -2681,6 +2661,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             />
           </div>
         )}
+
+      <div className="workspace-project-heading" hidden={sidebarTab === "files"}><span>项目</span><button type="button" onClick={handleCustomPathClick} aria-label="添加项目" title="添加项目"><PlusIcon size={15} /></button></div>
+      <button type="button" className="workspace-files-back" hidden={sidebarTab !== "files"} onClick={() => switchTab("sessions")}>← 返回项目会话</button>
+
+      {/* Sessions: every project's sessions, or the archive. A tab's panel,
+          or the top section, always shown, filling what the files leave. */}
+      <div
+        ref={sessionsPanelRef}
+        id="session-sidebar-panel-sessions"
+        role={stacked ? "region" : "tabpanel"}
+        aria-label={stacked ? t("sidebar.tabSessions") : undefined}
+        aria-labelledby={stacked ? undefined : "session-sidebar-tab-sessions"}
+        hidden={!stacked && sidebarTab !== "sessions"}
+        className="sidebar-panel sidebar-sessions-panel"
+        onScrollCapture={rememberScroll}
+      >
         <SessionSearch
           open={sessionSearchOpen}
           query={sessionSearchQuery}
@@ -2694,13 +2690,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {/* Kept mounted under the archive view, so going back finds it as
                 it was: inert while the archive slides in, then hidden. */}
             <div className="sidebar-sessions-view" hidden={archiveMotion.mainHidden} inert={archiveMotion.mainInert}>
-              <SessionTree
+              <div className="workspace-project-tree"><SessionTree
                 {...treeProps}
-                rows={model.rows}
+                rows={model.projectRows}
                 emptyLabel={t("sidebar.noSessions")}
-                reveal={treeReveal}
+                reveal={treeReveal && !model.defaultRows.some(row => row.key === treeReveal.rowKey) ? treeReveal : null}
                 onRevealHandled={handleRevealHandled}
-              />
+              /></div>
+              <section className="workspace-default-sessions" aria-label="默认">
+                <div className="workspace-default-heading">默认</div>
+                <SessionTree {...treeProps} rows={model.defaultRows} emptyLabel="还没有会话"
+                  reveal={treeReveal && model.defaultRows.some(row => row.key === treeReveal.rowKey) ? treeReveal : null}
+                  onRevealHandled={handleRevealHandled} />
+              </section>
             </div>
             {/* Mounted while open and on its way out, inert then, so nothing
                 in it is clicked twice; the tree is back under it at once. */}
@@ -2870,6 +2872,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               section hides it, so the expanded tree, a search and an upload in
               progress survive a switch. */}
           <div ref={explorerScrollRef} className="sidebar-files-scroll scrollbar-subtle">
+            {selectedCwd && !explorerCwd && <div role={workspaceAccessError ? "alert" : "status"} style={{ padding: 14, color: workspaceAccessError ? "var(--error, #dc2626)" : "var(--text-muted)", fontSize: 12 }}>{workspaceAccessError ?? t("chat.loadingSession")}</div>}
             {explorerCwd && (
               <FileExplorer
                 ref={fileExplorerRef}
@@ -2902,6 +2905,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         onClose={closeMenu}
         returnFocusTo={menu?.opener ?? null}
         width={menuWidth}
+        compact={menu?.kind === "group"}
+        minLeft={menu?.kind === "group" ? sidebarRef.current?.getBoundingClientRect().left : undefined}
       >
         {menuBody}
       </SidebarMenu>

@@ -37,6 +37,7 @@ import { ConfigButton, ConfigSwitch } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
 
 interface Props {
+  open?: boolean;
   embedded?: boolean;
   sidebarOffset?: number;
   cwd: string | null;
@@ -401,6 +402,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
 }
 
 export function SettingsPanel({
+  open = true,
   embedded = false,
   sidebarOffset = 0,
   cwd,
@@ -430,21 +432,26 @@ export function SettingsPanel({
   ] as const).map((item) => ({ ...item, requiresProject: settingsSectionRequiresProject(item.id) }));
   const sectionRequiresProject = settingsSectionRequiresProject(section);
 
-  useEffect(() => setLastSettingsSection(initialSection), [initialSection]);
+  useEffect(() => {
+    if (!open) return;
+    setSection(initialSection);
+    setMountedSections(current => new Set(current).add(initialSection));
+    setLastSettingsSection(initialSection);
+  }, [initialSection, open]);
 
   // Bubble phase, unless something nearer handled the key. The trust dialog,
   // which opens above Settings, takes Escape in the capture phase and stops it,
   // so one Escape closes that dialog and leaves Settings open.
-  useEffect(() => listenForPanelEscape(document, onClose), [onClose]);
+  useEffect(() => open ? listenForPanelEscape(document, onClose) : undefined, [onClose, open]);
 
   // Focus moves into Settings as it opens and back to what had it once it closes. Left
   // on the chat composer (a bare /mcp opens Settings from there), Escape would reach the
   // composer first and stop a running agent, which also kept Settings open. A layout
   // effect, so the opener is read before a section focuses its own search box.
   const dialogRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => focusModalPanel(document, dialogRef.current, {
+  useLayoutEffect(() => open ? focusModalPanel(document, dialogRef.current, {
     restoreTextEntry: !window.matchMedia?.("(pointer: coarse)").matches,
-  }), []);
+  }) : undefined, [open]);
 
   useEffect(() => {
     if (cwd || !sectionRequiresProject) return;
@@ -501,6 +508,8 @@ export function SettingsPanel({
       tabIndex={-1}
       onClick={(event) => { if (!embedded && event.target === event.currentTarget) onClose(); }}
       className={embedded ? "settings-workspace-page" : "settings-dialog-backdrop"}
+      hidden={!open}
+      inert={!open}
       style={embedded ? { left: sidebarOffset } : undefined}
     >
       <div className="settings-dialog-surface">

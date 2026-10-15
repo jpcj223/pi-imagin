@@ -23,7 +23,7 @@ import {
 
 const MAX_BYTES = 4 * 1024 * 1024;
 // `__proto__` is never copied: assigning it would set the object's prototype instead.
-const KNOWN_KEYS = new Set(["version", "revision", "sessions", "projects", "projectOrder", "projectNames", "__proto__"]);
+const KNOWN_KEYS = new Set(["version", "revision", "sessions", "projects", "projectOrder", "sessionOrder", "projectNames", "__proto__"]);
 
 // Route handlers are bundled separately and hot reload re-evaluates modules; globalThis keeps one queue per process.
 const QUEUE_KEY: symbol = Symbol.for("pi-web:session-ui-state-write-queue");
@@ -225,6 +225,7 @@ function editState(
         sessions: next.sessions,
         projects: next.projects,
         ...(next.projectOrder?.length ? { projectOrder: next.projectOrder } : {}),
+        ...(next.sessionOrder?.length ? { sessionOrder: next.sessionOrder } : {}),
         ...(next.projectNames && Object.keys(next.projectNames).length > 0 ? { projectNames: next.projectNames } : {}),
         ...extras,
       };
@@ -262,7 +263,7 @@ export async function forgetSessionUiState(ids: Iterable<string>, path?: string)
   const target = path ?? getSessionUiStatePath();
   const wanted = [...new Set(ids)];
   if (wanted.length === 0) return;
-  const has = (state: SessionUiState) => wanted.some((id) => Object.prototype.hasOwnProperty.call(state.sessions, id));
+  const has = (state: SessionUiState) => wanted.some((id) => Object.prototype.hasOwnProperty.call(state.sessions, id) || state.sessionOrder?.includes(id));
   // Deleting a session must not lock or create anything when it had no pin or archive time.
   // A file that cannot be read throws here: the locked read could not do better.
   if (!has(loadState(target))) return;
@@ -270,7 +271,12 @@ export async function forgetSessionUiState(ids: Iterable<string>, path?: string)
     if (!has(state)) return { state, changed: false };
     const sessions = { ...state.sessions };
     for (const id of wanted) delete sessions[id];
-    return { state: { ...state, sessions }, changed: true };
+    const next = { ...state, sessions };
+    if (state.sessionOrder) {
+      next.sessionOrder = state.sessionOrder.filter((id) => !wanted.includes(id));
+      if (!next.sessionOrder.length) delete next.sessionOrder;
+    }
+    return { state: next, changed: true };
   });
 }
 

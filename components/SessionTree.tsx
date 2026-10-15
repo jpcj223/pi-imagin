@@ -20,6 +20,10 @@ import { MAX_PROJECT_NAME_LENGTH, type ProjectMovePosition } from "@/lib/session
 import {
   PINNED_MORE_KEY,
   getRowOffsets,
+  sessionDragBlocks,
+  sessionDropAt,
+  sessionSortGroup,
+  type SessionDragBlock,
   getVisibleRowIndices,
   revealScrollTop,
   revealStep,
@@ -42,8 +46,6 @@ import {
   ChevronIcon,
   FolderPlusIcon,
   MoreIcon,
-  PinIcon,
-  PlusIcon,
   RestoreIcon,
   SpinnerIcon,
   TrashIcon,
@@ -134,6 +136,7 @@ export interface SessionTreeProps {
   onRevealHandled?(id: number): void;
   /** A group dropped next to another of its band. Without it no group can be dragged. */
   onMoveGroup?(projectKey: string, anchorKey: string, position: ProjectMovePosition): void;
+  onMoveSession?(sessionId: string, anchorId: string, position: ProjectMovePosition): void;
 }
 
 /** Rows rendered beyond each edge of the viewport. */
@@ -273,9 +276,19 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     ghostRef,
     onMove: (projectKey, anchorKey, position) => handlersRef.current.onMoveGroup?.(projectKey, anchorKey, position),
   });
-  const dragView = groupDrag.view;
+  const sessionBlocks = useMemo(() => sessionDragBlocks(rows, offsets), [rows, offsets]);
+  const sessionDrag = useGroupDrag({
+    rows, offsets, layout, blocks: sessionBlocks,
+    dropAt: (blocks, id, y) => sessionDropAt(blocks as SessionDragBlock[], id, y),
+    enabled: Boolean(props.onMoveSession) && !loading,
+    scrollRef, innerRef, treeRef, ghostRef,
+    onMove: (id, anchorId, position) => handlersRef.current.onMoveSession?.(id, anchorId, position),
+  });
+  const dragView = groupDrag.view ?? sessionDrag.view;
   // The header holding the pointer stays mounted while auto-scroll moves it away.
-  const draggedRowKey = dragView ? `group:${dragView.projectKey}` : null;
+  const draggedRowKey = sessionDrag.view
+    ? sessionBlocks.find(block => block.key === sessionDrag.view?.projectKey)?.rowKey ?? null
+    : dragView ? `group:${dragView.projectKey}` : null;
   // The last reveal request handled (scrolled to, or dropped), ignored from
   // then on, until the parent's answer to onRevealHandled arrives.
   const [handledRevealId, setHandledRevealId] = useState<number | null>(null);
@@ -394,12 +407,16 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
   // room to scroll into.
   const dragSource = dragView?.source ?? null;
   const dropLineY = dragView?.drop?.lineY ?? null;
-  const ghostProject = dragView?.phase === "dragging"
-    ? rows.find((row): row is Extract<SidebarRow, { kind: "group" }> => row.kind === "group" && row.project.key === dragView.projectKey)?.project ?? null
+  const ghostProject = groupDrag.view?.phase === "dragging"
+    ? rows.find((row): row is Extract<SidebarRow, { kind: "group" }> => row.kind === "group" && row.project.key === groupDrag.view?.projectKey)?.project ?? null
     : null;
 
+  const ghostSession = sessionDrag.view?.phase === "dragging"
+    ? rows.find((row): row is SessionRow => row.kind === "session" && row.family.root.id === sessionDrag.view?.projectKey) ?? null : null;
+  const ghostLabel = ghostProject?.name ?? (ghostSession ? sessionRowTitle(ghostSession.family.root) : null);
+
   return (
-    <div ref={treeRef} className={`session-tree${layout === "mobile" ? " is-mobile" : ""}${ghostProject ? " is-group-dragging" : ""}`}>
+    <div ref={treeRef} className={`session-tree${layout === "mobile" ? " is-mobile" : ""}${ghostLabel ? " is-group-dragging" : ""}`}>
       {loading && <div className="session-tree-message">{t("sidebar.loading")}</div>}
       {error && <div className="session-tree-message is-error">{error}</div>}
       {showEmpty && <div className="session-tree-message">{emptyLabel}</div>}
@@ -409,8 +426,8 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
         onScroll={handleScroll}
         onFocus={handleFocus}
         onBlur={handleBlur}
-        onPointerDownCapture={groupDrag.onPointerDownCapture}
-        onClickCapture={groupDrag.onClickCapture}
+        onPointerDownCapture={() => { groupDrag.onPointerDownCapture(); sessionDrag.onPointerDownCapture(); }}
+        onClickCapture={(event) => { groupDrag.onClickCapture(event); sessionDrag.onClickCapture(event); }}
       >
         {!loading && (
           <div ref={innerRef} className="session-tree-inner" style={{ height: offsets[rows.length] }}>
@@ -433,6 +450,9 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
                     confirming={row.family.root.id === confirmDeleteRootId}
                     menuOpen={menuOpen}
                     handlers={handlersRef}
+                    canDrag={Boolean(props.onMoveSession) && row.context === "group" && !row.status.transient && !loading && row.family.root.id !== renamingRootId && row.family.root.id !== confirmDeleteRootId && sessionBlocks.filter(block => block.projectKey === sessionSortGroup(row)).length > 1}
+                    drag={sessionDrag.handlers}
+                    dragPhase={sessionDrag.view?.projectKey === row.family.root.id ? sessionDrag.view.phase : null}
                   />
                 );
               }
@@ -467,9 +487,9 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
           </div>
         )}
       </div>
-      {ghostProject && (
+      {ghostLabel && (
         <div ref={ghostRef} className="session-tree-drag-ghost" aria-hidden="true">
-          <span className="session-tree-group-name">{ghostProject.name}</span>
+          <span className="session-tree-group-name">{ghostLabel}</span>
         </div>
       )}
     </div>
@@ -492,8 +512,12 @@ const SessionRowView = memo(function SessionRowView({
   confirming,
   menuOpen,
   handlers,
+  canDrag, drag, dragPhase,
 }: {
   row: SessionRow;
+  canDrag: boolean;
+  drag: GroupDragHandlers;
+  dragPhase: "armed" | "dragging" | null;
   layout: SidebarLayout;
   top: number;
   height: number;
@@ -504,12 +528,21 @@ const SessionRowView = memo(function SessionRowView({
   handlers: Handlers;
 }) {
   const { locale, t } = useI18n();
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = rowRef.current;
+    if (!canDrag || !element) return;
+    const listener = (event: TouchEvent) => drag.onTouchMove(event);
+    element.addEventListener("touchmove", listener, { passive: false });
+    return () => element.removeEventListener("touchmove", listener);
+  }, [canDrag, drag]);
   const { family, context, status } = row;
   const root = family.root;
   const title = sessionRowTitle(root);
   const nowDate = new Date(now);
   const className = [
     "session-tree-row session-tree-session",
+    dragPhase === "armed" ? "is-drag-armed" : "",
     status.selected ? "is-selected" : "",
     status.running ? "is-running" : "",
     context === "archive" ? "is-archived" : "",
@@ -628,6 +661,8 @@ const SessionRowView = memo(function SessionRowView({
       className={className}
       style={rowStyle(top, height)}
       data-row-key={row.key}
+      ref={rowRef}
+      onPointerDown={canDrag ? (event) => { if (!event.metaKey && !event.shiftKey && !event.altKey) drag.onPointerDown(event, root.id); } : undefined}
       onClick={() => handlers.current.onSelectFamily(family)}
       onContextMenu={(event) => handlers.current.onRowContextMenu(row, event)}
     >
@@ -643,6 +678,7 @@ const SessionRowView = memo(function SessionRowView({
         // send plain clicks away too.
         <a
           className="session-tree-main"
+          draggable={false}
           href={sessionDeepLink(root.id)}
           title={tooltip}
           aria-current={status.selected ? "true" : undefined}
@@ -920,22 +956,9 @@ const GroupRowView = memo(function GroupRowView({
             below it do and every header's chevron lines up. */}
         <ChevronIcon size={12} strokeWidth={3} className={`session-tree-chevron${expanded ? " is-open" : ""}`} />
         <svg className="workspace-project-folder" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 7h7l2 2h9v11H3z" /></svg><span className="session-tree-group-name">{project.name}</span>
-        {project.pinned && <PinIcon size={10} className="session-tree-group-pin" label={t("sidebar.pinnedProject")} />}
         {!expanded && <ActivitySummary running={row.running} unread={row.unread} t={t} />}
       </button>
       <span className="session-tree-group-actions">
-        <button
-          type="button"
-          className="session-tree-group-action"
-          aria-label={t("sidebar.newSessionInProject", { name: project.name })}
-          title={t("sidebar.newSessionInProject", { name: project.name })}
-          onClick={(event) => {
-            event.stopPropagation();
-            handlers.current.onGroupNew(project);
-          }}
-        >
-          <PlusIcon size={13} />
-        </button>
         <button
           type="button"
           className={`session-tree-group-action${menuOpen ? " is-active" : ""}`}

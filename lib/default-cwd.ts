@@ -17,3 +17,7 @@ export function localDateStamp(now = new Date()): string {
 export function defaultCwdPath(now = new Date(), home = homedir()): string {
   return path.join(home, DEFAULT_CWD_PARENT, localDateStamp(now));
 }
+
+export function defaultCwdParent(home = homedir()): string {
+  return path.join(home, DEFAULT_CWD_PARENT);
+}

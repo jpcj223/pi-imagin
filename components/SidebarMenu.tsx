@@ -125,6 +125,8 @@ export interface SidebarMenuProps {
   returnFocusTo?: HTMLElement | null;
   /** Desktop width in px. */
   width?: number;
+  compact?: boolean;
+  minLeft?: number;
   /**
    * The files tab's project and worktree menus on a desktop: the look of the
    * dropdowns they were on main, rows divided by lines, 11px.
@@ -377,6 +379,7 @@ export interface SidebarMenuSurfaceProps {
   cancelLabel: string;
   focusCancel?: boolean;
   width?: number;
+  compact?: boolean;
   classic?: boolean;
   footer?: ReactNode;
   surfaceRef?: Ref<HTMLDivElement>;
@@ -474,6 +477,7 @@ export function SidebarMenuSurface({
   cancelLabel,
   focusCancel = false,
   width = DEFAULT_MENU_WIDTH,
+  compact = false,
   classic = false,
   footer,
   surfaceRef,
@@ -525,7 +529,7 @@ export function SidebarMenuSurface({
     return (
       <div
         ref={surfaceRef}
-        className={classic ? "sidebar-menu is-classic" : "sidebar-menu"}
+        className={`sidebar-menu${classic ? " is-classic" : ""}${compact ? " workspace-project-menu" : ""}`}
         role={menuRole ?? "dialog"}
         aria-label={ariaLabel}
         style={{ width }}
@@ -571,6 +575,8 @@ export function SidebarMenu({
   onClose,
   returnFocusTo,
   width,
+  compact = false,
+  minLeft,
   classic = false,
   footer,
   focusKey = "",
@@ -618,10 +624,12 @@ export function SidebarMenu({
       const current = anchorRef.current;
       if (!current) return;
       const rect = surface.getBoundingClientRect();
+      const viewportLeft = viewport?.offsetLeft ?? 0;
+      const safeLeft = Math.max(viewportLeft, minLeft ?? viewportLeft);
       const { left, top } = placeSidebarMenu(current, { width: rect.width, height: rect.height }, {
-        left: viewport?.offsetLeft ?? 0,
+        left: safeLeft,
         top: viewport?.offsetTop ?? 0,
-        width: viewport?.width ?? window.innerWidth,
+        width: (viewport?.width ?? window.innerWidth) - (safeLeft - viewportLeft),
         height: viewport?.height ?? window.innerHeight,
       });
       surface.style.left = `${left}px`;
@@ -639,7 +647,7 @@ export function SidebarMenu({
       viewport?.removeEventListener("resize", position);
       viewport?.removeEventListener("scroll", position);
     };
-  }, [visible, sheet, anchorKey, custom]);
+  }, [visible, sheet, anchorKey, custom, minLeft]);
 
   useEffect(() => {
     setFilterQuery("");
@@ -763,6 +771,7 @@ export function SidebarMenu({
       cancelLabel={cancelLabel}
       focusCancel={focusCancel}
       width={width}
+      compact={compact}
       classic={classic}
       footer={footer}
       surfaceRef={surfaceRef}

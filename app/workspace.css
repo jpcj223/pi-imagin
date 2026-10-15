@@ -1,12 +1,12 @@
 /* 按已确认的并排工作区原型组织尺寸、层次和共享主题。 */
 html[data-theme="light"] {--bg-panel:#f7f8f9;--bg-hover:#eef3f6;--bg-selected:#e7eef3;--border:#e7ebee;--accent:#165e82;--accent-hover:#0e4d70;--user-bg:#f1f4f6;--text:#25323b;--text-muted:#77818c;--text-dim:#8b98a3;--terminal-bg:#fbfcfd;}
 html:not([data-theme="light"]) {--terminal-bg:var(--bg-panel);}
-.workspace-titlebar {height:43px;display:flex;align-items:center;gap:16px;padding:0 14px;background:var(--bg-panel);border-bottom:1px solid var(--border);}
+.workspace-titlebar {height:36px;display:flex;align-items:center;gap:12px;padding:0 12px;background:var(--bg-panel);border-bottom:1px solid var(--border);}
 .workspace-titlebar>.sidebar-brand {font-family:var(--font-ui, inherit);font-size:13px;font-weight:600;gap:8px;}
 .workspace-titlebar>span {flex:1;text-align:center;font-size:11px;color:var(--text-dim);padding-right:140px;}
 .workspace-shell {position:relative;--workspace-space:24px;}
 .workspace-shell [hidden],.settings-workspace-page [hidden] {display:none!important;}
-.workspace-rail {width:48px;flex:none;background:var(--bg-hover);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:18px 5px;z-index:201;}
+.workspace-rail {width:40px;flex:none;background:var(--bg-hover);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:10px 4px;z-index:201;}
 .workspace-home {width:36px;height:36px;display:grid;place-items:center;border:0;border-radius:9px;background:var(--bg-selected);color:var(--accent);cursor:pointer;}
 .workspace-shell .sidebar-header {height:auto;min-height:63px;flex-wrap:nowrap;padding:21px 10px 0;gap:4px;border-bottom:0;}
 .workspace-shell .sidebar-header .sidebar-brand,.workspace-shell .sidebar-tabs-list,.workspace-shell .sidebar-header-spacer {display:none!important;}
@@ -65,7 +65,7 @@ html:not([data-theme="light"]) {--terminal-bg:var(--bg-panel);}
 .workspace-status-ready {display:flex;align-items:center;gap:5px;}
 .workspace-status-ready:before {content:"";width:5px;height:5px;border-radius:50%;background:#77a991;}
 .workspace-status-version {margin-left:auto;}
-.settings-workspace-page {position:fixed;top:43px;right:0;bottom:0;z-index:250;background:var(--bg);padding:0;outline:none;display:flex;}
+.settings-workspace-page {position:fixed;top:36px;right:0;bottom:0;z-index:250;background:var(--bg);padding:0;outline:none;display:flex;}
 .settings-workspace-page .settings-dialog-surface {width:100%;height:100%;max-height:none;max-width:none;border:0;border-radius:0;box-shadow:none;display:flex;flex-direction:column;}
 .settings-workspace-page .settings-dialog-header {padding:14px 22px;gap:16px;min-height:54px;border-bottom:1px solid var(--border);}
 .workspace-back {border:0;background:none;color:var(--text-muted);font-size:12px;cursor:pointer;}
@@ -111,6 +111,73 @@ html:not([data-theme="light"]) {--terminal-bg:var(--bg-panel);}
 .workspace-inspector-content .session-info-popover {background:var(--bg)!important;box-shadow:none!important;border:0!important;}
 .workspace-inspector-content .tool-definitions-panel {display:flex;}
 .workspace-shell .session-tree-row {margin:0;}
+
+/* 侧栏操作共享节奏，默认会话独立滚动，设置固定在全局导航底部。 */
+.workspace-home,.workspace-rail-settings {width:30px;height:30px;display:grid;place-items:center;border:0;border-radius:8px;background:transparent;color:var(--text-muted);cursor:pointer;flex:none;}
+.workspace-home.is-active,.workspace-rail-settings.is-active {background:var(--bg-selected);color:var(--accent);}
+.workspace-home:hover,.workspace-rail-settings:hover {background:var(--bg-selected);color:var(--accent);}
+.workspace-rail-settings {margin-top:auto;}
+.workspace-shell .sidebar-header {padding:18px 12px 0;gap:7px;align-items:center;}
+.workspace-shell .sidebar-new-button {height:36px;min-height:36px;border:0;background:transparent;border-radius:6px;padding:8px 7px;gap:7px;}
+.workspace-shell .sidebar-new-button:hover {background:var(--bg-hover);}
+.workspace-shell .sidebar-search-toggle {width:30px;min-width:30px;height:36px;border-radius:6px;display:grid;place-items:center;}
+.workspace-new-shortcut {font-size:10px;opacity:.75;}
+.workspace-project-heading {margin:19px 19px 7px;}
+.workspace-project-tree {display:flex;flex:1;min-height:95px;min-width:0;}
+.workspace-default-sessions {display:flex;flex-direction:column;flex:0 1 29%;min-height:115px;max-height:320px;padding-top:14px;margin-top:14px;border-top:1px solid var(--border);}
+.workspace-default-heading {padding:0 9px 9px;color:var(--text-muted);font-size:11px;flex:none;}
+.workspace-default-sessions .session-tree-session {padding-left:7px;}
+.workspace-default-sessions .session-tree-message {font-size:11px;padding:7px 9px;}
+.workspace-project-menu {padding:5px;border-radius:8px;background:var(--bg-panel);border:1px solid var(--border);box-shadow:0 5px 18px #182c4314;}
+.workspace-project-menu .sidebar-menu-item {min-height:32px;padding:7px 8px;gap:8px;font-size:12px;border-radius:5px;}
+.workspace-project-menu .sidebar-menu-icon {width:15px;height:15px;flex:none;}
+.workspace-project-menu .sidebar-menu-icon svg {width:14px;height:14px;}
+.workspace-project-menu .sidebar-menu-separator {margin:4px 5px;}
+.settings-workspace-page[hidden] {display:none!important;}
+
+/* 主工具栏、聊天与辅助区统一起点，对话输入区遵守聊天列宽度。 */
+.workspace-toolbar>div:first-child {height:40px!important;padding:4px 12px;}
+.workspace-shell .sidebar-search-toggle {padding:0;border:0!important;outline-offset:2px;}
+.workspace-shell .sidebar-header {container-type:inline-size;}
+@container (max-width:180px){.workspace-new-shortcut{display:none;}}
+.workspace-shell .sidebar-search-toggle.is-active {color:var(--accent);background:var(--bg-selected);}
+.workspace-shell .sidebar-search {padding:10px 16px 0;flex:none;}
+.workspace-shell .sidebar-search-input {height:32px;border-radius:6px;font-size:12px;}
+.workspace-shell .sidebar-search-input:focus {outline:1px solid var(--accent);outline-offset:1px;}
+.workspace-shell .sidebar-header:has(+.sidebar-search) {min-height:59px;}
+.workspace-conversation-heading {padding:18px var(--workspace-space) 12px;}
+.workspace-message-column,.workspace-composer-container {width:100%;margin-inline:auto;}
+.workspace-shell .chat-input-shell {flex:none;padding:14px var(--workspace-space) 10px!important;}
+.workspace-composer-card textarea {min-height:56px!important;max-height:min(200px,25vh)!important;}
+.workspace-composer-footer {align-items:flex-end;}
+.workspace-composer-primary {flex:1;min-width:0;}
+.workspace-composer-primary>div {min-width:0;max-width:100%;}
+.workspace-composer-primary>div>button {max-width:100%;}
+.workspace-composer-primary>div>button>span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.workspace-composer-primary>.model-selector.is-toolbar {width:auto!important;flex:0 1 auto!important;max-width:min(240px,calc(100% - 58px));}
+.workspace-send {flex:none;}
+.workspace-aux-tabs {min-height:48px;padding:8px 14px;gap:10px;}
+.workspace-aux-label {font-size:12px;color:var(--text-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+.workspace-aux-tabs .workspace-info-trigger {margin-left:auto;display:grid;place-items:center;width:28px;height:28px;border-radius:5px;padding:0;flex:none;}
+.workspace-info-trigger {border:0;background:none;color:var(--text-muted);cursor:pointer;}
+.workspace-info-trigger:hover,.workspace-info-trigger[aria-expanded="true"] {background:var(--bg-hover);color:var(--accent);}
+.workspace-aux-tabs .workspace-aux-close {margin-left:0;width:24px;height:28px;flex:none;}
+.workspace-shell .new-session-hero {padding-top:0;padding-bottom:0;}
+.workspace-shell .new-session-brand {margin-bottom:0;}
+.workspace-shell .new-session-meta {font-size:10px;}
+@media(min-width:880px){
+  .workspace-shell .right-panel-container.right-panel-open {min-width:260px;}
+  .workspace-shell .right-panel-container>* {min-width:0;max-width:100%;width:100%;}
+}
+@media(min-width:641px) and (max-width:879px){
+  .workspace-shell .right-panel-container {top:76px;bottom:28px;width:min(360px,calc(100vw - 64px));min-width:0;box-shadow:-5px 0 18px #182c4314;}
+}
+@media(max-width:640px){
+  .workspace-shell .right-panel-container {top:36px;height:calc(var(--app-viewport-height,100dvh) - 36px);}
+  .workspace-shell .chat-input-shell {padding:10px 14px 7px!important;}
+  .workspace-conversation-heading {padding:12px 14px 8px;}
+  .workspace-status {min-height:24px;padding:4px 10px;}
+}
 .workspace-file-row>span[data-hidden-reason] {font-size:11px!important;font-family:var(--font-mono);}
 .workspace-aux-tabs>button {display:inline-flex;align-items:center;gap:5px;}
 .workspace-heading-scope .new-session-context {padding:0;margin:0;}
@@ -120,3 +187,57 @@ html:not([data-theme="light"]) {--terminal-bg:var(--bg-panel);}
 .workspace-shell .new-session-logo {width:28px;height:28px;}
 .workspace-titlebar {-webkit-app-region:drag;user-select:none;}
 .workspace-titlebar button {-webkit-app-region:no-drag;}
+
+/* 空白会话在聊天列居中；开始对话后沿用底部输入区。 */
+.workspace-shell .chat-content.is-empty-new {justify-content:center;justify-content:safe center;overflow-y:auto;}
+.workspace-shell .chat-content.is-empty-new .chat-message-area {flex:0 0 0;}
+.workspace-shell .chat-composer-region {min-width:0;max-height:100%;}
+.workspace-shell .chat-content.is-empty-new .chat-composer-region {max-height:none;overflow:visible;}
+.workspace-new-project {width:100%;max-width:calc(var(--chat-content-max-width,820px) + 2 * var(--workspace-space));margin:0 auto;padding:0 var(--workspace-space) 14px;}
+.workspace-new-project .new-session-context {margin:0;padding:0 8px;}
+.project-picker-selection {display:contents;}
+.project-picker-association {display:inline-flex;align-items:center;min-width:0;border-radius:7px;background:var(--bg-hover);}
+.project-picker-clear {display:inline-flex;align-items:center;justify-content:center;flex:none;width:26px;height:26px;margin:0;border:0;border-radius:6px;background:transparent;color:var(--text-muted);font-size:17px;line-height:1;cursor:pointer;}
+.project-picker-clear:hover {color:var(--text);background:var(--bg-selected, var(--border));}
+.project-picker-clear:focus-visible {outline:2px solid var(--accent);outline-offset:-2px;}
+.project-picker.is-inline .project-picker-association .project-picker-button {padding-left:2px;}
+/* 常用分支独立于右侧菜单，在正文标题下展开。 */
+.workspace-titlebar .sidebar-brand>img {width:24px!important;height:24px!important;}
+.workspace-home svg,.workspace-rail-settings svg {width:18px;height:18px;}
+.workspace-heading-actions {display:flex;align-items:center;gap:6px;flex:none;}
+.workspace-heading-actions>button {display:inline-flex;align-items:center;justify-content:center;height:28px;min-width:28px;border:0;border-radius:6px;background:none;color:var(--text-muted);cursor:pointer;}
+.workspace-heading-actions .workspace-branch-trigger {gap:5px;padding:0 8px;font-size:11px;}
+.workspace-heading-actions>button:hover,.workspace-heading-actions>button[aria-expanded="true"] {background:var(--bg-hover);color:var(--accent);}
+.workspace-heading-actions>button:disabled {opacity:.4;cursor:default;}
+#workspace-branches {flex:none;min-width:0;max-height:clamp(80px,22vh,200px);overflow:auto;margin:0 var(--workspace-space) 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-panel);}
+.workspace-branch-panel {padding:8px 10px;min-width:0;}
+.workspace-branch-panel>div {min-width:0;}
+.workspace-branch-empty {padding:6px;color:var(--text-muted);font-size:12px;}
+.workspace-history {display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;}
+.workspace-history>header {display:flex;align-items:center;gap:8px;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text-dim);}
+.workspace-history button {flex:none;border:1px solid var(--border);border-radius:5px;padding:4px 7px;background:var(--bg);color:var(--text-muted);font-size:11px;cursor:pointer;}
+.workspace-history iframe {display:block;flex:1;width:100%;min-height:0;border:0;background:var(--bg);}
+.workspace-history-status {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;flex:1;color:var(--text-muted);font-size:12px;text-align:center;overflow-wrap:anywhere;}
+/* 运行时将停止、引导、后续消息组成一组，窄屏按整组换行。 */
+.workspace-composer-card.is-streaming {border-color:color-mix(in srgb,var(--accent) 30%,var(--border))!important;}
+.workspace-streaming-actions {display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px!important;min-width:0;max-width:100%;margin-left:auto;}
+.workspace-streaming-actions>button {display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:29px;padding:5px 9px!important;white-space:nowrap;border:1px solid var(--border)!important;border-radius:7px!important;font-size:11px!important;font-weight:500!important;line-height:1.5;}
+.workspace-streaming-actions .workspace-stop {background:color-mix(in srgb,#ef4444 6%,var(--bg));border-color:color-mix(in srgb,#ef4444 24%,var(--border))!important;color:#d84b4b;cursor:pointer;}
+.workspace-streaming-actions .workspace-steer {background:var(--bg-hover)!important;color:var(--accent)!important;}
+.workspace-streaming-actions .workspace-followup {background:var(--accent)!important;color:var(--accent-contrast)!important;border-color:var(--accent)!important;}
+.workspace-streaming-actions>button:disabled {opacity:.4;cursor:not-allowed;}
+.workspace-streaming-actions>button:focus-visible {outline:2px solid var(--accent);outline-offset:2px;}
+.workspace-composer-card.is-streaming .workspace-composer-primary {flex-basis:180px!important;}
+@media(max-width:640px){.workspace-composer-card.is-streaming .workspace-streaming-actions {flex:1 0 100%;}.workspace-heading-actions {gap:2px;}.workspace-heading-actions .workspace-branch-trigger {padding:0 6px;}#workspace-branches {max-height:24vh;}.workspace-streaming-actions>button {min-height:32px;}}
+.workspace-composer-footer {flex-wrap:wrap;align-items:center;gap:6px;}
+.workspace-composer-primary {flex:1 1 240px!important;}
+.workspace-composer-actions {margin-top:0!important;flex:0 0 auto;gap:2px!important;}
+.workspace-composer-actions>div {margin-left:0!important;}
+.workspace-composer-actions button {padding-inline:6px!important;}
+@media(max-width:1200px){
+  .workspace-composer-actions [data-composer-action-label] {display:none;}
+  .workspace-composer-primary {flex-basis:200px!important;}
+}
+@media(max-width:640px){
+  .workspace-new-project {padding:0 14px 12px;}
+}

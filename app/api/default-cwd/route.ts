@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { mkdirSync } from "fs";
-import { defaultCwdPath } from "@/lib/default-cwd";
+import { defaultCwdParent, defaultCwdPath } from "@/lib/default-cwd";
+
+// 只读提供默认工作区范围，不创建目录或启动会话。
+export async function GET() {
+  return NextResponse.json({ parent: defaultCwdParent() });
+}
 
 // POST /api/default-cwd
 // Creates ~/pi-cwd/<YYYYMMDD> (local date) if it doesn't exist and returns the path.

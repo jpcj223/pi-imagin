@@ -9,7 +9,7 @@ import { createJiti } from "jiti";
 // objects it touches, so its gestures can be played out without a browser.
 const shimPath = fileURLToPath(new URL("./__fixtures__/react-hook-shim.mjs", import.meta.url));
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true, alias: { react: shimPath } });
-const { renderHook } = await import(shimPath);
+const { renderHook } = await import(new URL("./__fixtures__/react-hook-shim.mjs", import.meta.url));
 const {
   AUTO_SCROLL_MAX_STEP,
   DRAG_START_PX,
@@ -51,7 +51,7 @@ class FakeElement {
   }
 
   closest(selector) {
-    return this.inActions && selector === ".session-tree-group-actions" ? this : null;
+    return this.inActions && selector.includes(".session-tree-group-actions") ? this : null;
   }
 }
 
@@ -143,7 +143,7 @@ function setup({ projects = ["/a", "/b", "/c"], clientHeight = 400, enabled = tr
     return {
       isConnected: true,
       captured,
-      getBoundingClientRect: () => ({ top: SCROLL_TOP_EDGE + rowTop(key) - scroll.scrollTop, left: 6, width: 228, height: 28 }),
+      getBoundingClientRect: () => ({ top: SCROLL_TOP_EDGE + rowTop(key) - scroll.scrollTop, left: 6, width: 228, height: 39 }),
       setPointerCapture: (id) => captured.add(id),
       hasPointerCapture: (id) => captured.has(id),
       releasePointerCapture: (id) => captured.delete(id),
@@ -216,7 +216,7 @@ test("a mouse drag starts after a few pixels, follows the pointer and drops next
   const view = tree.hook.result.view;
   assert.equal(view.phase, "dragging");
   assert.equal(view.projectKey, "/a");
-  assert.deepEqual(view.source, { key: "/a", pinned: false, top: 0, bottom: 28, gapAbove: 0, gapBelow: 0 });
+  assert.deepEqual(view.source, { key: "/a", pinned: false, top: 0, bottom: 39, gapAbove: 0, gapBelow: 0 });
   assert.equal(view.drop, null, "still over itself");
   assert.ok(element.captured.has(1), "the header holds the pointer");
   // The ghost is placed in the tree's box, its left edge 4px in from the
@@ -227,22 +227,20 @@ test("a mouse drag starts after a few pixels, follows the pointer and drops next
   assert.equal(tree.ghost.style.width, undefined);
   assert.equal(tree.ghost.style.height, undefined);
 
-  // Past the middle of /c (56..84): after it, the line in the middle of the
-  // footer's spacer (page y 188), below the pointer: the ghost's bottom
-  // keeps the gap above the pointer.
-  tree.move(tree.at(80));
-  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/c", position: "after", lineY: 88 });
-  assert.equal(tree.ghost.style.top, `${tree.at(80) - GHOST_GAP_PX.mouse - GHOST_HEIGHT - TREE_TOP}px`);
+  // 越过第三行中点后投放到末尾；当前项目行高为 39 像素。
+  tree.move(tree.at(110));
+  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/c", position: "after", lineY: 121 });
+  assert.equal(tree.ghost.style.top, `${tree.at(110) - GHOST_GAP_PX.mouse - GHOST_HEIGHT - TREE_TOP}px`);
   // The line on the edge between /b and /c (56), just above the pointer
   // (58): the ghost goes above the new line, not the last one.
-  tree.move(tree.at(58));
-  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/b", position: "after", lineY: 56 });
-  assert.equal(tree.ghost.style.top, `${tree.at(56) - GHOST_LINE_GAP_PX - GHOST_HEIGHT - TREE_TOP}px`);
+  tree.move(tree.at(80));
+  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/b", position: "after", lineY: 78 });
+  assert.equal(tree.ghost.style.top, `${tree.at(78) - GHOST_LINE_GAP_PX - GHOST_HEIGHT - TREE_TOP}px`);
   // The line below the pointer: back to the pointer.
-  tree.move(tree.at(48));
-  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/b", position: "after", lineY: 56 });
-  assert.equal(tree.ghost.style.top, `${tree.at(48) - GHOST_GAP_PX.mouse - GHOST_HEIGHT - TREE_TOP}px`);
-  tree.release(tree.at(80));
+  tree.move(tree.at(65));
+  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/b", position: "after", lineY: 78 });
+  assert.equal(tree.ghost.style.top, `${tree.at(65) - GHOST_GAP_PX.mouse - GHOST_HEIGHT - TREE_TOP}px`);
+  tree.release(tree.at(110));
   assert.deepEqual(tree.moves, [["/a", "/c", "after"]], "the drop is taken where the pointer is let go");
   assert.equal(tree.hook.result.view, null);
   assert.equal(element.captured.size, 0, "capture released");
@@ -356,9 +354,9 @@ test("touch: a swipe scrolls, a long-press picks the group up and holds the list
   tree.move(start + DRAG_START_PX, { pointerType: "touch" });
   assert.equal(tree.hook.result.view.phase, "dragging");
   assert.equal(element.captured.size, 0, "touch keeps its implicit capture");
-  tree.move(tree.at(95), { pointerType: "touch" });
-  assert.equal(tree.ghost.style.top, `${tree.at(95) - GHOST_GAP_PX.touch - GHOST_HEIGHT - TREE_TOP}px`, "farther from a finger");
-  tree.release(tree.at(95));
+  tree.move(tree.at(110), { pointerType: "touch" });
+  assert.equal(tree.ghost.style.top, `${tree.at(110) - GHOST_GAP_PX.touch - GHOST_HEIGHT - TREE_TOP}px`, "farther from a finger");
+  tree.release(tree.at(110));
   assert.deepEqual(tree.moves, [["/a", "/c", "after"]]);
   assert.equal(tree.click(), true);
 
@@ -422,19 +420,19 @@ test("new rows without the dragged group cancel it; with it, the drop is taken a
   const tree = setup();
   const start = tree.at(15);
   tree.press("/a", { y: start });
-  tree.move(tree.at(95));
-  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/c", position: "after", lineY: 88 });
+  tree.move(tree.at(110));
+  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/c", position: "after", lineY: 121 });
   // /d joins at the bottom: the pointer is now over /d's upper half, the
   // line on the edge between /c and /d.
   const grown = model(["/a", "/b", "/c", "/d"]);
   tree.hook.rerender({ ...tree.props, rows: grown.rows, offsets: getRowOffsets(grown.rows, "desktop") });
-  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/c", position: "after", lineY: 84 });
-  tree.move(tree.at(105));
-  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/d", position: "after", lineY: 116 });
+  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/c", position: "after", lineY: 117 });
+  tree.move(tree.at(150));
+  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/d", position: "after", lineY: 160 });
   const gone = model(["/b", "/c", "/d"]);
   tree.hook.rerender({ ...tree.props, rows: gone.rows, offsets: getRowOffsets(gone.rows, "desktop") });
   assert.equal(tree.hook.result.view, null, "archived in another window");
-  tree.release(tree.at(105));
+  tree.release(tree.at(150));
   assert.deepEqual(tree.moves, []);
   assert.equal(tree.click(), true);
   tree.hook.unmount();

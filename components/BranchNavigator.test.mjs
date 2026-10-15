@@ -9,7 +9,7 @@ const jiti = createJiti(import.meta.url, {
 const { BranchNavigator, buildActivePath, compressChain, hasSessionBranches, selectTopLevelBranches } = await jiti.import("./BranchNavigator.tsx");
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { I18nProvider } = await jiti.import("@/hooks/useI18n.tsx");
+const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { enLocale } = await jiti.import("@/lib/i18n/messages/en.ts");
 
 const msg = (id, role, text) => ({ type: "message", id, parentId: null, timestamp: "t", message: { role, content: text } });
@@ -185,7 +185,7 @@ test("a locked navigator keeps the tree readable but offers no branch to switch 
   ])];
   const render = (locked) => renderToStaticMarkup(React.createElement(
     I18nProvider,
-    null,
+    { initialLocale: "en" },
     React.createElement(BranchNavigator, {
       tree,
       activeLeafId: "a1",
@@ -208,4 +208,14 @@ test("a locked navigator keeps the tree readable but offers no branch to switch 
   // Only the panel header stays clickable; branch rows are not.
   assert.equal((locked.match(/cursor:pointer/g) ?? []).length, 1);
   assert.equal((locked.match(/cursor:default/g) ?? []).length, 2);
+});
+
+test("嵌入聊天列的分支不再浮层定位，运行中仍禁止切换", () => {
+  const tree = [node(msg("u", "user", "问题"), [node(msg("a", "assistant", "分支一")), node(msg("b", "assistant", "分支二"))])];
+  const html = renderToStaticMarkup(React.createElement(I18nProvider, { initialLocale: "en" }, React.createElement(BranchNavigator, { tree, activeLeafId: "a", onLeafChange() {}, hasSession: true, docked: true, locked: true })));
+  assert.match(html, /workspace-branch-panel/);
+  assert.match(html, /分支二/);
+  assert.match(html, /^<section class="workspace-branch-panel" aria-label="Branches">/);
+  assert.doesNotMatch(html, /position:fixed|top:100%/);
+  assert.doesNotMatch(html, /cursor:pointer/);
 });

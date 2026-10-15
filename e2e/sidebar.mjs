@@ -9,7 +9,7 @@ export async function showSidebarFiles(page) {
     const project = await current.count() ? current.first() : page.locator(".session-tree-group").first();
     await project.hover();
     await project.locator('.session-tree-group-action[aria-haspopup="menu"]').click();
-    await page.getByRole("menuitem", { name: "Open in Files", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Browse project files", exact: true }).click();
   }
   await files.locator(".sidebar-files-body").waitFor({ state: "visible" });
 }

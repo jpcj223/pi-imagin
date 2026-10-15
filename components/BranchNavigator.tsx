@@ -24,6 +24,8 @@ interface Props {
   hideInlineButton?: boolean;
   /** The session is running: the tree stays readable but branches cannot be switched */
   locked?: boolean;
+  /** 放在聊天标题下方参与正常布局，不覆盖其他控件。 */
+  docked?: boolean;
 }
 
 // Find the visible entry IDs on the path from root to activeLeafId.
@@ -143,6 +145,10 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
     <div>
       {/* This node row */}
       <div
+        role="button"
+        tabIndex={onSelect ? 0 : -1}
+        aria-disabled={!onSelect}
+        aria-pressed={isActive}
         style={{
           display: "flex",
           alignItems: "center",
@@ -150,6 +156,7 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
           cursor: onSelect ? "pointer" : "default",
         }}
         onClick={onSelect ? () => onSelect(rep.entry.id) : undefined}
+        onKeyDown={onSelect ? event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(rep.entry.id); } } : undefined}
       >
         {/* Indent guide lines */}
         {parentLines.map((hasLine, i) => (
@@ -257,7 +264,7 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
   );
 }
 
-export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle, hasSession, compact, hideInlineButton, locked = false }: Props) {
+export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle, hasSession, compact, hideInlineButton, locked = false, docked = false }: Props) {
   const { t } = useI18n();
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp !== undefined ? openProp : openInternal;
@@ -319,6 +326,12 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
   );
 
 
+  if (docked) {
+    return <section className="workspace-branch-panel" aria-label={t("i18n.branches")}>
+      {lockedNotice}
+      {hasContent ? topLevel.map((child, idx) => <TreeNodeView key={child.entry.id} node={child} activePathIds={activePathIds} depth={0} isLast={idx === topLevel.length - 1} parentLines={[]} onSelect={selectBranch} />) : <div className="workspace-branch-empty">{noBranchReason}</div>}
+    </section>;
+  }
   if (inline) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "stretch" }}>

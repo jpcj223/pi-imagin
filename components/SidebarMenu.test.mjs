@@ -258,7 +258,7 @@ test("a filter shows once a menu has enough choices, and narrows only the choice
   assert.equal(sidebarMenuHasFilter(undefined), false);
   // By label, note or title, case-insensitive; separators and actions stay.
   const ids = (query) => filterSidebarMenuItems(projectMenu, query).map((item) => item.id);
-  assert.deepEqual(ids("PI-WEB"), ["project:3", "separator", "open-folder"]);
+  assert.deepEqual(ids("PI-IMAGIN"), ["project:3", "separator", "open-folder"]);
   assert.deepEqual(ids("workspace"), ["project:5", "separator", "open-folder"]);
   assert.deepEqual(ids("acme"), ["project:6", "separator", "open-folder"]);
   assert.deepEqual(ids("  "), projectMenu.map((item) => item.id));

@@ -7,7 +7,7 @@ import { createJiti } from "jiti";
 // takes the next answer in line.
 const shimPath = fileURLToPath(new URL("./__fixtures__/react-hook-shim.mjs", import.meta.url));
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true, alias: { react: shimPath } });
-const { renderHook } = await import(shimPath);
+const { renderHook } = await import(new URL("./__fixtures__/react-hook-shim.mjs", import.meta.url));
 const { useSessionUiState } = await jiti.import("./useSessionUiState.ts");
 
 const answers = [];

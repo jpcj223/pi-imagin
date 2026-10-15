@@ -41,6 +41,8 @@ export interface SessionUiState {
    * place. Absent while empty.
    */
   projectOrder?: string[];
+  /** 会话家族根 ID 的手动顺序；每个项目独立展示，不移动会话目录。 */
+  sessionOrder?: string[];
   /**
    * Display names by projectKey, shown instead of the folder name (the group
    * menu's Rename…). Only a label: the root, the key and the sessions stay as
@@ -68,6 +70,7 @@ export type SessionUiStateRequest =
    */
   | { action: "move-project"; projectKey: string; anchorKey: string; position: ProjectMovePosition; add: string[] }
   /** A project's display name; null (or an empty name) removes it, and the folder name shows again. */
+  | { action: "move-session"; sessionId: string; anchorId: string; position: ProjectMovePosition; add: string[] }
   | { action: "rename-project"; projectKey: string; name: string | null };
 
 export interface SessionUiStateResponse { state: SessionUiState }
@@ -221,6 +224,11 @@ export function normalizeSessionUiState(value: unknown): SessionUiState | null {
     const order = fitProjectOrder(keys);
     if (order.length > 0) state.projectOrder = order;
   }
+  if (Array.isArray(value.sessionOrder)) {
+    const ids = [...new Set(value.sessionOrder.filter((id): id is string => isSessionId(id) && isProjectString(id)))];
+    const order = fitProjectOrder(ids);
+    if (order.length) state.sessionOrder = order;
+  }
   // Like the order: anything but an object reads as no names, and the first
   // ones that fit both limits are kept.
   if (isPlainObject(value.projectNames)) {
@@ -351,6 +359,14 @@ export function parseSessionUiStateRequest(body: unknown): ParseResult {
       if (!add.ok) return add;
       return { ok: true, request: { action: "move-project", projectKey, anchorKey, position, add: add.keys } };
     }
+    case "move-session": {
+      const { sessionId, anchorId, position } = body;
+      if (!isSessionId(sessionId) || !isSessionId(anchorId) || sessionId === anchorId) return { ok: false, error: "sessionId and anchorId must be distinct session ids" };
+      if (position !== "before" && position !== "after") return { ok: false, error: "invalid move position" };
+      const add = body.add === undefined || (Array.isArray(body.add) && body.add.length === 0) ? { ok: true as const, ids: [] } : parseIds(body.add);
+      if (!add.ok) return add;
+      return { ok: true, request: { action: "move-session", sessionId, anchorId, position, add: add.ids } };
+    }
     case "rename-project": {
       if (!isProjectString(body.projectKey)) {
         return { ok: false, error: `projectKey must be a non-empty string of at most ${MAX_PROJECT_STRING_LENGTH} characters` };
@@ -418,6 +434,7 @@ function copyState(state: SessionUiState): SessionUiState {
   const copy: SessionUiState = { ...state, sessions, projects };
   // Only when present: an explicit undefined would not equal an absent field.
   if (state.projectOrder) copy.projectOrder = [...state.projectOrder];
+  if (state.sessionOrder) copy.sessionOrder = [...state.sessionOrder];
   if (state.projectNames) copy.projectNames = { ...state.projectNames };
   return copy;
 }
@@ -600,6 +617,14 @@ export function applySessionUiStateRequest(
       const moved = withProjectMoved([...missingProjectKeys(order, add), ...order], projectKey, anchorKey, position);
       const named = new Set([projectKey, anchorKey, ...add]);
       if (writeProjectOrder(next, capProjectOrder(moved, named))) changed = true;
+      break;
+    }
+    case "move-session": {
+      const { sessionId, anchorId, position, add } = request;
+      const order = next.sessionOrder ?? [];
+      const moved = withProjectMoved([...missingProjectKeys(order, add), ...order], sessionId, anchorId, position);
+      const result = capProjectOrder(moved, new Set([sessionId, anchorId, ...add]));
+      if (!sameOrder(order, result)) { next.sessionOrder = result; changed = true; }
       break;
     }
     case "rename-project": {

@@ -69,6 +69,10 @@ interface Props {
   label: string;
   /** The project button's text while there is no project. */
   placeholder?: string;
+  /** 只替换按钮文字，目录身份与已有菜单操作保持不变。 */
+  projectLabel?: string;
+  /** 新会话以单个可取消的项目标签展示，默认目录不作为项目选项。 */
+  association?: boolean;
   /** Shown as ~ in the boxes' paths. */
   homeDir?: string;
   /** Running and unread counts by project key: badges in the project menu, and a dot in the files' project box for activity elsewhere. */
@@ -204,6 +208,8 @@ export function ProjectWorktreePicker({
   mobile,
   label,
   placeholder = "",
+  projectLabel,
+  association = false,
   homeDir,
   projectActivity,
   worktreeHint = null,
@@ -236,12 +242,13 @@ export function ProjectWorktreePicker({
   // "Custom path…", the "New worktree…" form under the list, a dirty
   // checkout's question in its row. A phone keeps the sheet.
   const classic = !mobile;
-  const { project, worktrees } = context;
-  const current = currentWorktreeOf(context);
+  const pickerContext = association && context.defaultWorkspace ? { ...context, project: null, worktrees: null } : context;
+  const { project, worktrees } = pickerContext;
+  const current = currentWorktreeOf(pickerContext);
   // Inline, the project's name as the menus name it: its display name, else
   // its folder's, with the parent folder only where two projects share it.
   const projectName = inline && project
-    ? describeProjectChoices(projectChoices(context)).find(({ choice }) => choice.key === project.key)
+    ? describeProjectChoices(projectChoices(pickerContext)).find(({ choice }) => choice.key === project.key)
     : undefined;
 
   useEffect(() => {
@@ -354,11 +361,11 @@ export function ProjectWorktreePicker({
   };
 
   const projectItems = (): SidebarMenuItem[] => {
-    const choices = describeProjectChoices(projectChoices(context)).map(({ choice, name, note }): SidebarMenuItem => {
+    const choices = describeProjectChoices(projectChoices(pickerContext)).map(({ choice, name, note }): SidebarMenuItem => {
       const activity = projectActivity?.get(choice.key);
       // A desktop shows the whole path, unless the user named the project:
       // then that name alone, in the same code type; the tooltip keeps the path.
-      const wholePath = classic && choice.alias === undefined;
+      const wholePath = classic && !association && choice.alias === undefined;
       return {
         type: "item",
         id: `project:${choice.key}`,
@@ -380,13 +387,13 @@ export function ProjectWorktreePicker({
     return [
       ...choices,
       ...separator,
-      {
+      ...(association ? [] : [{
         type: "item",
         id: "default-directory",
         label: t("sidebar.useDefaultDirectory"),
         icon: <FolderIcon size={13} />,
         onSelect: () => onUseDefaultDirectory(),
-      },
+      } satisfies SidebarMenuItem]),
       {
         type: "item",
         id: "open-folder",
@@ -515,39 +522,50 @@ export function ProjectWorktreePicker({
 
   return (
     <div className={`project-picker is-${layout}`} role="group" aria-label={label}>
-      <button
-        ref={projectRef}
-        type="button"
-        className={project ? "project-picker-button is-project" : "project-picker-button is-project is-empty"}
-        title={project?.root ?? ""}
-        aria-haspopup="menu"
-        aria-expanded={menu?.kind === "project"}
-        onClick={(event) => openMenu("project", event.currentTarget)}
-      >
-        {/* Inline: a folder icon, the name (cut at its end) and a chevron;
-            the tooltip is the path. The files': the whole path, cut at its
-            left (the folder name at its end is what tells paths apart), no
-            icon and no chevron: the path is the box. A project the user
-            named shows that name; the tooltip keeps the path. */}
-        {inline && <FolderIcon size={12} className="project-picker-icon" />}
-        {/* A twin's parent folder is cut before its name, the "/" never. */}
-        {inline && project ? (
-          <span className="project-picker-name">
-            {project.alias === undefined && projectName?.note && <><span className="project-picker-parent">{projectName.note}</span>/</>}
-            <span className="project-picker-leaf">{project.alias ?? projectName?.name ?? projectNameOf(project.root)}</span>
-          </span>
-        ) : project?.alias !== undefined ? (
-          <span className="project-picker-label is-alias">{project.alias}</span>
-        ) : project ? (
-          <span className="project-picker-path"><span>{displayPath(project.root, homeDir)}</span></span>
-        ) : (
-          <span className="project-picker-label">{placeholder}</span>
+      <div className={association && project ? "project-picker-association" : "project-picker-selection"}>
+        {association && project && (
+          <button
+            type="button"
+            className="project-picker-clear"
+            aria-label={t("sidebar.clearProject")}
+            title={t("sidebar.clearProject")}
+            onClick={() => { closeMenu(); onUseDefaultDirectory(); }}
+          >×</button>
         )}
-        {otherActivity && (
-          <span className="project-picker-activity" role="img" title={t("sidebar.newActivity")} aria-label={t("sidebar.newActivity")} />
-        )}
-        {inline && <ChevronIcon size={9} className="project-picker-chevron sidebar-icon-down" />}
-      </button>
+        <button
+          ref={projectRef}
+          type="button"
+          className={project ? "project-picker-button is-project" : "project-picker-button is-project is-empty"}
+          title={project?.root ?? ""}
+          aria-haspopup="menu"
+          aria-expanded={menu?.kind === "project"}
+          onClick={(event) => openMenu("project", event.currentTarget)}
+        >
+          {/* Inline: a folder icon, the name (cut at its end) and a chevron;
+              the tooltip is the path. The files': the whole path, cut at its
+              left (the folder name at its end is what tells paths apart), no
+              icon and no chevron: the path is the box. A project the user
+              named shows that name; the tooltip keeps the path. */}
+          {inline && !(association && project) && <FolderIcon size={12} className="project-picker-icon" />}
+          {/* A twin's parent folder is cut before its name, the "/" never. */}
+          {projectLabel !== undefined ? <span className="project-picker-label">{projectLabel}</span> : inline && project ? (
+            <span className="project-picker-name">
+              {project.alias === undefined && projectName?.note && <><span className="project-picker-parent">{projectName.note}</span>/</>}
+              <span className="project-picker-leaf">{project.alias ?? projectName?.name ?? projectNameOf(project.root)}</span>
+            </span>
+          ) : project?.alias !== undefined ? (
+            <span className="project-picker-label is-alias">{project.alias}</span>
+          ) : project ? (
+            <span className="project-picker-path"><span>{displayPath(project.root, homeDir)}</span></span>
+          ) : (
+            <span className="project-picker-label">{placeholder}</span>
+          )}
+          {otherActivity && (
+            <span className="project-picker-activity" role="img" title={t("sidebar.newActivity")} aria-label={t("sidebar.newActivity")} />
+          )}
+          {inline && <ChevronIcon size={9} className="project-picker-chevron sidebar-icon-down" />}
+        </button>
+        </div>
       {worktrees && (
         <button
           ref={worktreeRef}

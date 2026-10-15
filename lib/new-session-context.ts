@@ -43,6 +43,8 @@ export interface NewSessionOptions {
 /** What the sidebar reports for its cwd, for the bar above a fresh composer. */
 export interface NewSessionContext {
   cwd: string;
+  /** 默认工作目录仅显示选择入口，不把日期当作关联项目名称。 */
+  defaultWorkspace?: boolean;
   project: ProjectChoice;
   /**
    * The project's checkouts, only at the top of a git checkout (the files
@@ -181,6 +183,7 @@ export function newSessionContextKey(context: NewSessionContext | null): string 
   if (!context) return "";
   return JSON.stringify([
     context.cwd,
+    context.defaultWorkspace ?? false,
     context.project.key,
     context.project.root,
     context.project.alias ?? null,

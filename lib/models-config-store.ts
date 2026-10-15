@@ -49,12 +49,14 @@ export function normalizeModelsConfigCosts(
 function sanitizeModelsConfig(data: Record<string, unknown>): Record<string, unknown> {
   if (!isRecord(data.providers)) return data;
 
-  const providers = Object.fromEntries(Object.entries(data.providers).map(([providerId, provider]) => {
-    if (!isRecord(provider) || !Array.isArray(provider.models)) return [providerId, provider];
+  const providers = Object.fromEntries(Object.entries(data.providers).flatMap(([providerId, provider]) => {
+    // 新建服务商默认填入协议；只有协议的空草稿不能交给 SDK 当作有效配置。
+    if (isRecord(provider) && Object.keys(provider).length > 0 && Object.keys(provider).every(key => key === "api")) return [];
+    if (!isRecord(provider) || !Array.isArray(provider.models)) return [[providerId, provider]];
     const models = provider.models.filter((model) => (
       !isRecord(model) || typeof model.id !== "string" || model.id.trim().length > 0
     ));
-    return [providerId, { ...provider, models }];
+    return [[providerId, { ...provider, models }]];
   }));
 
   return { ...data, providers };
