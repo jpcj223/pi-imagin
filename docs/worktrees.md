@@ -44,10 +44,10 @@ Pi Imagin 会把 checkout 放在：
 /Users/alex/Documents/Workspace/pi-imagin
 ```
 
-新建 `codex/worktree-help` 时，目录会是：
+新建 `feature/worktree-help` 时，目录会是：
 
 ```text
-/Users/alex/Documents/Workspace/pi-imagin-worktrees/codex-worktree-help
+/Users/alex/Documents/Workspace/pi-imagin-worktrees/feature-worktree-help
 ```
 
 如果这个 branch 已存在，Pi Imagin 会为它添加 worktree。如果 branch 不存在，Pi Imagin 会从当前 `HEAD` 创建这个 branch。

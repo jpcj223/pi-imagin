@@ -1,10 +1,8 @@
 # Pi Imagin
 
-源码来源：本项目基于 [pi-web](https://github.com/agegr/pi-web)，保留原 MIT 许可证和作者声明。
+Pi Imagin 是基于 [pi 编程智能体 SDK](https://github.com/earendil-works/pi)的本地桌面工作区，也提供浏览器开发入口。界面、本地服务和智能体工具在本机运行，模型请求连接所配置的服务商或本地模型服务。Pi Imagin 与 pi 共用本机配置和会话文件，支持历史查找、继续对话、模型与资源配置及项目文件查看。
 
-
-[pi 编程智能体](https://github.com/earendil-works/pi)的本地桌面工作区，也保留浏览器开发入口。Pi Imagin 与 pi 共用本机配置和会话文件，可查找和继续对话、运行智能体、配置模型与资源，并查看项目文件。
-
+本项目基于 [pi-web](https://github.com/agegr/pi-web)，保留原 MIT 许可证和作者声明。
 
 ## 功能
 
@@ -154,7 +152,7 @@ node_modules/.bin/tsc --noEmit
 npm run lint
 ```
 
-日常开发时不要运行 `next build` 或 `npm run build`。它们会写入 `.next/`，可能干扰开发服务器；仅在发布流程中执行构建。
+开发服务与生产构建共用 `.next/`。执行 `next build` 或 `npm run build` 前须停止同目录开发服务，避免构建文件冲突。
 
 贡献者文档：[国际化](./docs/i18n.md)和[发布流程](./docs/release.md)。
 
