@@ -676,6 +676,10 @@ export function AppShell() {
   const initialLinkedSessionId = linkedSessionId(initialNavigation);
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
   const [navigationReady, setNavigationReady] = useState(false);
+  const [sidebarStartupReady, setSidebarStartupReady] = useState(false);
+  const [workspaceRestorePending, setWorkspaceRestorePending] = useState(false);
+  const [readyChatKey, setReadyChatKey] = useState<number | null>(null);
+  const handleSidebarStartupReady = useCallback(() => setSidebarStartupReady(true), []);
   const activeProjectKeyRef = useRef<string | null>(null);
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionId);
@@ -700,6 +704,7 @@ export function AppShell() {
 
   const invalidateWorkspaceRestore = useCallback(() => {
     workspaceRestoreTokenRef.current += 1;
+    setWorkspaceRestorePending(false);
   }, []);
 
   // Persist every active-session transition, including new and forked sessions
@@ -808,12 +813,13 @@ export function AppShell() {
       adopt({ sessions: sessionCatalog });
       return;
     }
+    setWorkspaceRestorePending(true);
     void fetch("/api/sessions")
       .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
       .then(adopt)
       .catch(() => {
         // Network hiccup: keep the remembered session for a later retry.
-      });
+      }).finally(() => { if (token === workspaceRestoreTokenRef.current) setWorkspaceRestorePending(false); });
   }, [router, sessionCatalog]);
 
   const handleCwdChange = useCallback((
@@ -877,6 +883,8 @@ export function AppShell() {
     setSystemTools(null);
     setSystemInfoLoading(false);
     setActiveTopPanel(null);
+    // 先清理旧地址，再恢复工作区选择；否则同步命中的恢复地址会被覆盖。
+    if (window.location.search) router.replace(window.location.pathname, { scroll: false });
     if (currentProject !== newProject) {
       // Keep #281's project isolation, but park each workspace's file tabs
       // instead of discarding them so they return when the user switches back.
@@ -885,7 +893,6 @@ export function AppShell() {
       // the default welcome page when none is remembered.
       if (!skipWorkspaceRestore) restoreWorkspaceContext(newProject, cwd);
     }
-    router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
   }, [activeCwd, changeFileWorkspace, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false, entryId?: string, blockIndex?: number, options?: SelectSessionOptions) => {
@@ -1336,11 +1343,13 @@ export function AppShell() {
       onCreateWorktree={handleCreateNewSessionWorktree}
     />
   ) : null;
-  const showChat = navigationReady && initialSessionRestored && initialCwdStatus !== "validating" && (selectedSession !== null || effectiveNewSessionCwd !== null);
-  const restoringSession = !navigationReady || Boolean(initialSessionId && !initialSessionRestored);
+  const showChat = navigationReady && initialSessionRestored && !workspaceRestorePending && initialCwdStatus !== "validating" && (selectedSession !== null || effectiveNewSessionCwd !== null);
+  const restoringSession = !navigationReady || !sidebarStartupReady || workspaceRestorePending || Boolean(initialSessionId && !initialSessionRestored);
   const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
   // While restoring initial session from URL, don't show the placeholder
-  const showPlaceholder = navigationReady && initialSessionRestored && !initialNavigation.requestedCwd && !showChat;
+  const showPlaceholder = !restoringSession && initialSessionRestored && !initialNavigation.requestedCwd && !showChat;
+  const startupReady = layoutReady && !restoringSession && initialCwdStatus !== "validating" && (!showChat || readyChatKey === sessionKey);
+  const handleChatStartupReady = useCallback(() => setReadyChatKey(sessionKey), [sessionKey]);
 
   useEffect(() => {
     setProjectTrust(null);
@@ -1437,6 +1446,8 @@ export function AppShell() {
         initialSessionLinked={initialLinkedSessionId !== null}
         skipInitialProjectSelection={initialNavigation.requestedCwd !== null}
         onInitialRestoreDone={handleInitialRestoreDone}
+        initialNavigationReady={navigationReady}
+        onStartupReady={handleSidebarStartupReady}
         refreshKey={refreshKey}
         onSessionDeleted={handleSessionDeleted}
         selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
@@ -2062,7 +2073,7 @@ export function AppShell() {
       }
     `}</style>
     <header className="workspace-titlebar"><PiImaginTitle /></header>
-    <div className="workspace-shell" data-layout-ready={layoutReady} style={{
+    <div className="workspace-shell" data-layout-ready={layoutReady} data-startup-ready={startupReady} data-startup-stage={!sidebarStartupReady ? "navigation" : initialCwdStatus === "validating" || workspaceRestorePending ? "workspace" : !startupReady ? "conversation" : "ready"} style={{
       display: "flex",
       width: "100%",
       height: "calc(var(--app-viewport-height, 100dvh) - 36px)",
@@ -2250,6 +2261,7 @@ export function AppShell() {
           {showChat ? (
             <ChatWindow
               key={sessionKey}
+              onStartupReady={handleChatStartupReady}
               session={selectedSession}
               outlineHost={outlineHost}
               searchTarget={searchTarget?.sessionId === selectedSession?.id ? searchTarget : null}

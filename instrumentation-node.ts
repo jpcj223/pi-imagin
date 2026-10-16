@@ -1,5 +1,7 @@
 import { configureHttpDispatcher, readHttpIdleTimeoutMs } from "@/lib/http-dispatcher";
 import { closeAllAgentEventStreams } from "@/lib/agent-event-stream";
+import { scheduleSdkPreload } from "@/lib/sdk-preload";
+import { loadSdk } from "@/lib/sdk-loader";
 
 export function registerNodeInstrumentation(): void {
   // pi CLI 将设置中的 httpIdleTimeoutMs 应用到同一套 undici 超时，
@@ -31,10 +33,7 @@ export function registerNodeInstrumentation(): void {
     });
   }
 
-  // Next 在路由首次请求时才加载其模块，
-  // 首次会话列表请求曾需要额外导入整个 pi SDK，
-  // 尤其在 Windows 上耗时明显；现在提前异步导入，保持注册快速。
-  // 导入与打开浏览器并行，后续路由复用 Node 模块缓存。
-  // 预加载失败交由路由实际导入时报告。
-  import("@earendil-works/pi-coding-agent").catch(() => {});
+  // 桌面先完成轻量认证和首屏，SDK 不再与这些请求争抢冷启动资源。
+  // 会话接口仍按需导入同一 SDK，不创建会话，也不改变其行为。
+  scheduleSdkPreload(process.env.PI_IMAGIN_DESKTOP === "1", process, loadSdk);
 }

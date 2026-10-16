@@ -1,17 +1,45 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';"><title>Pi Imagin</title>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline';"><title>Pi Imagin</title>
 <style>
-body {margin:0;height:100vh;display:grid;place-items:center;background:#f6f8fa;color:#293842;font:14px system-ui,sans-serif;}
-main {width:min(520px,80vw);text-align:center;}h1 {font-size:24px;font-weight:500;}p {color:#607482;line-height:1.8;overflow-wrap:anywhere;}button {border:1px solid #dbe4ea;background:white;color:#165e82;padding:10px 22px;border-radius:8px;cursor:pointer;}#error {color:#9f4242;}[hidden]{display:none;}
+:root {color-scheme:light;font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif;color:#293842;}
+* {box-sizing:border-box;}body {margin:0;background:transparent;}
+.startup {position:fixed;inset:0;display:grid;place-items:center;background:#f7f8f9;opacity:1;transition:opacity 160ms ease-out;}
+.startup.is-leaving {opacity:0;pointer-events:none;}
+.drag-region {position:absolute;inset:0 144px auto 0;height:43px;-webkit-app-region:drag;}
+main {width:min(360px,calc(100vw - 48px));margin-top:-24px;text-align:center;animation:arrive 220ms ease-out both;}
+img {display:block;width:48px;height:48px;margin:0 auto 16px;}
+h1 {margin:0;font-size:23px;font-weight:550;letter-spacing:.1px;}
+.status {margin:10px 0 0;color:#71808c;font-size:13px;min-height:21px;}
+.activity {width:104px;height:2px;margin:23px auto 0;overflow:hidden;border-radius:2px;background:#e3e9ed;}
+.activity::after {content:"";display:block;width:40%;height:100%;border-radius:inherit;background:#2b7797;animation:travel 1.6s ease-in-out infinite alternate;}
+.has-error .activity {visibility:hidden;}
+.has-error .activity::after {animation-play-state:paused;}
+.error {margin:16px 0 0;color:#9a4d49;font-size:13px;overflow-wrap:anywhere;}
+button {margin-top:18px;padding:8px 18px;border:1px solid #d9e2e8;border-radius:8px;background:#fff;color:#245e78;font:inherit;font-size:13px;cursor:pointer;}
+button:hover {background:#edf3f6;}button:focus-visible {outline:2px solid #2b7797;outline-offset:3px;}
+.footnote {position:absolute;bottom:30px;margin:0;color:#8c98a2;font-size:12px;}
+[hidden] {display:none !important;}
+@keyframes arrive {from {opacity:0;transform:translateY(5px);}to {opacity:1;transform:translateY(0);}}
+@keyframes travel {from {transform:translateX(-20%);opacity:.45;}to {transform:translateX(170%);opacity:.85;}}
+@media (prefers-reduced-motion:reduce) {main,.activity::after {animation:none;}.startup {transition:none;}.activity::after {width:45%;margin:auto;}}
 </style></head>
-<body><main><h1>Pi Imagin</h1><p id="status">正在准备你的工作区…</p><p id="error" hidden></p><button id="retry" hidden>重新启动</button></main>
+<body><section class="startup" id="startup" aria-label="正在打开 Pi Imagin"><div class="drag-region" aria-hidden="true"></div><main><img src="startup-logo.png" width="48" height="48" alt=""><h1>Pi Imagin</h1><p class="status" id="status" role="status" aria-live="polite">正在准备工作区…</p><div class="activity" aria-hidden="true"></div><p class="error" id="error" role="alert" hidden></p><button id="retry" type="button" hidden>重新尝试</button></main><p class="footnote">你的本地工作区</p></section>
 <script>
+const startup = document.getElementById('startup');
+const retry = document.getElementById('retry');
 window.piImaginDesktop?.onStartupStatus(status => {
   document.getElementById('status').textContent = status.message;
   document.getElementById('error').textContent = status.error || '';
   document.getElementById('error').hidden = !status.error;
-  document.getElementById('retry').hidden = !status.error;
+  retry.hidden = !status.error;
+  retry.disabled = false;
+  startup.classList.toggle('has-error', Boolean(status.error));
+  if (status.complete) {
+    startup.addEventListener('transitionend', event => { if (event.target === startup && event.propertyName === 'opacity') window.piImaginDesktop?.finishStartupTransition(); }, { once:true });
+    startup.classList.add('is-leaving');
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) window.piImaginDesktop?.finishStartupTransition();
+  }
 });
-document.getElementById('retry').addEventListener('click', () => window.piImaginDesktop?.retryStartup());
+retry.addEventListener('click', () => { retry.disabled = true; window.piImaginDesktop?.retryStartup(); });
 </script></body></html>

@@ -1,7 +1,6 @@
-import {
-  SessionManager,
-  getAgentDir,
-} from "@earendil-works/pi-coding-agent";
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "./agent-dir";
+import { loadSdk } from "./sdk-loader";
 import { closeSync, type Dirent, fstatSync, openSync, readSync, statSync } from "fs";
 import { readdir } from "fs/promises";
 import { isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
@@ -552,10 +551,12 @@ export function invalidateSessionManagerCache(filePath?: string): void {
  * on-disk fingerprint is unchanged. Pass { mutable: true } when the caller
  * intends to append/branch/rewrite — that path always opens fresh.
  */
-export function openSessionManager(
+export async function openSessionManager(
   filePath: string,
   options: { mutable?: boolean } = {},
-): SessionManager {
+): Promise<SessionManager> {
+  // 只有读取正文时才加载 SDK，列表、偏好和运行状态不必初始化全部依赖。
+  const { SessionManager } = await loadSdk();
   if (options.mutable) return SessionManager.open(filePath, undefined);
 
   const cache = getSmCache();
@@ -659,8 +660,8 @@ export function readSessionHeader(filePath: string): SessionHeader | null {
   }
 }
 
-export function getSessionEntries(filePath: string): SessionEntry[] {
-  const entries = openSessionManager(filePath).getEntries();
+export async function getSessionEntries(filePath: string): Promise<SessionEntry[]> {
+  const entries = (await openSessionManager(filePath)).getEntries();
   return entries as unknown as SessionEntry[];
 }
 

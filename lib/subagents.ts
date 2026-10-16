@@ -1,5 +1,6 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { getAgentDir, type LoadExtensionsResult } from "@earendil-works/pi-coding-agent";
+import type { LoadExtensionsResult } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "./agent-dir";
 import { dump as stringifyYaml } from "js-yaml";
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from "fs";
 import { basename, dirname, join, resolve } from "path";

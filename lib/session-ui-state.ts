@@ -1,6 +1,6 @@
 import { mkdirSync, renameSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "./agent-dir";
 import lockfile from "proper-lockfile";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 import { serializeByKey } from "./key-serializer";

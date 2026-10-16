@@ -9,7 +9,7 @@ import { readdir, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "./agent-dir";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 
 export interface ScannedSessionInfo {

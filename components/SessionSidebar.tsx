@@ -204,6 +204,8 @@ interface Props {
   initialSessionLinked?: boolean;
   skipInitialProjectSelection?: boolean;
   onInitialRestoreDone?: () => void;
+  initialNavigationReady?: boolean;
+  onStartupReady?: () => void;
   refreshKey?: number;
   onSessionDeleted?: (sessionId: string) => void;
   selectedCwd?: string | null;
@@ -478,7 +480,7 @@ function buttonAnchor(element: HTMLElement, align: "start" | "end"): SidebarMenu
   return { kind: "rect", rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, align };
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, initialNavigationReady = true, onStartupReady, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -1134,7 +1136,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
-    if (allSessions.length === 0 || skipInitialProjectSelection) return;
+    if (!initialNavigationReady || loading || skipInitialProjectSelection) return;
+    if (allSessions.length === 0) {
+      if (initialSessionId && !restoredRef.current) {
+        restoredRef.current = true;
+        onInitialRestoreDone?.();
+        if (!error && initialSessionLinked) showToast(t("sidebar.sessionNotFound"));
+      }
+      return;
+    }
 
     if (selectedCwd === null) {
       // If restoring a session, set cwd to match that session
@@ -1153,7 +1163,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const projects = getRecentProjects(allSessions);
       if (projects.length > 0) setSelectedCwd(projects[0].root);
     }
-  }, [allSessions, selectedCwd, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone, showToast, t]);
+  }, [initialNavigationReady, loading, error, allSessions, selectedCwd, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone, showToast, t]);
 
   // Prefer an exact UI selection while a refetch is in flight. Once the
   // response catches up, the server-resolved path handles Windows case and
@@ -2290,6 +2300,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const treeLayout = isMobile ? "mobile" : "desktop";
   // Until pins and archive have loaded, archived rows would flash in.
   const treeLoading = loading || !uiStateLoaded || !defaultCwdLoaded;
+  const startupReportedRef = useRef(false);
+  useEffect(() => {
+    if (startupReportedRef.current || !initialNavigationReady || loading || !uiStateLoaded) return;
+    if (!defaultCwdLoaded && !error) return;
+    if (initialSessionId && !restoredRef.current) return;
+    if (!skipInitialProjectSelection && allSessions.length > 0 && selectedCwd === null) return;
+    if (selectedCwd && selectedCwd !== authorizedCwd && !workspaceAccessError) return;
+    // 等目录切换通知与初始选择一起完成，再允许主区域显示欢迎页。
+    startupReportedRef.current = true;
+    onStartupReady?.();
+  }, [initialNavigationReady, loading, uiStateLoaded, defaultCwdLoaded, error, initialSessionId, skipInitialProjectSelection, allSessions.length, selectedCwd, authorizedCwd, workspaceAccessError, onStartupReady]);
   const projectRows = model.projectRows.filter(row => row.kind !== "footer-archived");
   const treeProps = {
     onToggleSection: (key: string) => saveGroupChoices({ ...groupExpansion, [key]: groupExpansion[key] === false }, []),

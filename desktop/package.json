@@ -18,6 +18,8 @@
   },
   "build": {
     "appId": "local.pi-imagin.desktop",
+    "afterPack": "./package-resources.cjs",
+    "electronLanguages": ["en-US", "en-GB", "zh-CN", "zh-TW"],
     "directories": {
       "output": "../dist-desktop"
     },
@@ -25,7 +27,10 @@
       "main.cjs",
       "preload.cjs",
       "loading.html",
+      "startup-logo.png",
+      "startup-view.cjs",
       "runtime.cjs",
+      "background.cjs",
       "package.json"
     ],
     "extraResources": [
@@ -60,6 +65,8 @@
       "signAndEditExecutable": true
     },
     "nsis": {
+      "useZip": true,
+      "differentialPackage": false,
       "oneClick": false,
       "perMachine": false,
       "allowElevation": false,

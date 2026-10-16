@@ -4,7 +4,7 @@ import {
   getAwaitingInputRpcSessionIds,
   getCompletionNotificationSuppressedRpcSessionIds,
   getRunningRpcSessionIds,
-} from "@/lib/rpc-manager";
+} from "@/lib/rpc-session-read";
 import { getSessionUiStateRevision } from "@/lib/session-ui-state";
 
 export const dynamic = "force-dynamic";

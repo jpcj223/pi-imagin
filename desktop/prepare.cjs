@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const net = require("node:net");
 const { spawn } = require("node:child_process");
 const extract = require("extract-zip");
+const { createFrameworkManifest, manifestName } = require("./package-resources.cjs");
 
 const root = path.resolve(__dirname, "..");
 const buildRoot = path.join(root, "build");
@@ -72,10 +73,13 @@ async function prepare() {
   fs.cpSync(path.join(root, ".next/standalone"), server, { recursive: true });
   fs.cpSync(path.join(root, ".next/static"), path.join(server, ".next/static"), { recursive: true });
   fs.cpSync(path.join(root, "public"), path.join(server, "public"), { recursive: true });
+  // 保存生产追踪结果，避免完整安装 SDK 依赖时将框架开发工具带入最终包。
+  const frameworkManifest = createFrameworkManifest(server);
   // 外置 SDK 含动态加载资源和原生模块，安装完整生产依赖，避免文件追踪遗漏。
   fs.copyFileSync(path.join(root, "package.json"), path.join(server, "package.json"));
   fs.copyFileSync(path.join(root, "package-lock.json"), path.join(server, "package-lock.json"));
   await run(path.join(nodeDir, "node.exe"), [path.join(nodeDir, "node_modules/npm/bin/npm-cli.js"), "ci", "--prefix", server, "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: server });
+  fs.writeFileSync(path.join(server, manifestName), JSON.stringify(frameworkManifest));
   const icons = path.join(buildRoot, "desktop-icons");
   cleanBuildDirectory(icons);
   const sharp = require(path.join(root, "node_modules/sharp"));

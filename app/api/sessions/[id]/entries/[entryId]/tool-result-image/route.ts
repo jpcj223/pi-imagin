@@ -56,7 +56,7 @@ export async function GET(
     const filePath = await resolveSessionPath(id);
     if (!filePath) return NextResponse.json({ error: "Session not found" }, { status: 404 });
 
-    const entry = getSessionEntries(filePath).find((candidate) => candidate.id === entryId);
+    const entry = (await getSessionEntries(filePath)).find((candidate) => candidate.id === entryId);
     if (!entry || entry.type !== "message" || entry.message.role !== "toolResult") {
       return NextResponse.json({ error: "Tool result not found" }, { status: 404 });
     }

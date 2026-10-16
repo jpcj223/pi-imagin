@@ -12,7 +12,7 @@ import {
   getCompletionNotificationSuppressedRpcSessionIds,
   getRpcSessionInfos,
   getRunningRpcSessionIds,
-} from "@/lib/rpc-manager";
+} from "@/lib/rpc-session-read";
 import { startServerPerf } from "@/lib/perf";
 
 export const dynamic = "force-dynamic";
