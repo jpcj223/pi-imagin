@@ -2438,7 +2438,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             }
             rows={compact ? 1 : 2}
             style={{
-              flex: compact ? "none" : 1,
+              // 高度由草稿测量结果决定；flex-basis:0 会在自适应卡片中把它压回最小高度。
+              flex: "none",
               minWidth: 0,
               width: "100%",
               background: "none",

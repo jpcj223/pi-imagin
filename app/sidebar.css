@@ -1489,8 +1489,10 @@ a.session-tree-main {
    together, down to 21px wide, and the gap before the views closes. */
 .sidebar-files-actions {
   display: flex;
+  /* 七个文件操作在最窄侧栏内仍可完整展示；触屏大按钮可换行。 */
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   margin-top: 4px;
 }
 

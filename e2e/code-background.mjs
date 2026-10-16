@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 
 /** The fixture has one ordinary fence and one Mermaid diagram. */
 export async function checkCodeBackground(page) {
+  // 默认主题为浅色；验证系统主题切换时显式选择跟随系统，并在结束后还原偏好。
+  const previousTheme = await page.evaluate(() => {
+    const previous = localStorage.getItem("pi-theme");
+    localStorage.setItem("pi-theme", "auto");
+    return previous;
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
   const warnings = [];
   const onConsole = (message) => {
     if (/conflicting property|style property during rerender/.test(message.text())) {
@@ -35,6 +42,10 @@ export async function checkCodeBackground(page) {
   } finally {
     page.off("console", onConsole);
     await page.emulateMedia({ colorScheme: "light" });
+    await page.evaluate(previous => {
+      if (previous === null) localStorage.removeItem("pi-theme");
+      else localStorage.setItem("pi-theme", previous);
+    }, previousTheme);
   }
   console.log("PASS: code and Mermaid source backgrounds survive repeated theme switches");
 }

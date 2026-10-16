@@ -240,6 +240,10 @@ try {
   browser = await chromium.launch();
   for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
     context = await browser.newContext({ viewport, locale: "en-US" });
+    // 浏览器语言与应用偏好分别管理；英文场景在首个页面脚本执行前设置应用语言。
+    await context.addInitScript(({ origin }) => {
+      if (window === window.top && location.origin === origin) localStorage.setItem("pi-locale", "en");
+    }, { origin: new URL(base).origin });
     await context.tracing.start({ screenshots: true, snapshots: true });
     page = await context.newPage();
     page.setDefaultTimeout(30_000);
@@ -255,33 +259,24 @@ try {
     const stateReady = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/sessions/${LONG}/state`);
     await page.goto(`${base}/?session=${LONG}`, { waitUntil: "domcontentloaded" });
     assert.equal((await stateReady).status(), 200);
-    await page.getByText(text(4999), { exact: true }).waitFor();
-    const latestUser = await page.getByText(text(4998), { exact: true }).elementHandle();
+    await page.locator(".chat-content").getByText(text(4999), { exact: true }).waitFor();
+    const latestUser = await page.locator(".chat-content").getByText(text(4998), { exact: true }).elementHandle();
     assert.ok(latestUser, "Latest user message must be mounted before pagination");
     const sentinel = page.getByText("Scroll up to load earlier messages", { exact: true });
     await sentinel.waitFor({ state: "attached" });
-    assert.equal(await page.getByText(text(4949), { exact: true }).count(), 0);
-    // The minimap numbers turns from the session's first, not the loaded page's (#791):
-    // e0..e4949 hold 2475 user messages, so the turn asking text(4998) is 2500.
-    const readMinimapTurn = async (screenshot) => {
-      const node = page.locator("[data-minimap-node-index='0']");
-      await node.waitFor();
-      const rect = await node.boundingBox();
-      assert.ok(rect);
-      await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
-      const preview = page.locator("[data-minimap-preview-box]");
-      const turn = preview.locator("[data-minimap-preview-index]").filter({ hasText: text(4998) });
-      const result = {
-        number: await turn.locator("span[aria-hidden='true']").first().textContent(),
-        earlier: await preview.locator("[data-minimap-preview-earlier]").textContent(),
-      };
+    assert.equal(await page.locator(".chat-content").getByText(text(4949), { exact: true }).count(), 0);
+    // 工作区使用常驻会话目录；验证全局轮次，而不是已移除的悬浮缩略图。
+    const outline = page.locator(".workspace-outline-host nav");
+    const readOutlineTurn = async (screenshot) => {
+      const user = outline.getByRole("button", { name: text(4998), exact: true });
+      await user.waitFor();
+      const number = await user.locator("xpath=../../..").locator(":scope > span").textContent();
+      const earlier = await outline.getByRole("button", { name: /^Earlier turns not loaded:/ }).textContent();
       await page.screenshot({ path: join(artifacts, screenshot) });
-      await page.mouse.move(0, 0);
-      await preview.waitFor({ state: "detached" });
-      return result;
+      return { number, earlier };
     };
     if (viewport.width > 600) {
-      assert.deepEqual(await readMinimapTurn("minimap-turns-first-page.png"), { number: "2500", earlier: "Earlier turns not loaded: 2475. Click to load" });
+      assert.deepEqual(await readOutlineTurn("outline-turns-first-page.png"), { number: "2500", earlier: "Earlier turns not loaded: 2475. Click to load" });
     }
 
     // Exercise the real IntersectionObserver and prepend path, twice.
@@ -293,8 +288,8 @@ try {
       const older = (await response.json()).context;
       const firstMessage = older.messages.find((message) => message.role === "user")?.content;
       assert.equal(typeof firstMessage, "string", "Older page must contain user messages");
-      await page.getByText(firstMessage, { exact: true }).waitFor({ state: "attached" });
-      await page.getByText(text(4999), { exact: true }).evaluate((element) => element.scrollIntoView({ block: "end", behavior: "instant" }));
+      await page.locator(".chat-content").getByText(firstMessage, { exact: true }).waitFor({ state: "attached" });
+      await page.locator(".chat-content").getByText(text(4999), { exact: true }).evaluate((element) => element.scrollIntoView({ block: "end", behavior: "instant" }));
     }
     assert.deepEqual(await latestUser.evaluate((element) => ({
       connected: element.isConnected,
@@ -314,21 +309,21 @@ try {
       assert.equal(older.oldestEntryId, `e${oldest}`);
       assert.equal(older.hasMore, true);
     }
-    const rendered = await page.getByText(/^E2E message \d{4}$/).allTextContents();
+    const rendered = await page.locator(".chat-content").getByText(/^E2E message \d{4}$/).allTextContents();
     // The sidebar also displays the first message as the session title.
     assert.deepEqual(rendered.filter((value) => value !== text(0)),
       Array.from({ length: 5000 - oldest }, (_, i) => text(oldest + i)), "Missing, reordered, or duplicate chat messages");
     if (viewport.width > 600) {
-      assert.deepEqual(await readMinimapTurn("minimap-turns-paged.png"), {
+      assert.deepEqual(await readOutlineTurn("outline-turns-paged.png"), {
         number: "2500",
         earlier: `Earlier turns not loaded: ${oldest / 2}. Click to load`,
-      }, "Loading older pages must not renumber minimap turns");
+      }, "Loading older pages must not renumber outline turns");
     }
     await page.screenshot({ path: join(artifacts, `history-${viewport.width}.png`) });
 
     await page.goto(`${base}/?session=${BRANCH}`, { waitUntil: "domcontentloaded" });
-    await page.getByText("Active branch answer", { exact: true }).waitFor();
-    assert.equal(await page.getByText("Inactive branch answer", { exact: true }).count(), 0);
+    await page.locator(".chat-content").getByText("Active branch answer", { exact: true }).waitFor();
+    assert.equal(await page.locator(".chat-content").getByText("Inactive branch answer", { exact: true }).count(), 0);
     const thinkingRequests = [];
     page.on("request", (request) => {
       if (new URL(request.url()).pathname.endsWith("/thinking")) thinkingRequests.push(request.url());
@@ -336,7 +331,7 @@ try {
     await page.goto(`${base}/?session=${RICH}`, { waitUntil: "domcontentloaded" });
     await page.locator("strong").filter({ hasText: "E2E markdown" }).waitFor();
     await page.locator("pre").filter({ hasText: "console.log('E2E code');" }).waitFor();
-    await page.getByText("E2E final answer", { exact: true }).waitFor();
+    await page.locator(".chat-content").getByText("E2E final answer", { exact: true }).waitFor();
     const processDetails = page.getByRole("button", { name: /^Process details/ });
     const thinking = page.getByRole("button", { name: /^Thinking/ });
     assert.equal(await processDetails.count(), 1);
@@ -384,28 +379,22 @@ try {
     assert.ok(processText.indexOf("E2E process note") < processText.indexOf("E2E final reasoning"));
     assert.equal(processText.split("E2E final reasoning").length - 1, 1);
     assert.ok(!(await finalMessage.last().innerText()).includes("E2E final reasoning"));
-    await page.getByText("echo E2E tool output", { exact: true }).waitFor();
+    await page.locator(".chat-content").getByText("echo E2E tool output", { exact: true }).waitFor();
     await page.getByRole("button", { name: /bash.*echo E2E tool output/ }).click();
-    await page.getByText("E2E tool output", { exact: true }).waitFor();
+    await page.locator(".chat-content").getByText("E2E tool output", { exact: true }).waitFor();
     await page.goto(`${base}/?session=${COMPACTED}`, { waitUntil: "domcontentloaded" });
     const heading = page.getByRole("heading", { name: "E2E compacted heading", exact: true });
     await heading.waitFor({ state: "attached" });
     if (viewport.width > 600) {
-      const node = page.locator("[data-minimap-node-index='0']");
-      await node.waitFor();
-      const rect = await node.boundingBox();
-      assert.ok(rect);
-      await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
-      const preview = page.locator("[data-minimap-preview-box]");
-      await preview.getByRole("button", { name: "E2E compaction anchor", exact: true }).waitFor();
-      await preview.getByRole("button", { name: "E2E compacted heading", exact: true }).click();
+      await outline.getByRole("button", { name: "E2E compaction anchor", exact: true }).waitFor();
+      await outline.getByRole("button", { name: "E2E compacted heading", exact: true }).click();
       await page.waitForFunction(() => {
         const heading = document.querySelector("[data-entry-id='answer'] h2");
         const scroll = heading?.closest(".overflow-y-auto");
         return heading && scroll && Math.abs(heading.getBoundingClientRect().top
           - scroll.getBoundingClientRect().top - scroll.clientHeight * 0.3) < 5;
       });
-      await page.screenshot({ path: join(artifacts, "compaction-minimap.png") });
+      await page.screenshot({ path: join(artifacts, "compaction-outline.png") });
 
       // A session row of the sidebar's sessions, found by its visible title
       // (the row's tooltip adds message count and time, so no exact title match).
@@ -462,7 +451,7 @@ try {
         const pendingHistory = page.waitForRequest((request) => request.url().includes(`/api/sessions/${LONG}/context?`) && new URL(request.url()).searchParams.has("before"));
         await clickSessionRow(text(0));
         await pendingHistory;
-        await page.getByRole("button", { name: "Branches", exact: true }).click();
+        await page.getByRole("button", { name: "会话分支", exact: true }).click();
         await page.getByText("E2E alternate history branch", { exact: true }).click();
         await page.locator("[data-entry-id='alternate']:not([data-message-role])").waitFor({ state: "visible" });
         await page.screenshot({ path: join(artifacts, "scroll-restore-branch.png") });
@@ -516,6 +505,8 @@ try {
     b: { id: CODE_BACKGROUND, entry: "answer", text: "const x = 1;" },
     api,
     deleteSession: async (id) => {
+      // 清理夹具同样遵守先归档后删除的产品约束。
+      await post("/api/sessions/ui-state", { action: "set", ids: [id], archived: true });
       const response = await fetch(`${base}/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE", signal: AbortSignal.timeout(30_000) });
       assert.ok(response.ok, `DELETE session ${id} -> ${response.status}`);
     },

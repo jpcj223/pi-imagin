@@ -12,8 +12,8 @@ const configSources = await Promise.all(
 test("every add pane chooses its scope in one place: the save target under its title", async () => {
   const sources = Object.fromEntries(configSources);
   const panes = {
-    SkillsConfig: sources.SkillsConfig.match(/function AddSkillPanel[\s\S]*?\n\}\n/)?.[0] ?? "",
-    PluginsConfig: sources.PluginsConfig.match(/function AddPluginPanel[\s\S]*?\n\}\n/)?.[0] ?? "",
+    SkillsConfig: sources.SkillsConfig.match(/function AddSkillPanel[\s\S]*?\r?\n\}\r?\n/)?.[0] ?? "",
+    PluginsConfig: sources.PluginsConfig.match(/function AddPluginPanel[\s\S]*?\r?\n\}\r?\n/)?.[0] ?? "",
     AgentsConfig: sources.AgentsConfig,
     McpAddServer: await readFile(new URL("./McpAddServer.tsx", import.meta.url), "utf8"),
   };

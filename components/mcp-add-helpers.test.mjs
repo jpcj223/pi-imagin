@@ -385,7 +385,8 @@ test("a variable box opens with a name pi accepts: an env value's own, or one ma
   assert.equal(mcpSuggestedVariableName("url", "x"), undefined);
   // Never the variable Add refuses.
   assert.equal(mcpSuggestedVariableName("env.PI_WEB_PASSWORD", "x"), undefined);
-  assert.equal(mcpSuggestedVariableName("headers.X-Password", "pi-imagin"), undefined);
+  assert.equal(mcpSuggestedVariableName("headers.X-Password", "pi-web"), undefined);
+  assert.equal(mcpSuggestedVariableName("headers.X-Password", "pi-imagin"), "PI_IMAGIN_PASSWORD");
   for (const [label, server] of [["env.A", "x"], ["headers.Authorization", "a b"], ["headers.-", "z"], ["oauth.clientSecret", "é"]]) {
     const name = mcpSuggestedVariableName(label, server);
     assert.ok(name === undefined || /^[A-Za-z_][A-Za-z0-9_]*$/.test(name), `${label} ${server}: ${name}`);

@@ -12,12 +12,27 @@ export async function showSidebarFiles(page) {
     await page.getByRole("menuitem", { name: "Browse project files", exact: true }).click();
   }
   await files.locator(".sidebar-files-body").waitFor({ state: "visible" });
+  // 文件操作只有通过目录访问验证后才可用；顺序与原有功能保持一致。
+  const actions = files.getByRole("group", { name: "File actions", exact: true });
+  await actions.waitFor();
+  const labels = await actions.getByRole("button").evaluateAll(buttons => buttons.map(button => button.getAttribute("aria-label")));
+  assert.match(labels[1], /^Open in (Explorer|Finder|file manager)$/);
+  assert.deepEqual(labels, [
+    "Open workspace terminal", labels[1], "Upload files to project root",
+    "Refresh file list", "Show ignored files", "0 changed files", "Search files",
+  ]);
+  assert.equal(await actions.getByRole("button").evaluateAll(buttons => buttons.every(button => {
+    const rect = button.getBoundingClientRect();
+    const parent = button.parentElement.getBoundingClientRect();
+    return rect.left >= parent.left - 1 && rect.right <= parent.right + 1;
+  })), true, "文件操作不应溢出侧栏或相互遮挡");
 }
 
 /** 从文件树返回项目和会话，不依赖已隐藏的旧标签按钮。 */
 export async function showSidebarSessions(page) {
+  const show = page.getByRole("button", { name: "Show sidebar", exact: true });
+  if (await show.isVisible()) await show.click();
   const back = page.locator(".workspace-files-back");
-  await page.locator(".sidebar-brand").waitFor();
   if (await back.isVisible()) await back.click();
   await page.locator("#session-sidebar-panel-sessions").waitFor({ state: "visible" });
 }
@@ -28,14 +43,14 @@ export async function checkFilesPlacement(page) {
   if (await showSidebar.isVisible()) await showSidebar.click();
   await showSidebarFiles(page);
   const files = page.locator("#session-sidebar-panel-files");
-  const fileSearch = page.locator(".sidebar-search-toggle");
+  const fileSearch = files.getByRole("button", { name: "Search files", exact: true });
   const fileQuery = page.locator("#file-search-input");
   if (await fileSearch.getAttribute("aria-expanded") !== "true") await fileSearch.click();
   await fileQuery.fill("e2e-placement");
   const tree = await files.locator(".sidebar-files-scroll > *").first().elementHandle();
   await showSidebarSessions(page);
   assert.equal(await files.isVisible(), false);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
   const settings = page.getByRole("region", { name: "Settings", exact: true });
   await settings.waitFor();
   assert.equal(await page.getByRole("dialog", { name: "Settings", exact: true }).count(), 0);

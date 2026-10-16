@@ -2716,8 +2716,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 buttons in the same places: the changes view stays (disabled)
                 while there is nothing changed, so nothing moves as an agent
                 edits files and commits. The folder's actions first, the
-                tree's two views last (what it lists, then its changes); its
-                search is the toolbar row's search button. */}
+                tree's two views last (what it lists, then its changes).
+                文件搜索保留在本组，独立于全局的会话搜索入口。 */}
             {!stacked && explorerCwd && (
               <div className="sidebar-files-actions" role="group" aria-label={t("sidebar.fileActions")}>
                 {onOpenTerminal && terminalButton}
@@ -2726,6 +2726,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 {refreshButton}
                 {ignoredFilesButton("sidebar-files-views-start")}
                 {changesButton}
+                <ToolbarIconButton
+                  onClick={() => setFileSearchOpen(open => !open)}
+                  title={t("sidebar.searchFiles")}
+                  expanded={fileSearchOpen}
+                  controls="file-search-input"
+                >
+                  <SearchIcon size={keyIconSize} />
+                </ToolbarIconButton>
               </div>
             )}
           </div>

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { showSidebarFiles } from "./sidebar.mjs";
 
-export const filePanelFixture = `<!doctype html><html><body style="margin:20px;min-height:2400px">
+// 固定滚动坐标，避免浏览器在表单随宽度换行时自动调整锚点，干扰状态保留断言。
+export const filePanelFixture = `<!doctype html><html style="overflow-anchor:none"><body style="margin:20px;min-height:2400px">
 <label>Notes <input id="notes"></label>
 <label>Filter <select id="filter"><option>All</option><option>Pending</option></select></label>
 <p>HTML preview state must survive layout changes.</p>
@@ -40,16 +41,14 @@ export async function checkFilePanel(page, filePath) {
     if (await separator.isVisible()) await separator.press("ArrowLeft");
     const originalWidth = await width();
     const originalStored = await storedWidths();
-    const sessionInfo = page.getByRole("button", { name: "Session info", exact: true });
-    const sessionPopover = page.locator(".session-info-popover");
     for (let i = 0; i < 2; i++) {
-      await sessionInfo.click();
-      await sessionPopover.waitFor();
       await toggle.click();
-      assert.equal(await sessionPopover.count(), 0, "Full-width mode dismisses inert top-bar menus");
       assert.equal(await panel.getByRole("button", { name: "Restore file panel width", exact: true }).getAttribute("aria-pressed"), "true");
-      assert.equal(Math.round(await width()), page.viewportSize().width);
-      assert.equal(await page.locator("#session-sidebar").evaluate(el => el.inert), true);
+      // 全宽阅读限定在工作区内，左侧导航仍可操作，聊天区域暂停交互。
+      const workbenchWidth = await page.locator(".workspace-workbench-row").evaluate(el => el.getBoundingClientRect().width);
+      assert.ok(Math.abs(await width() - workbenchWidth) <= 1);
+      assert.equal(await page.locator("#session-sidebar").evaluate(el => el.inert), false);
+      assert.equal(await page.locator(".workspace-center").evaluate(el => el.inert), true);
       assert.equal(await frame.evaluate(() => window.previewInstance), instance);
       assert.equal(await frame.evaluate(() => scrollY), 120);
       assert.equal(await frame.locator("#notes").inputValue(), "Keep this note");
@@ -60,12 +59,12 @@ export async function checkFilePanel(page, filePath) {
       assert.equal(await page.locator("#session-sidebar").evaluate(el => el.inert), false);
     }
     await toggle.click();
-    await panel.getByRole("button", { name: "Hide file panel", exact: true }).click();
-    await page.getByRole("button", { name: "Show file panel", exact: true }).click();
+    await page.getByRole("button", { name: "隐藏右侧栏", exact: true }).click();
+    await page.getByRole("button", { name: "显示右侧栏", exact: true }).click();
     assert.equal(await toggle.getAttribute("aria-pressed"), "false", "Reopening returns to the split layout");
     assert.equal(await width(), originalWidth);
     assert.equal(await frame.evaluate(() => window.previewInstance), instance);
   }
-  await panel.getByRole("button", { name: "Hide file panel", exact: true }).click();
+  await page.getByRole("button", { name: "隐藏右侧栏", exact: true }).click();
   console.log(`PASS: file panel width and preview state at ${page.viewportSize().width}px`);
 }

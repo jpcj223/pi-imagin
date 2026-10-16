@@ -25,7 +25,7 @@ export async function checkChatAppearanceReset(page) {
   await page.reload({ waitUntil: "networkidle" });
   const showSidebar = page.getByRole("button", { name: "Show sidebar", exact: true });
   if (await showSidebar.isVisible()) await showSidebar.click();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
   assert.equal(await width.inputValue(), "820");
   assert.equal(await fontSize.inputValue(), "14");
   assert.equal(await resetWidth.isDisabled(), true);
@@ -35,7 +35,7 @@ export async function checkChatAppearanceReset(page) {
 export async function checkChatAppearance(page) {
   await page.setViewportSize({ width: 2560, height: 1100 });
   const textarea = page.locator(".chat-input-textarea");
-  const openSettings = () => page.getByRole("button", { name: "Settings", exact: true }).click();
+  const openSettings = () => page.getByRole("button", { name: "设置", exact: true }).click();
   const closeSettings = () => page.keyboard.press("Escape");
   const width = page.getByRole("slider", { name: "Chat content width", exact: true });
   const fontSize = page.getByRole("slider", { name: "Chat font size", exact: true });
@@ -43,7 +43,23 @@ export async function checkChatAppearance(page) {
   const fittedHeight = async () => {
     await page.waitForFunction(() => {
       const input = document.querySelector(".chat-input-textarea");
-      return input && (input.scrollHeight <= input.clientHeight + 1 || input.clientHeight >= 199);
+      if (!input) return false;
+      const style = getComputedStyle(input);
+      // 最大高度可能受窗口限制；clientHeight 不包含边框，不能直接与固定 200px 比较。
+      const border = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+      return input.scrollHeight <= input.clientHeight + 1
+        || input.getBoundingClientRect().height >= parseFloat(style.maxHeight) - 1
+        || input.clientHeight + border >= 199;
+    }, undefined, { timeout: 10_000 }).catch(async error => {
+      console.error("Composer layout", await textarea.evaluate(el => {
+        const rows = [];
+        for (let node = el; node && rows.length < 5; node = node.parentElement) {
+          const style = getComputedStyle(node);
+          rows.push({ class: node.className, client: node.clientHeight, scroll: node.scrollHeight, inline: node.getAttribute("style"), height: style.height, maxHeight: style.maxHeight, flex: style.flex });
+        }
+        return rows;
+      }));
+      throw error;
     });
     return textarea.evaluate((el) => el.clientHeight);
   };

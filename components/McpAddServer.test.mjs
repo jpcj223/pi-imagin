@@ -8,7 +8,9 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { I18nProvider } = await jiti.import("@/hooks/useI18n.tsx");
+const { I18nProvider: LocaleProvider } = await jiti.import("@/hooks/useI18n");
+// 英文断言显式设置应用语言；与组件使用相同导入路径，确保共享同一上下文。
+const I18nProvider = (props) => React.createElement(LocaleProvider, { initialLocale: "en", ...props });
 const { McpAddServer } = await jiti.import("./McpAddServer.tsx");
 const { McpConfigView } = await jiti.import("./McpConfig.tsx");
 const { EMPTY_MCP_ADD_DRAFT } = await jiti.import("./mcp-add-helpers.ts");

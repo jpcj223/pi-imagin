@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
@@ -71,6 +71,9 @@ test("list versions expose idle session creation, rename and deletion to other w
   assert.equal(updated.sessions[0].name, "Renamed elsewhere");
   assert.equal((await list()).sessionListVersion, poll.sessionListVersion, "reads must not create a refresh loop");
 
+  // 删除必须先归档，测试同时保护未归档会话的拒绝路径。
+  assert.equal((await deleteSession(new Request(url, { method: "DELETE" }), context)).status, 409);
+  await updateSessionUiState({ action: "set", ids: [sessionId], archived: true });
   assert.equal((await deleteSession(new Request(url, { method: "DELETE" }), context)).status, 200);
   const deleted = await list();
   assert.ok(deleted.sessionListVersion > updated.sessionListVersion);
@@ -103,6 +106,8 @@ test("the running poll carries the sidebar state revision and deleting a session
   invalidateSessionListCache();
   await updateSessionUiState({ action: "set", ids: [sessionId, "other-session"], pinned: true });
   assert.equal(await revision(), 1);
+  await updateSessionUiState({ action: "set", ids: [sessionId], archived: true });
+  assert.equal(await revision(), 2);
 
   const response = await deleteSession(
     new Request(`http://localhost/api/sessions/${sessionId}`, { method: "DELETE" }),
@@ -111,7 +116,7 @@ test("the running poll carries the sidebar state revision and deleting a session
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: true });
   assert.deepEqual(Object.keys(readSessionUiState().sessions), ["other-session"]);
-  assert.equal(await revision(), 2);
+  assert.equal(await revision(), 3);
 });
 
 test("session listing returns a gzip-compressed response when the client accepts it", async (t) => {
@@ -150,6 +155,15 @@ test("session listing returns a gzip-compressed response when the client accepts
 
 test("deleting an unpersisted session shuts down its runtime and invalidates caches", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "pi-imagin-delete-empty-"));
+  // 会话界面状态也使用临时目录，避免触碰本机已归档记录。
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  resetSessionUiStateCacheForTests();
+  t.after(() => {
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    resetSessionUiStateCacheForTests();
+  });
   const previousRegistry = globalThis.__piSessions;
   const ids = [];
   globalThis.__piSessions = new Map();
@@ -169,6 +183,8 @@ test("deleting an unpersisted session shuts down its runtime and invalidates cac
     cacheSessionPath(id, filePath);
     let shutdownCalled = false;
     globalThis.__piSessions.set(id, {
+      inner: { sessionManager: manager },
+      isAlive: () => true,
       isRunning: () => false,
       isAwaitingInput: () => false,
       shutdown: async () => {
@@ -177,6 +193,7 @@ test("deleting an unpersisted session shuts down its runtime and invalidates cac
         globalThis.__piSessions.delete(id);
       },
     });
+    await updateSessionUiState({ action: "set", ids: [id], archived: true });
     const before = (await (await getRunningSessions()).json()).sessionListVersion;
     const response = await deleteSession(
       new Request(`http://localhost/api/sessions/${id}`, { method: "DELETE" }),
@@ -196,10 +213,21 @@ test("deleting an unpersisted session shuts down its runtime and invalidates cac
 
 test("deleting a session removes all persisted subagent descendants", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "pi-imagin-delete-reparent-"));
-  const grandparentPath = join(dir, "grandparent.jsonl");
-  const parentPath = join(dir, "parent.jsonl");
-  const childPath = join(dir, "child.jsonl");
-  const grandchildPath = join(dir, "grandchild.jsonl");
+  // 会话界面状态也使用临时目录，避免触碰本机已归档记录。
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  resetSessionUiStateCacheForTests();
+  t.after(() => {
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    resetSessionUiStateCacheForTests();
+  });
+  const sessionsDir = join(dir, "sessions", "project");
+  await mkdir(sessionsDir, { recursive: true });
+  const grandparentPath = join(sessionsDir, "grandparent.jsonl");
+  const parentPath = join(sessionsDir, "parent.jsonl");
+  const childPath = join(sessionsDir, "child.jsonl");
+  const grandchildPath = join(sessionsDir, "grandchild.jsonl");
   const parentId = "delete-reparent-parent";
   const childId = "delete-reparent-child";
   const grandchildId = "delete-reparent-grandchild";
@@ -255,6 +283,7 @@ test("deleting a session removes all persisted subagent descendants", async (t) 
     await rm(dir, { recursive: true, force: true });
   });
 
+  await updateSessionUiState({ action: "set", ids: [parentId], archived: true });
   const response = await deleteSession(
     new Request(`http://localhost/api/sessions/${parentId}`, { method: "DELETE" }),
     { params: Promise.resolve({ id: parentId }) },

@@ -16,7 +16,9 @@ const {
   getUpdatedExtensionWidgetKeys,
   snapshotExtensionWidgetContents,
 } = await jiti.import("./ExtensionWidgets.tsx");
-const { I18nProvider } = await jiti.import("@/hooks/useI18n");
+const { I18nProvider: LocaleProvider } = await jiti.import("@/hooks/useI18n");
+// 英文断言显式设置应用语言；与组件使用相同导入路径，确保共享同一上下文。
+const I18nProvider = (props) => React.createElement(LocaleProvider, { initialLocale: "en", ...props });
 
 function renderWidgets(props) {
   return renderToStaticMarkup(

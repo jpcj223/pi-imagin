@@ -17,10 +17,12 @@ function setup(collapsed = false) {
   const effect = nodes.find((node) => ts.isCallExpression(node) && node.expression.getText(source) === "useEffect" && node.arguments[1]?.getText(source) === "[isMobile]" && node.arguments[0].getText(source).includes("setSidebarOpen"));
   const toggle = nodes.find((node) => ts.isVariableDeclaration(node) && node.name.getText(source) === "handleSidebarToggle");
   const context = createContext({
-    initialNavigation: { sidebarCollapsed: collapsed }, isMobile: false, sidebarOpen: !collapsed,
+    initialNavigation: { sidebarCollapsed: collapsed }, isMobile: false, sidebarOpen: !collapsed, rightPanelOpen: true,
     useRef: (current) => ({ current }), setActiveTopPanel() {}, setMobileToolbarMoreOpen() {},
   });
   context.desktopSidebarOpenRef = script(preference.initializer.getText(source)).runInContext(context);
+  // 移动端抽屉与右侧栏分别更新，避免缩小窗口后两个浮层同时遮住聊天。
+  context.setRightPanelOpen = (value) => { context.rightPanelOpen = value; };
   context.setSidebarOpen = (value) => { context.sidebarOpen = typeof value === "function" ? value(context.sidebarOpen) : value; };
   const runEffect = () => script(`(${effect.arguments[0].getText(source)})()`).runInContext(context);
   const runToggle = () => script(`(${toggle.initializer.arguments[0].getText(source)})()`).runInContext(context);
@@ -30,6 +32,7 @@ function setup(collapsed = false) {
 test("closing a mobile drawer restores the previously open desktop sidebar", () => {
   const state = setup();
   state.resize(true); assert.equal(state.context.sidebarOpen, false);
+  assert.equal(state.context.rightPanelOpen, false);
   state.runToggle(); assert.equal(state.context.sidebarOpen, true);
   state.runToggle(); assert.equal(state.context.sidebarOpen, false);
   state.resize(false); assert.equal(state.context.sidebarOpen, true);

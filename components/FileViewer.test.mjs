@@ -50,7 +50,9 @@ test("lightweight source rows are skipped for highlighted, diff, and preview vie
 
 test("partly loaded HTML previews up to the HTML cap; partly loaded markdown does not", () => {
   const start = source.indexOf("  const hasPreview = ");
-  const statement = source.slice(start, source.indexOf(";\n", start) + 1);
+  // 源文件可使用 LF 或 CRLF，截取同一条声明，避免把后续逻辑一并执行。
+  const statement = source.slice(start).match(/^\s*const hasPreview = [\s\S]*?;\r?\n/)?.[0];
+  assert.ok(statement, "预览条件声明必须存在");
   const hasPreview = new Function("data", "isHtml", "isMarkdown", "isDelimitedTable", "HTML_PREVIEW_MAX_BYTES", `${statement}\nreturn hasPreview;`);
   const cap = 10 * 1024 * 1024;
   const partial = { truncated: true, size: 900 * 1024 };

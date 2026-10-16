@@ -9,6 +9,10 @@ const FORBIDDEN_COMMANDS = new Set(["prompt", "steer", "follow_up", "fork", "for
 
 export async function checkSessionNavigation({ browser, base, artifacts, a, b, api, deleteSession }) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
+  // 独立浏览器上下文需要显式选择与断言一致的应用语言。
+  await context.addInitScript(({ origin }) => {
+    if (window === window.top && location.origin === origin) localStorage.setItem("pi-locale", "en");
+  }, { origin: new URL(base).origin });
   await context.tracing.start({ screenshots: true, snapshots: true });
   const errors = [];
   const watch = (target) => {
@@ -113,9 +117,9 @@ export async function checkSessionNavigation({ browser, base, artifacts, a, b, a
     const menu = page.getByRole("menu", { name: "Session actions" });
     await menu.waitFor();
     const items = (await menu.getByRole("menuitem").allInnerTexts()).map((text) => text.split("\n")[0].trim());
-    // After the actions that manage the session, just before Delete; never first (it would take the focus).
-    assert.deepEqual(items.slice(-2), ["Open in new tab", "Delete…"], `menu items: ${items.join(" | ")}`);
-    assert.equal(items[items.length - 3], "Archive", `menu items: ${items.join(" | ")}`);
+    // 未归档会话只允许归档；在新标签打开仍在末尾，且不会抢占首项焦点。
+    assert.deepEqual(items.slice(-2), ["Archive", "Open in new tab"], `menu items: ${items.join(" | ")}`);
+    assert.ok(!items.some(item => /^Delete/.test(item)), "未归档会话不提供删除入口");
     let tab = await newTab(() => menu.getByRole("menuitem", { name: /^Open in new tab/ }).click());
     await expectShows(tab, b.id);
     await expectShows(page, a.id);
@@ -143,26 +147,33 @@ export async function checkSessionNavigation({ browser, base, artifacts, a, b, a
     await tab.close();
     console.log("PASS: two tabs keep their own sessions through reloads; tab memory and ?session= are not crossed");
 
-    // Pinned and archived rows link the same way; pin, archive and restore never navigate.
-    // (The reload above replaced the document: mark the new one.)
+    // 工作区隐藏独立置顶入口，但仍兼容其他窗口写入的置顶状态。
     await markDocument(page);
-    await row(page, b.id).click({ button: "right" });
-    await menu.getByRole("menuitem", { name: /^Pin/ }).click();
-    await link(page, b.id, "pinned").waitFor();
-    assert.equal(await link(page, b.id, "pinned").getAttribute("href"), `?session=${b.id}`);
+    const setPinned = async pinned => {
+      const response = await fetch(base + "/api/sessions/ui-state", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set", ids: [b.id], pinned }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      assert.equal(response.status, 200);
+      return (await response.json()).state;
+    };
+    const pinnedState = await setPinned(true);
+    assert.equal(typeof pinnedState.sessions[b.id].pinnedAt, "number");
+    await link(page, b.id).waitFor();
     await expectShows(page, a.id);
-    tab = await newTab(() => link(page, b.id, "pinned").click({ modifiers: ["ControlOrMeta"] }));
+    tab = await newTab(() => link(page, b.id).click({ modifiers: ["ControlOrMeta"] }));
     await expectShows(tab, b.id);
     await tab.close();
-    await row(page, b.id, "pinned").click({ button: "right" });
-    await menu.getByRole("menuitem", { name: /^Unpin/ }).click();
+    const unpinnedState = await setPinned(false);
+    assert.equal(unpinnedState.sessions[b.id]?.pinnedAt, undefined);
     await link(page, b.id).waitFor();
 
     await row(page, b.id).hover();
     await row(page, b.id).getByRole("button", { name: "Archive", exact: true }).click();
     await row(page, b.id).waitFor({ state: "detached" });
     await expectShows(page, a.id);
-    await panel(page).locator('[data-row-key="footer-archived"] button').click();
+    await panel(page).locator(".workspace-archive-toggle").click();
     await link(page, b.id, "archive").waitFor();
     assert.equal(await link(page, b.id, "archive").getAttribute("href"), `?session=${b.id}`);
     tab = await newTab(() => link(page, b.id, "archive").click({ modifiers: ["ControlOrMeta"] }));
@@ -170,11 +181,12 @@ export async function checkSessionNavigation({ browser, base, artifacts, a, b, a
     await tab.close();
     await row(page, b.id, "archive").hover();
     await row(page, b.id, "archive").getByRole("button", { name: "Restore", exact: true }).click();
-    await page.locator(".sidebar-archive-back").click();
+    // 最后一条归档恢复后，归档区域自动消失，普通列表始终保留。
+    await panel(page).locator(".workspace-archive-section").waitFor({ state: "detached" });
     await link(page, b.id).waitFor();
     await expectShows(page, a.id);
     assert.ok(await documentKept(page), "pin, archive and restore must not reload the page");
-    console.log("PASS: pinned and archived rows link and open in new tabs; pin, archive and restore do not navigate");
+    console.log("PASS: stored pins and archived rows preserve navigation; archive and restore do not reload");
 
     assert.deepEqual(forbidden, [], "opening sessions in tabs must not create, copy or prompt any");
     assert.deepEqual(await sessionIds(), initialIds, "no session was created");
@@ -186,6 +198,10 @@ export async function checkSessionNavigation({ browser, base, artifacts, a, b, a
     // back to it through the workspace memory (AppShell's
     // restoreWorkspaceContext), so that case is not asserted here.
     const freshContext = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
+    // 独立浏览器上下文需要显式选择与断言一致的应用语言。
+    await freshContext.addInitScript(({ origin }) => {
+      if (window === window.top && location.origin === origin) localStorage.setItem("pi-locale", "en");
+    }, { origin: new URL(base).origin });
     try {
       const missing = await freshContext.newPage();
       // Uncaught errors only: the 404 for the missing session is logged as a console error by design.

@@ -6,7 +6,9 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { I18nProvider } = await jiti.import("@/hooks/useI18n.tsx");
+const { I18nProvider: LocaleProvider } = await jiti.import("@/hooks/useI18n");
+// 英文断言显式设置应用语言；与组件使用相同导入路径，确保共享同一上下文。
+const I18nProvider = (props) => React.createElement(LocaleProvider, { initialLocale: "en", ...props });
 const { NewSessionContextBar } = await jiti.import("./NewSessionContextBar.tsx");
 const source = await readFile(new URL("./NewSessionContextBar.tsx", import.meta.url), "utf8");
 const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
@@ -43,12 +45,12 @@ function render(props = {}) {
 
 test("the bar shows the project's name and the worktree's branch as two menu buttons", () => {
   const html = render();
-  // No visible label: the folder icon says what the row is; the group keeps its name.
-  assert.match(html, /^<div class="new-session-context"><div class="project-picker is-inline" role="group" aria-label="New session location"><button /);
+  // 项目关联和工作树各自保留入口，整组仍有可访问名称。
+  assert.match(html, /^<div class="new-session-context"><div class="project-picker is-inline" role="group" aria-label="New session location"><div class="project-picker-association"><button /);
+  assert.match(html, /class="project-picker-clear" aria-label="Clear project and use default directory"/);
   assert.equal((html.match(/New session location/g) ?? []).length, 1);
-  // The project: a 12px folder icon, its name in code type, a chevron; the
-  // full path is the tooltip (and the menu's rows), never the button's text.
-  assert.match(html, /<button type="button" class="project-picker-button is-project" title="\/work\/app" aria-haspopup="menu" aria-expanded="false"><svg width="12" height="12"[^>]*class="project-picker-icon" aria-hidden="true"><path d="M3 8a2[^"]*"><\/path><\/svg><span class="project-picker-name"><span class="project-picker-leaf">app<\/span><\/span><svg width="9" height="9"[^>]*class="project-picker-chevron sidebar-icon-down" aria-hidden="true">/);
+  // 项目按钮展示名称与下拉箭头，完整路径留在提示中。
+  assert.match(html, /<button type="button" class="project-picker-button is-project" title="\/work\/app" aria-haspopup="menu" aria-expanded="false"><span class="project-picker-name"><span class="project-picker-leaf">app<\/span><\/span><svg width="9" height="9"[^>]*class="project-picker-chevron sidebar-icon-down" aria-hidden="true">/);
   assert.doesNotMatch(html, /project-picker-path"><span>\/work\/app</);
   // The worktree: the branch icon (the accent for a linked checkout), the
   // branch cut at its left, a chevron; no "main" note and no count.
@@ -68,7 +70,7 @@ test("the project's name is the menus': its display name, else its folder's, its
   // A project the user named: that name alone, the path still the tooltip.
   const named = { ...twins, project: { ...context.project, alias: "Thermal <b>Models</b>" } };
   const html = render({ context: named });
-  assert.match(html, /title="\/work\/app"[^>]*><svg[^>]*>[\s\S]*?<\/svg><span class="project-picker-name"><span class="project-picker-leaf">Thermal &lt;b&gt;Models&lt;\/b&gt;<\/span><\/span>/);
+  assert.match(html, /title="\/work\/app"[^>]*><span class="project-picker-name"><span class="project-picker-leaf">Thermal &lt;b&gt;Models&lt;\/b&gt;<\/span><\/span>/);
   assert.doesNotMatch(html, /project-picker-parent|is-alias/);
   // A name only the list knows (a move names its project by key and root).
   const listed = { ...context, projects: [{ key: "app-key", root: "/work/app", alias: "Listed" }] };
@@ -101,7 +103,7 @@ test("client code stays parseable by Safari 16.2 and its CSS flat", () => {
   assert.ok(update);
   assert.deepEqual([update[1], update[2]], [update[3], update[4]]);
   // The bar is pulled left by the project button's own padding, so its
-  // folder icon stands on the logo's and the composer card's edge.
+  // project label starts at the logo's and the composer card's edge.
   const row = header.match(/\.new-session-context \{[^}]*\smargin: 0 0 \d+px -(\d+)px;/);
   assert.ok(row);
   const button = rules.match(/\.project-picker\.is-inline \.project-picker-button \{[^}]*\spadding: 0 (\d+)px;/);

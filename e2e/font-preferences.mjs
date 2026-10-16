@@ -13,7 +13,7 @@ export async function checkFontPreferences(page) {
   const openSettings = async () => {
     const sidebar = page.getByRole("button", { name: "Show sidebar", exact: true });
     if (await sidebar.isVisible()) await sidebar.click();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "设置", exact: true }).click();
   };
   assert.equal(await ui.inputValue(), "");
   assert.equal(await mono.inputValue(), "");
