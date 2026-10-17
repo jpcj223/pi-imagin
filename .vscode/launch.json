@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "桌面开发",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/desktop/dev.cjs",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"],
+      "env": { "PI_IMAGIN_DESKTOP_INSPECT_PORT": "9230" }
+    },
+    {
+      "name": "附加桌面主进程",
+      "type": "node",
+      "request": "attach",
+      "port": 9230,
+      "address": "127.0.0.1",
+      "restart": true,
+      "timeout": 120000,
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}

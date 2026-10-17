@@ -21,6 +21,7 @@
 
 # next.js
 /.next/
+/.desktop-dev/
 /out/
 
 # production

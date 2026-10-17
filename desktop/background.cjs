@@ -2,7 +2,7 @@
 const { existsSync } = require("node:fs");
 
 /** 关闭只隐藏窗口，保留页面、输入与服务；显式退出仍由主进程统一清理。 */
-function installBackground({ app, Tray, Menu, window, icon, isQuitting, record = () => {} }) {
+function installBackground({ app, Tray, Menu, window, icon, isQuitting, record = () => {}, enabled = true }) {
   let tray;
   let hidden = false;
   const hiddenChildren = new Set();
@@ -16,16 +16,18 @@ function installBackground({ app, Tray, Menu, window, icon, isQuitting, record =
     window.focus();
   };
   try {
-    if (!existsSync(icon)) throw new Error("托盘图标不存在");
-    tray = new Tray(icon);
-    tray.setToolTip("Pi Imagin · 关闭窗口后继续在后台运行");
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: "打开 Pi Imagin", click: restore },
-      { type: "separator" },
-      { label: "退出 Pi Imagin", click: () => app.quit() },
-    ]));
-    tray.on("click", restore);
-    tray.on("double-click", restore);
+    if (enabled) {
+      if (!existsSync(icon)) throw new Error("托盘图标不存在");
+      tray = new Tray(icon);
+      tray.setToolTip("Pi Imagin · 关闭窗口后继续在后台运行");
+      tray.setContextMenu(Menu.buildFromTemplate([
+        { label: "打开 Pi Imagin", click: restore },
+        { type: "separator" },
+        { label: "退出 Pi Imagin", click: () => app.quit() },
+      ]));
+      tray.on("click", restore);
+      tray.on("double-click", restore);
+    }
   } catch (error) {
     tray?.destroy();
     tray = undefined;

@@ -28,10 +28,13 @@ Pi Imagin 当前为本地项目，尚未发布到 npm。需要 Node.js 22.19.0 �
 
 ```bash
 npm ci
-npm run dev
+npm ci --prefix desktop
+npm run dev:desktop
 ```
 
-打开 [http://127.0.0.1:30141](http://127.0.0.1:30141)，在**模型**面板配置服务商。
+命令会自动启动本地开发服务并打开桌面窗口，页面支持热更新，桌面代码修改后自动重开窗口。开发模式使用独立配置，需要在其**模型**面板单独配置服务商；关闭窗口或在终端按 Ctrl+C 会结束本次开发服务。详细说明见 [桌面开发](docs/desktop.md#开发和打包)。
+
+仅调试 Web 时仍可运行 `npm run dev`，打开 [http://127.0.0.1:30141](http://127.0.0.1:30141)。
 
 生产启动时先停止开发服务并完成构建，再运行 `node bin/pi-imagin.js`。本地命令包括 `node bin/pi-imagin.js version`、`status`、`open` 和 `stop`。项目自己的发布地址配置完成前，自动更新保持关闭。
 

@@ -15,9 +15,12 @@ export function localDateStamp(now = new Date()): string {
 }
 
 export function defaultCwdPath(now = new Date(), home = homedir()): string {
-  return path.join(home, DEFAULT_CWD_PARENT, localDateStamp(now));
+  return path.join(defaultCwdParent(home), localDateStamp(now));
 }
 
 export function defaultCwdParent(home = homedir()): string {
+  // 桌面调试的默认草稿目录与正式版分离；普通 Web 和安装版保留原有路径。
+  const development = process.env.PI_IMAGIN_DESKTOP_DEV === "1" && process.env.PI_IMAGIN_DESKTOP_DEV_WORKSPACE;
+  if (development && path.isAbsolute(development)) return development;
   return path.join(home, DEFAULT_CWD_PARENT);
 }

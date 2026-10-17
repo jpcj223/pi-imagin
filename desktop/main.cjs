@@ -10,8 +10,11 @@ const { createStartupView } = require("./startup-view.cjs");
 
 const launchStarted = Date.now();
 
-app.setName("Pi Imagin");
-const profile = process.env.PI_IMAGIN_DESKTOP_TEST_DIR ? path.resolve(process.env.PI_IMAGIN_DESKTOP_TEST_DIR) : path.join(app.getPath("appData"), "Pi Imagin");
+const development = !app.isPackaged && Boolean(process.env.PI_IMAGIN_DESKTOP_DEV_URL);
+app.setName(development ? "Pi Imagin Dev" : "Pi Imagin");
+// 开发窗口拥有独立浏览器数据与单实例锁，不复用正式桌面配置。
+const profile = development ? path.resolve(process.env.PI_IMAGIN_DESKTOP_DEV_PROFILE || path.join(app.getPath("appData"), "Pi Imagin Development", "attach"))
+  : process.env.PI_IMAGIN_DESKTOP_TEST_DIR ? path.resolve(process.env.PI_IMAGIN_DESKTOP_TEST_DIR) : path.join(app.getPath("appData"), "Pi Imagin");
 fs.mkdirSync(profile, { recursive: true });
 app.setPath("userData", profile);
 const ownsInstance = app.requestSingleInstanceLock();
@@ -25,6 +28,7 @@ let quitting = false;
 let background;
 let startupView;
 let logs;
+if (development) process.on("message", message => { if (message?.type === "pi-imagin:dev-quit") app.quit(); });
 const startupRequests = new Map();
 const startupPage = new URL(`file://${path.join(__dirname, "loading.html").replace(/\\/g, "/")}`).href;
 
@@ -137,14 +141,14 @@ else {
     const icon = pathsFor(app, process.resourcesPath).icon;
     mainWindow = new BrowserWindow({
       width: 1440, height: 900, minWidth: 900, minHeight: 600,
-      title: "Pi Imagin", icon: fs.existsSync(icon) ? icon : undefined,
+      title: development ? "Pi Imagin · 开发" : "Pi Imagin", icon: fs.existsSync(icon) ? icon : undefined,
       titleBarStyle: "hidden",
       titleBarOverlay: { color: "#f7f8f9", symbolColor: "#77818c", height: 43 },
       autoHideMenuBar: true,
       backgroundColor: "#f6f8fa", show: false,
       webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false },
     });
-    background = installBackground({ app, Tray, Menu, window: mainWindow, icon, isQuitting: () => quitting, record });
+    background = installBackground({ app, Tray, Menu, window: mainWindow, icon, isQuitting: () => quitting, record, enabled: !development });
     startupView = createStartupView({ WebContentsView, window: mainWindow, isQuitting: () => quitting, canShow: () => !background.isHidden() && process.env.PI_IMAGIN_DESKTOP_SMOKE !== "1", record });
     mainWindow.once("ready-to-show", () => {
       startupStep("启动窗口可显示", launchStarted);
@@ -153,7 +157,7 @@ else {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: "文件", submenu: [{ label: "退出", role: "quit" }] },
       { label: "编辑", submenu: [{ label: "撤销", role: "undo" }, { label: "重做", role: "redo" }, { type: "separator" }, { label: "剪切", role: "cut" }, { label: "复制", role: "copy" }, { label: "粘贴", role: "paste" }, { label: "全选", role: "selectAll" }] },
-      { label: "视图", submenu: [{ label: "刷新", role: "reload" }, { label: "放大", role: "zoomIn" }, { label: "缩小", role: "zoomOut" }, { label: "实际大小", role: "resetZoom" }, { label: "全屏", role: "togglefullscreen" }] },
+      { label: "视图", submenu: [{ label: "刷新", role: "reload" }, ...(development ? [{ label: "开发者工具", role: "toggleDevTools", accelerator: "F12" }] : []), { label: "放大", role: "zoomIn" }, { label: "缩小", role: "zoomOut" }, { label: "实际大小", role: "resetZoom" }, { label: "全屏", role: "togglefullscreen" }] },
     ]));
     const browserSession = mainWindow.webContents.session;
     browserSession.webRequest.onBeforeSendHeaders((details, callback) => {

@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const { installBackground } = require("./background.cjs");
 
-function setup({ failingTray = false } = {}) {
+function setup({ failingTray = false, enabled = true } = {}) {
   const trays = [];
   let quits = 0, quitting = false;
   class FakeTray extends EventEmitter {
@@ -23,7 +23,7 @@ function setup({ failingTray = false } = {}) {
     restore() { this.minimized = false; }, focus() { this.focused = true; },
     getChildWindows() { return this.children ?? []; },
   });
-  const background = installBackground({ app: { quit() { quits++; } }, Tray: FakeTray, Menu: { buildFromTemplate: items => items }, window, icon: __filename, isQuitting: () => quitting });
+  const background = installBackground({ app: { quit() { quits++; } }, Tray: FakeTray, Menu: { buildFromTemplate: items => items }, window, icon: __filename, isQuitting: () => quitting, enabled });
   return { window, background, get tray() { return trays[0]; }, get quits() { return quits; }, quit: () => { quitting = true; } };
 }
 
@@ -44,6 +44,12 @@ test("关闭隐藏窗口并保留同一页面，托盘点击与菜单立即恢�
   testApp.tray.menu[0].click();
   testApp.tray.menu[2].click();
   assert.equal(testApp.quits, 1);
+});
+
+test("开发窗口不创建托盘，关闭不会隐藏成后台任务",()=>{
+ const testApp=setup({enabled:false});assert.equal(testApp.tray,undefined);
+ testApp.window.emit("close",{preventDefault(){assert.fail("开发窗口关闭不应被托盘拦截");}});
+ assert.equal(testApp.background.available(),false);assert.equal(testApp.background.isHidden(),false);
 });
 
 test("退出和托盘失败时不拦截关闭，已销毁或退出中的窗口不恢复", () => {
