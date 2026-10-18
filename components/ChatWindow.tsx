@@ -198,6 +198,13 @@ export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTarg
     return position && !position.atBottom ? position : null;
   });
   const [restoreAnchorReady, setRestoreAnchorReady] = useState(false);
+  const handleBranchDataChange = useCallback<NonNullable<Props["onBranchDataChange"]>>((tree, leafId, onLeafChange, locked) => {
+    onBranchDataChange?.(tree, leafId, nextLeafId => {
+      // 后台刷新叶节点不代表用户换分支；只有主动导航才放弃原阅读位置。
+      if (!locked && nextLeafId !== leafId) setPendingScrollRestore(null);
+      onLeafChange(nextLeafId);
+    }, locked);
+  }, [onBranchDataChange]);
 
   const {
     loading, error, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
@@ -225,7 +232,7 @@ export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTarg
     loadContext, activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
-    modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
+    modelsRefreshKey, chatInputRef, onBranchDataChange: handleBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings,
     deferInitialScroll: Boolean(pendingScrollRestore),
   });
@@ -537,15 +544,17 @@ export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTarg
           setPendingScrollRestore(null);
         }
       } finally {
-        loadingOlderRef.current = false;
+        // 已取消的旧请求不能释放接替它的新恢复流程持有的互斥状态。
+        if (!controller.signal.aborted) loadingOlderRef.current = false;
       }
     };
 
     void locate();
     return () => {
       controller.abort();
-      // A branch change cancels restoration and must reveal the new context.
-      setPendingScrollRestore(null);
+      // 依赖刷新时允许从最新上下文继续定位，不能在清理阶段丢弃目标。
+      restoreStartedRef.current = false;
+      loadingOlderRef.current = false;
     };
   }, [activeLeafId, loadOlderPage, loading, pendingScrollRestore, scrollToBottom, searchTarget, session?.id]);
 
@@ -614,12 +623,13 @@ export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTarg
   // When it becomes visible, load the next page of older messages.
   useEffect(() => {
     const container = scrollContainerRef.current;
-    if (!sentinel || !container) return;
+    if (!sentinel || !container || pendingScrollRestore) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries[0]?.isIntersecting) return;
         // Skip while a page is already loading.
-        if (loadingOlderRef.current) return;
+        // 隐藏的恢复列表仍可能产生交叉事件，此时由恢复流程独占历史分页。
+        if (loadingOlderRef.current || pendingScrollRestoreRef.current) return;
         if (!hasEarlierMessages) {
           // Everything is loaded, yet the sentinel shows: the messages render as
           // more rows than the window holds (an answer and its thinking are
@@ -646,7 +656,7 @@ export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTarg
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [sentinel, visibleCount, historyCursor, hasEarlierMessages, session, loadOlderPage, sessionIdRef, scrollContainerRef]);
+  }, [sentinel, visibleCount, historyCursor, hasEarlierMessages, session, loadOlderPage, sessionIdRef, scrollContainerRef, pendingScrollRestore]);
 
   // Keep the rendered window at least as large as what's loaded, so prepended
   // (older) pages stay visible instead of being sliced off the top.

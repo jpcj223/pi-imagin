@@ -329,7 +329,7 @@ try {
       if (new URL(request.url()).pathname.endsWith("/thinking")) thinkingRequests.push(request.url());
     });
     await page.goto(`${base}/?session=${RICH}`, { waitUntil: "domcontentloaded" });
-    await page.locator("strong").filter({ hasText: "E2E markdown" }).waitFor();
+    await page.locator(".chat-content strong").filter({ hasText: "E2E markdown" }).waitFor();
     await page.locator("pre").filter({ hasText: "console.log('E2E code');" }).waitFor();
     await page.locator(".chat-content").getByText("E2E final answer", { exact: true }).waitFor();
     const processDetails = page.getByRole("button", { name: /^Process details/ });
@@ -431,10 +431,14 @@ try {
       const answerHeading = page.getByRole("heading", { name: "E2E reading position", exact: true });
       const answerOffset = await positionForReading(answerHeading);
       await selectSession(text(0), "e4920");
-      assert.ok(Math.abs(await readingOffset(olderMessage) - olderOffset) < 5, "Returning to older history must restore its reading offset");
+      const restoredOlderOffset = await readingOffset(olderMessage);
+      assert.ok(Math.abs(restoredOlderOffset - olderOffset) < 5,
+        `Returning to older history must restore its reading offset: expected ${olderOffset}, got ${restoredOlderOffset}`);
       await selectSession("Render **E2E markdown**", "user");
       assert.equal(await process.getAttribute("aria-expanded"), "false");
-      assert.ok(Math.abs(await readingOffset(answerHeading) - answerOffset) < 5, "Collapsing process details on remount must not displace the answer");
+      const restoredAnswerOffset = await readingOffset(answerHeading);
+      assert.ok(Math.abs(restoredAnswerOffset - answerOffset) < 5,
+        `Collapsing process details on remount must not displace the answer: expected ${answerOffset}, got ${restoredAnswerOffset}`);
 
       // Hold pagination until a different branch has loaded, exercising effect cancellation.
       let releaseHistory;

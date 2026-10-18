@@ -23,12 +23,14 @@ const forgetCursor = compile(hook("useEffect", "requestedCursorRef.current = nul
 
 // Mounts the observer effect with the given history state; `reachTop()` is the
 // sentinel coming into view, `render(cursor)` the next cursor rendering.
-function mount({ hasEarlierMessages, landed = true }) {
+function mount({ hasEarlierMessages, landed = true, restoring = false }) {
   const calls = { visibleCount: 50, loads: [] };
   let observed = null;
   const context = createContext({
     sentinel: {}, scrollContainerRef: { current: { scrollHeight: 4000, scrollTop: 0 } },
     loadingOlderRef: { current: false }, prevScrollDistanceRef: { current: null }, requestedCursorRef: { current: null },
+    pendingScrollRestore: restoring ? { anchorEntryId: "anchor" } : null,
+    pendingScrollRestoreRef: { current: restoring ? { anchorEntryId: "anchor" } : null },
     hasEarlierMessages, historyCursor: "older", session: { id: "a" }, sessionIdRef: { current: "a" }, activeLeafId: "leaf",
     captureScrollDistance, getNextVisibleCount,
     setVisibleCount: (update) => { calls.visibleCount = update(calls.visibleCount); },
@@ -41,8 +43,9 @@ function mount({ hasEarlierMessages, landed = true }) {
   return {
     calls,
     context,
+    observing: () => observed !== null,
     reachTop: async () => {
-      observed([{ isIntersecting: true }]);
+      observed?.([{ isIntersecting: true }]);
       await new Promise((resolve) => setImmediate(resolve));
     },
     render: (cursor) => {
@@ -60,6 +63,27 @@ async function reachTop(state) {
 }
 
 const cursors = (calls) => calls.loads.map((args) => args[2]);
+
+test("恢复阅读位置期间不注册顶部分页观察器", async () => {
+  for (const hasEarlierMessages of [false, true]) {
+    const chat = mount({ hasEarlierMessages, restoring: true });
+    assert.equal(chat.observing(), false);
+    await chat.reachTop();
+    assert.deepEqual(chat.calls, { visibleCount: 50, loads: [] });
+    assert.equal(chat.context.prevScrollDistanceRef.current, null);
+  }
+});
+
+test("恢复开始后迟到的交叉事件不能发起额外分页或覆盖滚动距离", async () => {
+  const chat = mount({ hasEarlierMessages: true });
+  chat.context.pendingScrollRestoreRef.current = { anchorEntryId: "anchor" };
+  await chat.reachTop();
+  assert.deepEqual(chat.calls.loads, []);
+  assert.equal(chat.context.prevScrollDistanceRef.current, null);
+  chat.context.pendingScrollRestoreRef.current = null;
+  await chat.reachTop();
+  assert.deepEqual(cursors(chat.calls), ["older"]);
+});
 
 test("with every message loaded, reaching the top widens the window over rows still hidden", async () => {
   assert.deepEqual(await reachTop({ hasEarlierMessages: false }), { visibleCount: 100, loads: [], scrollDistance: 4000 });
