@@ -71,6 +71,8 @@ import { focusIfLost, type FocusDocument } from "@/lib/stacked-dialog";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
+import { SidebarSessionSections } from "./SidebarSessionSections";
+import { loadSidebarSections, saveSidebarSections } from "@/lib/sidebar-sections";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { useSessionUiState } from "@/hooks/useSessionUiState";
 import { useManagedProjects } from "@/hooks/useManagedProjects";
@@ -240,6 +242,7 @@ interface Props {
  */
 export interface SessionSidebarControl {
   openSearch(): void;
+  returnToSession(): void;
   startPreferredNewSession(): void;
   openProjectEditorForNewSession(projectId: string | null, opener: HTMLElement | null): void;
   /** Identity, then the sidebar's cwd, then `onNewSession`, as any new session. */
@@ -584,7 +587,10 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
   const filesFold = filesFoldState(filesCollapsed, filesFoldPhase);
   const filesCollapsedRef = useRef(filesCollapsed);
   filesCollapsedRef.current = filesCollapsed;
-  const setArchiveView = useCallback((open: boolean) => setArchiveViewState(open), []);
+  const setArchiveView = useCallback((open: boolean) => {
+    setArchiveViewState(open);
+    saveSidebarSections({ archiveOpen: open });
+  }, []);
 
   // Row states that must survive virtualization live here, not in the rows.
   const [renamingRootId, setRenamingRootId] = useState<string | null>(null);
@@ -731,6 +737,7 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
     if (loadPinnedCollapsed()) setPinnedCollapsed(true);
     if (loadFilesCollapsed()) setFilesCollapsed(true);
     if (loadShowIgnoredFiles()) setShowIgnoredFiles(true);
+    if (loadSidebarSections().archiveOpen) setArchiveViewState(true);
     forgetRetiredSidebarKeys();
   }, []);
 
@@ -1382,8 +1389,10 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
   startNewSessionInRef.current = startNewSessionIn;
 
   const externalSessionMenuRef = useRef<((id: string, opener: HTMLElement) => void) | null>(null);
+  const returnToSessionRef = useRef(() => {});
   useImperativeHandle(controlRef, () => ({
     openSearch: () => setSessionSearchOpen(true),
+    returnToSession: () => returnToSessionRef.current(),
     startPreferredNewSession: () => preferredNewSessionRef.current(),
     openProjectEditorForNewSession: (projectId, opener) => {
       const project = projectId ? managedProjectsRef.current.find(item => item.id === projectId) : undefined;
@@ -1755,6 +1764,11 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
     setSidebarTab(tab);
     saveSidebarTab(tab);
   }, [stacked]);
+  // 稳定的外部句柄通过最新闭包判断布局，避免窗口变窄后沿用旧状态。
+  returnToSessionRef.current = () => {
+    setSessionSearchOpen(false);
+    switchTab("sessions");
+  };
 
   // Every fold and unfold goes through here (the toggle, revealFiles, the
   // file search, changes and upload keys, a file manager error), and moves;
@@ -2707,25 +2721,25 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
         onScrollCapture={rememberScroll}
       >
         <div className="sidebar-sessions-views">
-          <div className="sidebar-sessions-view">
-            <div className="workspace-project-tree"><SessionTree {...treeProps}
+          <SidebarSessionSections isMobile={isMobile} archiveOpen={archiveView}
+            projects={<SessionTree {...treeProps}
               rows={projectRows}
               emptyLabel={null}
               reveal={treeReveal && !model.defaultRows.some(row => row.key === treeReveal.rowKey) ? treeReveal : null}
-              onRevealHandled={handleRevealHandled} /></div>
-            <section className="workspace-default-sessions" aria-label="默认">
+              onRevealHandled={handleRevealHandled} />}
+            defaultSessions={model.defaultRows.length > 0 ? <>
               <div className="workspace-default-heading">默认</div>
               <SessionTree {...treeProps} rows={model.defaultRows} emptyLabel="还没有会话"
                 reveal={treeReveal && model.defaultRows.some(row => row.key === treeReveal.rowKey) ? treeReveal : null}
                 onRevealHandled={handleRevealHandled} />
-            </section>
-            {archivedCount > 0 && <section className={`workspace-archive-section${archiveView ? " is-open" : ""}`} aria-label="已归档会话">
+            </> : undefined}
+            archive={archivedCount > 0 ? <>
               <button ref={archiveBackRef} type="button" className="workspace-archive-toggle" aria-expanded={archiveView} aria-controls="workspace-archive-list" onClick={() => setArchiveView(!archiveView)}>
                 <ArchiveIcon size={13} /><span>已归档</span><span className="workspace-archive-count">{archivedCount}</span><ChevronIcon size={12} />
               </button>
               {archiveView && <div id="workspace-archive-list" className="workspace-archive-list"><SessionTree {...treeProps} onMoveSession={undefined} rows={archiveRows} emptyLabel={t("sidebar.noArchived")} /></div>}
-            </section>}
-          </div>
+            </> : undefined}
+          />
         </div>
       </div>
 

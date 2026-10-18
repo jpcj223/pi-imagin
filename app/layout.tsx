@@ -1,5 +1,6 @@
 import "./workspace.css";
 import "./projects.css";
+import "./file-editor.css";
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
 import { PwaRegistration } from "@/components/PwaRegistration";

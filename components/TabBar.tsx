@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { fileDraftDirty, fileEditRevision, getFileEditDraft, subscribeFileEdits } from "@/lib/file-edit-drafts";
 import { getFileIcon } from "./FileIcons";
 import { useI18n } from "@/hooks/useI18n";
 import type { FileViewerDisplayMode, FileViewerState } from "@/lib/file-viewer-state";
@@ -28,26 +29,33 @@ interface Props {
 
 export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
   const { t } = useI18n();
-  const [hoveredClose, setHoveredClose] = useState<string | null>(null);
+  useSyncExternalStore(subscribeFileEdits, fileEditRevision, () => 0);
+  const strip = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // 只移动标签条，避免 scrollIntoView 连带滚动正文。
+    const root = strip.current, active = root?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!root || !active) return;
+    if (active.offsetLeft < root.scrollLeft) root.scrollLeft = active.offsetLeft;
+    else if (active.offsetLeft + active.offsetWidth > root.scrollLeft + root.clientWidth) root.scrollLeft = active.offsetLeft + active.offsetWidth - root.clientWidth;
+  }, [activeTabId, tabs.length]);
 
   return (
     <div
+      ref={strip}
       role="tablist"
-      style={{
-        display: "flex",
-        alignItems: "flex-end",
-        background: "var(--bg-panel)",
-        overflowX: "auto",
-        flexShrink: 0,
-        height: 36,
-      }}
+      aria-label="打开的文件与面板"
+      className="workspace-file-tab-strip"
     >
       {tabs.map((tab) => {
         const isActive = tab.id === activeTabId;
+        const dirty = !tab.kind && fileDraftDirty(getFileEditDraft(tab.filePath));
+        const duplicate = tabs.some(other => other.id !== tab.id && other.label === tab.label);
+        const parent = tab.filePath.replaceAll("\\", "/").split("/").at(-2);
         return (
           <div
             key={tab.id}
             role="tab"
+            className="workspace-file-tab"
             aria-label={tab.kind === "terminal" ? t("terminal.tabLabel", { name: tab.label }) : tab.kind === "agent" ? t("subagent.tabLabel", { name: tab.label }) : tab.label}
             aria-selected={isActive}
             tabIndex={isActive || (!activeTabId && tabs[0].id === tab.id) ? 0 : -1}
@@ -79,16 +87,15 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
               display: "flex",
               alignItems: "center",
               gap: 6,
-              height: 36,
+              height: 33,
               paddingLeft: 12,
               paddingRight: 6,
-              borderRight: "1px solid var(--border)",
               background: isActive ? "var(--bg)" : "var(--bg-panel)",
               cursor: "pointer",
               fontSize: 12,
               color: isActive ? "var(--text)" : "var(--text-muted)",
               whiteSpace: "nowrap",
-              maxWidth: 180,
+              maxWidth: 200,
               minWidth: 80,
               flexShrink: 0,
               userSelect: "none",
@@ -107,6 +114,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
               ) : getFileIcon(tab.label, 13)}
             </span>
             <span
+              className="file-tab-label"
               style={{
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -116,25 +124,24 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
               title={tab.filePath}
             >
               {tab.label}
+              {duplicate && parent && <small className="file-tab-parent">{parent}</small>}
             </span>
             <button
+              type="button"
+              className={`file-tab-close${dirty ? " is-dirty" : ""}`}
               disabled={tab.closing}
               onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}
-              onMouseEnter={() => setHoveredClose(tab.id)}
-              onMouseLeave={() => setHoveredClose(null)}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
                 width: 24, height: 24,
-                background: hoveredClose === tab.id ? "var(--bg-hover)" : "transparent",
                 border: "none",
                 borderRadius: 4,
-                color: hoveredClose === tab.id ? "var(--text)" : "var(--text-dim)",
                 cursor: "pointer",
                 padding: 0,
                 flexShrink: 0,
                 transition: "background 0.1s, color 0.1s",
               }}
-               title={t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")}
+               title={dirty ? "未保存修改" : t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")}
                aria-label={`${t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")} ${tab.label}`}
             >
               <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">

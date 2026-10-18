@@ -1,0 +1,22 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { NextRequest } from "next/server.js";
+import { createJiti } from "jiti";
+const { POST } = await createJiti(import.meta.url, { alias: { "@": process.cwd() } }).import("./route.ts");
+test("真实编辑接口校验来源、范围、参数及旧版本保存冲突", async t => {
+  const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),"pi-editor-api-"))),file=path.join(root,"safe.js");
+  fs.writeFileSync(file,"const n = 1;\n");t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const previous=globalThis.__piAllowedRootsCache;globalThis.__piAllowedRootsCache={roots:new Set([root]),expiresAt:Date.now()+60000};t.after(()=>globalThis.__piAllowedRootsCache=previous);
+  const request=(body,origin="http://localhost")=>POST(new NextRequest("http://localhost/api/file-edit",{method:"POST",headers:{"Content-Type":"application/json",Origin:origin,Host:"localhost"},body:JSON.stringify(body)}));
+  assert.equal((await request({action:"read",path:file},"https://untrusted.invalid")).status,403);
+  assert.equal((await request({action:"read",path:path.dirname(root)})).status,403);
+  assert.equal((await request({action:"save",path:file,text:"bad"})).status,400);
+  const read=await request({action:"read",path:file});assert.equal(read.status,200);const snapshot=await read.json();
+  assert.equal((await request({action:"save",path:file,text:"const n = 2;\n",version:snapshot.version})).status,200);
+  assert.equal(fs.readFileSync(file,"utf8"),"const n = 2;\n");
+  assert.equal((await request({action:"save",path:file,text:"stale",version:snapshot.version})).status,409);
+  assert.equal(fs.readFileSync(file,"utf8"),"const n = 2;\n");
+});

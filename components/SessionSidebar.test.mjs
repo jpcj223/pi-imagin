@@ -148,7 +148,7 @@ test("the fold's and the archive view's motions in the CSS last as long as the h
 test("the first render has no in-flight fold or archive animation", () => {
   const html = render({ selectedCwd: "/work/alpha" });
   assert.doesNotMatch(html, / inert[ =>]|is-files-folding|sidebar-archive-view|is-entering|is-leaving/);
-  assert.match(html, /<div class="sidebar-sessions-views"><div class="sidebar-sessions-view">/);
+  assert.match(html, /<div class="sidebar-sessions-views"><div class="sidebar-sessions-view workspace-session-sections">/);
   assert.equal(openingTag(html, "session-sidebar-files-body"), '<div id="session-sidebar-files-body" class="sidebar-files-body">');
   assert.doesNotMatch(html, /role="separator"/);
 });

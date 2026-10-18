@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FILE_MUTATION_EVENT, type FileMutation } from "@/lib/file-mutation";
+import { forgetCleanFileEditsWithin, hasFileEditsWithin } from "@/lib/file-edit-drafts";
 
 type Target = { cwd: string; path: string; name: string; x: number; y: number };
 type Undo = { path: string; token: string };
@@ -35,6 +36,7 @@ export function FileActionMenu({ cwd, onChanged }: { cwd: string; onChanged: () 
   async function operate(action: "rename" | "delete" | "restore") {
     const path = action === "restore" ? undo?.path : target?.path;
     if (!path || busy) return;
+    if (action !== "restore" && hasFileEditsWithin(path)) { setError("该文件或目录中有未保存修改，请先保存或关闭对应文件。"); return; }
     setBusy(true);setError("");
     try {
       const response = await fetch("/api/file-actions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cwd, path, action, name, token: undo?.token }) });
@@ -42,6 +44,7 @@ export function FileActionMenu({ cwd, onChanged }: { cwd: string; onChanged: () 
       if (action === "delete") saveUndo({ path, token: data.token });
       if (action === "restore") saveUndo(null);
       const mutation: FileMutation = { action, path, nextPath: data.path };
+      if (action !== "restore") forgetCleanFileEditsWithin(path);
       window.dispatchEvent(new CustomEvent(FILE_MUTATION_EVENT, { detail: mutation }));
       setTarget(null);onChanged();
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }

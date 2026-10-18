@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent } from "react";
+import dynamic from "next/dynamic";
+import { fileDraftDirty, getFileEditDraft, selectedFileLines } from "@/lib/file-edit-drafts";
 import type { SyntaxHighlighterProps } from "react-syntax-highlighter";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
 import renderSyntaxNode from "react-syntax-highlighter/dist/esm/create-element";
@@ -36,6 +38,7 @@ import {
 } from "@/lib/file-viewer-state";
 
 export type { FileViewerState } from "@/lib/file-viewer-state";
+const FileTextEditor = dynamic(() => import("./FileTextEditor"), { ssr: false });
 
 interface Props {
   filePath: string;
@@ -1313,6 +1316,7 @@ function TextFileViewer({
     const synchronize = () => {
       void fetchContent(filePath);
       void fetchGitDiff(filePath);
+      window.dispatchEvent(new CustomEvent("pi-imagin:file-observed", { detail: { path: filePath } }));
     };
 
     const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
@@ -1327,6 +1331,11 @@ function TextFileViewer({
 
     es.addEventListener("change", synchronize);
 
+    const saved = (event: Event) => {
+      if ((event as CustomEvent).detail?.path === filePath) synchronize();
+    };
+    window.addEventListener("pi-imagin:file-saved", saved);
+
     const markDisconnected = () => {
       setWatching(false);
     };
@@ -1335,6 +1344,7 @@ function TextFileViewer({
 
     return () => {
       es.close();
+      window.removeEventListener("pi-imagin:file-saved", saved);
       if (esRef.current === es) esRef.current = null;
     };
   }, [filePath, fetchContent, fetchGitDiff, sourceSessionId, watchEnabled]);
@@ -1420,7 +1430,7 @@ function TextFileViewer({
   const sourceLines = useMemo(() => viewerContent.split("\n"), [viewerContent]);
   const language = data?.language ?? "text";
   // Plain text needs no Prism languages; any other file loads them once.
-  const prismReady = usePrismLanguages(Boolean(data) && language !== "text");
+  const prismReady = usePrismLanguages(Boolean(data) && language !== "text" && displayMode !== "source");
   const isHtml = language === "html";
   const isMarkdown = language === "markdown";
   // A table shows a loaded prefix too, without its cut last record; an HTML
@@ -1504,6 +1514,7 @@ function TextFileViewer({
 
   useEffect(() => {
     const updateSelectedLineRange = () => {
+      if (document.activeElement?.hasAttribute("data-file-editor")) return;
       const root = contentRef.current;
       setSelectedLineRange((current) => {
         const next = onMentionLines && displayMode === "source" && root
@@ -1540,10 +1551,10 @@ function TextFileViewer({
       if (event.repeat || event.key.toLowerCase() !== "i" || (!event.metaKey && !event.ctrlKey) || event.altKey || event.shiftKey) return;
 
       const target = event.target;
-      if (target instanceof Element && target.closest("input, textarea, [contenteditable='true']")) return;
-
       const root = contentRef.current;
-      const lineRange = root ? getSelectedSourceLineRange(root, window.getSelection()) : null;
+      const editor = target instanceof HTMLTextAreaElement && target.hasAttribute("data-file-editor") && root?.contains(target) ? target : null;
+      if (!editor && target instanceof Element && target.closest("input, textarea, [contenteditable='true']")) return;
+      const lineRange = editor ? selectedFileLines(editor.value, editor.selectionStart, editor.selectionEnd) : root ? getSelectedSourceLineRange(root, window.getSelection()) : null;
       if (!lineRange) return;
 
       event.preventDefault();
@@ -1585,7 +1596,7 @@ function TextFileViewer({
     );
   }
 
-  if (error && !isDeletedDiff) {
+  if (error && !isDeletedDiff && !fileDraftDirty(getFileEditDraft(filePath))) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171", fontSize: 13 }}>
         {error}
@@ -1593,7 +1604,7 @@ function TextFileViewer({
     );
   }
 
-  if (!data && !isDeletedDiff) return null;
+  if (!data && !isDeletedDiff && !fileDraftDirty(getFileEditDraft(filePath))) return null;
 
   const content = viewerContent;
   const markdownDirectory = getFileDirectory(filePath);
@@ -1607,7 +1618,7 @@ function TextFileViewer({
       ];
   const metadata = isDeletedDiff
     ? t("files.deleted")
-    : `${language} · ${lines.length} lines · ${formatSize(data!.size)}`;
+    : `${language} · ${lines.length} lines · ${formatSize(data?.size ?? 0)}`;
 
   return (
     <div className="file-viewer-shell" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", position: "relative" }}>
@@ -1852,6 +1863,8 @@ function TextFileViewer({
             complete={!data?.truncated}
             scrollRef={contentRef}
           />
+        ) : effectiveDisplayMode === "source" ? (
+          <FileTextEditor path={filePath} wrap={wrapLines} fallback={useLightweightSource ? <div className="file-source-view is-lightweight" style={{ ...FILE_CODE_STYLE, minWidth: "100%", width: wrapLines ? "100%" : "max-content" }}>{lightweightSourceLines}</div> : highlightedSource} onSelectedLines={setSelectedLineRange} />
         ) : useLightweightSource ? (
           <div
             className="file-source-view is-lightweight"

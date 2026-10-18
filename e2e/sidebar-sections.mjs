@@ -1,0 +1,72 @@
+import assert from "node:assert/strict";
+import { join } from "node:path";
+
+/** 同一实例验证两端分区，不发送模型请求；归档变更仅操作调用方的隔离会话。 */
+export async function checkSidebarSections(page, client, artifacts, { origin, defaultIds }) {
+  page.setDefaultTimeout(15000);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const key = "pi-imagin:sidebar-sections:v1", checks = [];
+  const pass = name => { checks.push(name); console.log(`PASS ${client}: ${name}`); };
+  const size = async locator => (await locator.boundingBox()).height;
+  const changeArchive = async archived => {
+    const response = await page.request.post(origin + "/api/sessions/ui-state", { headers: { Origin: origin }, data: { action: "set", ids: defaultIds, archived } });
+    assert.equal(response.status(), 200);
+  };
+  await changeArchive(false);
+  await page.goto(origin + "/?session=" + defaultIds[0], { waitUntil: "domcontentloaded" });
+  await page.locator('.workspace-shell[data-startup-ready="true"]').waitFor();
+  await page.evaluate(key => localStorage.removeItem(key), key); await page.reload();
+  const normal = page.locator('#workspace-default-section'), archive = page.locator('#workspace-archive-section');
+  const defaultHandle = page.getByRole('separator', { name: '调整默认会话区域高度', exact: true });
+  const archiveHandle = page.getByRole('separator', { name: '调整已归档区域高度', exact: true });
+  await defaultHandle.waitFor(); await archive.waitFor();
+  assert.ok(Math.abs(await size(archive) - 36) < 1); assert.equal(await archiveHandle.count(), 0);
+  const initial = await size(normal), url = page.url();
+  await page.locator('.chat-input-textarea').fill('分区调整保留草稿');
+  const drag = async (handle, delta) => {
+    const box = await handle.boundingBox(); const x = box.x + box.width / 2, y = box.y + box.height / 2;
+    await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x, y + delta, { steps: 6 }); await page.mouse.up();
+  };
+  await drag(defaultHandle, -70);
+  assert.ok(await size(normal) > initial + 55, JSON.stringify({ initial, actual: await size(normal), viewport: await page.evaluate(() => ({ width: innerWidth, height: innerHeight, mobile: matchMedia('(max-width: 640px)').matches })), handle: await defaultHandle.boundingBox() }));
+  assert.equal(page.url(), url); assert.equal(await page.locator('.chat-input-textarea').inputValue(), '分区调整保留草稿');
+  const stored = await page.evaluate(key => localStorage.getItem(key), key); assert.ok(stored);
+  pass('默认分区拖动有效，不改变会话与草稿');
+  await defaultHandle.focus(); const beforeKey = await size(normal); await page.keyboard.press('ArrowDown');
+  assert.ok(Math.abs(await size(normal) - beforeKey + 12) < 1);
+  await defaultHandle.dblclick(); assert.ok(Math.abs(await size(normal) - initial) < 1);
+  pass('方向键调整与双击恢复');
+  const toggle = archive.getByRole('button', { name: /已归档/ });
+  await toggle.click(); await archiveHandle.waitFor(); const archiveInitial = await size(archive);
+  await drag(archiveHandle, -50); assert.ok(await size(archive) > archiveInitial + 40);
+  const expanded = await size(archive);
+  await toggle.click(); assert.ok(Math.abs(await size(archive) - 36) < 1);
+  await toggle.click(); assert.ok(Math.abs(await size(archive) - expanded) < 1);
+  await page.reload(); await archiveHandle.waitFor(); assert.ok(Math.abs(await size(archive) - expanded) < 1);
+  pass('归档展开后拖动，折叠无空白，刷新恢复高度与开关');
+  const prefs = await page.evaluate(key => localStorage.getItem(key), key);
+  const view = page.viewportSize();
+  await page.setViewportSize({ width: 1280, height: 420 });
+  await page.waitForFunction(() => document.querySelector('.workspace-session-sections').getBoundingClientRect().bottom <= innerHeight);
+  assert.ok(await size(normal) > 25); assert.ok(await toggle.isVisible());
+  await page.setViewportSize(view ?? { width: 1280, height: 900 });
+  await page.waitForFunction(height => Math.abs(document.querySelector('#workspace-archive-section').getBoundingClientRect().height - height) < 1, expanded);
+  assert.equal(await page.evaluate(key => localStorage.getItem(key), key), prefs);
+  await page.screenshot({ path: join(artifacts, `sidebar-${client}.png`) });
+  pass('小窗口限制高度，恢复窗口不覆盖用户偏好');
+  await changeArchive(true); await page.reload(); await page.locator('.workspace-shell[data-startup-ready="true"]').waitFor();
+  assert.equal(await normal.count(), 0); assert.equal(await defaultHandle.count(), 0);
+  assert.equal(await page.locator('[data-section-divider="default"]').count(), 0);
+  await changeArchive(false); await page.reload(); await defaultHandle.waitFor();
+  assert.ok(Math.abs(await size(normal) - initial) < 1);
+  pass('默认会话为空完全隐藏，恢复后沿用比例');
+  const mobilePrefs = await page.evaluate(key => localStorage.getItem(key), key);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: /显示侧边栏|Show sidebar/ }).click();
+  await page.waitForFunction(() => Math.abs(document.querySelector('#session-sidebar').getBoundingClientRect().left) < 1);
+  assert.equal(await page.locator('.workspace-session-sections [role="separator"]').count(), 0);
+  assert.ok(await toggle.isVisible()); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  assert.equal(await page.evaluate(key => localStorage.getItem(key), key), mobilePrefs);
+  pass('手机折叠滚动，不启用桌面分隔条或改写尺寸');
+  return { client, checks };
+}

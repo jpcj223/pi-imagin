@@ -29,6 +29,7 @@
       "loading.html",
       "startup-logo.png",
       "startup-view.cjs",
+      "workspace-navigation.cjs",
       "runtime.cjs",
       "background.cjs",
       "package.json"

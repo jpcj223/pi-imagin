@@ -18,6 +18,8 @@ export async function checkFilePanel(page, filePath) {
   await page.getByTitle(filePath.replace(/\\/g, "/"), { exact: true }).click();
   const panel = page.locator("#file-panel");
   const iframe = panel.locator("iframe");
+  // 文件现在默认直接编辑；预览能力仍从现有模式切换进入。
+  await panel.getByRole("button", { name: "Preview", exact: true }).click();
   await iframe.waitFor();
   const frame = await (await iframe.elementHandle()).contentFrame();
   await frame.locator("#notes").fill("Keep this note");

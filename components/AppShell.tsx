@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
+import { discardFileDraft, fileDraftDirty, fileEditRevision, getFileEditDraft, installFileEditGuards, saveFileDraft, subscribeFileEdits } from "@/lib/file-edit-drafts";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -15,6 +16,7 @@ import { SessionHistoryPanel } from "./SessionHistoryPanel";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
 import { CHAT_SCROLL_POSITIONS_KEY, restoreChatScrollPositions, type ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
+import { FileEditCloseDialog } from "./FileEditCloseDialog";
 import { TabBar, type Tab } from "./TabBar";
 import { mutateFileWorkspace, openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
 import { FILE_MUTATION_EVENT, type FileMutation } from "@/lib/file-mutation";
@@ -103,6 +105,9 @@ function lastAgentTabId(tabs: readonly { sessionId: string }[]): string | null {
 }
 
 export function AppShell() {
+  useSyncExternalStore(subscribeFileEdits, fileEditRevision, () => 0);
+  useEffect(installFileEditGuards, []);
+  const [closingEditedFile, setClosingEditedFile] = useState<Tab | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
   const [initialNavigation, setInitialNavigation] = useState(() => getInitialNavigation(searchParams));
@@ -239,6 +244,11 @@ export function AppShell() {
     setSearchTarget((current) => current === target ? null : current);
   }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
+  useEffect(() => {
+    const saved = () => setExplorerRefreshKey(key => key + 1);
+    window.addEventListener("pi-imagin:file-saved", saved);
+    return () => window.removeEventListener("pi-imagin:file-saved", saved);
+  }, []);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [settingsVisited, setSettingsVisited] = useState(false);
   useEffect(() => { if (settingsSection) setSettingsVisited(true); }, [settingsSection]);
@@ -488,6 +498,20 @@ export function AppShell() {
     setSettingsSection(null);
     setModelsRefreshKey(key => key + 1);
   }, []);
+
+  const handleHome = useCallback(() => {
+    // 只恢复会话的可见区域，保留聊天实例、阅读位置、文件标签与未保存配置。
+    if (settingsSection) closeSettings();
+    setRightPanelExpanded(false);
+    setActiveTopPanel(null);
+    setMobileToolbarMoreOpen(false);
+    setWorkspaceMenuAnchor(null);
+    sidebarControlRef.current?.returnToSession();
+    if (isMobile) {
+      setRightPanelOpen(false);
+      setSidebarOpen(false);
+    }
+  }, [settingsSection, closeSettings, isMobile]);
 
   const handleSidebarToggle = useCallback(() => {
     if (isMobile) {
@@ -1269,7 +1293,7 @@ export function AppShell() {
     if (!replacement && !remaining.length) setTerminalOpen(false);
   };
 
-  const handleCloseFileTab = useCallback((tabId: string) => {
+  const finishCloseFileTab = useCallback((tabId: string) => {
     if (terminalTabs.some((tab) => tab.id === tabId)) {
       setTerminalTabs((tabs) => tabs.map((tab) => tab.id === tabId && !tab.closing ? { ...tab, closing: "close" } : tab));
       return;
@@ -1295,6 +1319,14 @@ export function AppShell() {
       return remaining.at(-1)?.id ?? lastAgentTabId(agentTabs);
     });
   }, [fileTabs, terminalTabs, agentTabs]);
+
+  const handleCloseFileTab = useCallback((tabId: string) => {
+    const tab = fileTabs.find(item => item.id === tabId);
+    const draft = tab && getFileEditDraft(tab.filePath);
+    if (tab && (fileDraftDirty(draft) || draft?.saving)) { setClosingEditedFile(tab); return; }
+    if (tab) discardFileDraft(tab.filePath);
+    finishCloseFileTab(tabId);
+  }, [fileTabs, finishCloseFileTab]);
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
@@ -2103,7 +2135,7 @@ export function AppShell() {
       overflow: "hidden",
       background: "var(--bg)",
     }}>
-      <WorkspaceRail onSearch={() => { if (settingsSection) closeSettings(); sidebarControlRef.current?.openSearch(); }} settingsOpen={settingsSection !== null} onSettings={() => settingsSection ? closeSettings() : openSettingsSection(getLastSettingsSection(projectTrustCwd))} onHome={() => { if (settingsSection) closeSettings(); }} />
+      <WorkspaceRail onSearch={() => { if (settingsSection) closeSettings(); sidebarControlRef.current?.openSearch(); }} settingsOpen={settingsSection !== null} onSettings={() => settingsSection ? closeSettings() : openSettingsSection(getLastSettingsSection(projectTrustCwd))} onHome={handleHome} />
       {/* Mobile overlay backdrop */}
       <div
         className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
@@ -2431,6 +2463,9 @@ export function AppShell() {
               onCloseTab={handleCloseFileTab}
             />
           </div>
+          {activeFileTab && getFileEditDraft(activeFileTab.filePath) && <button type="button" className="file-editor-save" title="保存文件 (Ctrl+S)" aria-label="保存文件" disabled={!fileDraftDirty(getFileEditDraft(activeFileTab.filePath)) || getFileEditDraft(activeFileTab.filePath)?.saving} onClick={() => void saveFileDraft(activeFileTab.filePath)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M5 3h12l4 4v14H3V3zm2 0v7h10V3M7 21v-7h10v7" /></svg>
+          </button>}
           <button
             type="button"
             className="file-panel-expand-button"
@@ -2458,7 +2493,7 @@ export function AppShell() {
               cwd={activeCwd ?? undefined}
               sourceSessionId={activeFileTab.sourceSessionId}
               gitRefreshKey={explorerRefreshKey}
-              initialDisplayMode={activeFileTab.initialDisplayMode}
+              initialDisplayMode={activeFileTab.initialDisplayMode ?? "source"}
               initialPage={activeFileTab.page}
               initialState={activeFileTab.viewerState}
               watchEnabled={rightPanelOpen}
@@ -2527,6 +2562,7 @@ export function AppShell() {
         ...(hasSubagentSessions ? [{ type: "item" as const, id: "agents", label: "子代理", onSelect: () => toggleTopPanel("agents") }] : []),
       ]} />
     {/* After Settings, so it opens above it (z-index 1100 over 1000) when Settings › MCP asks for it. */}
+    {closingEditedFile && <FileEditCloseDialog path={closingEditedFile.filePath} onCancel={() => setClosingEditedFile(null)} onClose={() => { finishCloseFileTab(closingEditedFile.id); setClosingEditedFile(null); }} />}
     {projectTrustDialogOpen && projectTrustCwd && (
       <ProjectTrustDialog
         cwd={projectTrustCwd}

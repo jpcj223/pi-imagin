@@ -7,6 +7,7 @@ const { spawn } = require("node:child_process");
 const { choosePort, isExternalUrl, isOwnedUrl, pathsFor, stopServer, waitForServer, requestLocal, loadWorkspacePage } = require("./runtime.cjs");
 const { installBackground } = require("./background.cjs");
 const { createStartupView } = require("./startup-view.cjs");
+const { installWorkspaceNavigation, pruneStartupHistory } = require("./workspace-navigation.cjs");
 
 const launchStarted = Date.now();
 
@@ -116,6 +117,7 @@ async function startWorkspace() {
     if (quitting) return;
     if (new URL(mainWindow.webContents.getURL()).pathname === "/login") throw new Error("工作区连接没有完成，请重新启动。");
     startupStep("独立工作区界面就绪", started);
+    pruneStartupHistory(mainWindow.webContents, origin);
     startupView.finish();
     if (backend?.connected) backend.send({ type: "pi-imagin:workspace-loaded" }, () => {});
     if (process.env.PI_IMAGIN_DESKTOP_SMOKE === "1") {
@@ -149,6 +151,7 @@ else {
       webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false },
     });
     background = installBackground({ app, Tray, Menu, window: mainWindow, icon, isQuitting: () => quitting, record, enabled: !development });
+    installWorkspaceNavigation(mainWindow, () => origin, () => starting || quitting);
     startupView = createStartupView({ WebContentsView, window: mainWindow, isQuitting: () => quitting, canShow: () => !background.isHidden() && process.env.PI_IMAGIN_DESKTOP_SMOKE !== "1", record });
     mainWindow.once("ready-to-show", () => {
       startupStep("启动窗口可显示", launchStarted);
