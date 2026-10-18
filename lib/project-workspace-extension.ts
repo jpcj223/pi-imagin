@@ -1,7 +1,8 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { Type } from "typebox";
-import { createBashToolDefinition, createLocalPowerShellOperations, createPowerShellToolDefinition, type InlineExtension } from "@earendil-works/pi-coding-agent";
+import { createBashToolDefinition, createPowerShellToolDefinition, type InlineExtension } from "@earendil-works/pi-coding-agent";
+import { createUtf8PowerShellOperations } from "./powershell-operations";
 import type { ProjectSessionScope } from "./managed-projects-shared";
 import { assertProjectScopeDirectories, resolveProjectToolPath } from "./managed-projects";
 import { createProjectCommandBashOperations } from "./project-command-env";
@@ -73,7 +74,7 @@ export function createProjectWorkspaceExtension(snapshot: ProjectSessionScope, d
           const shell = args.shell ?? (available.includes("powershell") ? "powershell" : "bash");
           if (!available.includes(shell)) throw new Error(`当前工具预设未允许 ${shell}，不能执行项目命令。`);
           const definition = shell === "powershell"
-            ? createPowerShellToolDefinition(cwd, { operations: createProjectCommandBashOperations({ localOperations: createLocalPowerShellOperations() }) })
+            ? createPowerShellToolDefinition(cwd, { operations: createProjectCommandBashOperations({ localOperations: createUtf8PowerShellOperations() }) })
             : createBashToolDefinition(cwd, {
               commandPrefix: shellSettings?.getShellCommandPrefix(),
               operations: createProjectCommandBashOperations({ shellPath: shellSettings?.getShellPath() }),

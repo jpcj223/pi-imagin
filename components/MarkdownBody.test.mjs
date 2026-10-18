@@ -351,19 +351,48 @@ test("leaves code and math line endings alone when keeping line breaks", () => {
   assert.match(emphasis, /<em>one<br\/>two<\/em>/);
 });
 
-test("keeps a block that opens a raw-text tag as it renders without line breaks", () => {
-  // A <br> after an unclosed <textarea> or <script> ends rehype-raw's raw-text
-  // state, which glued the lines together or dropped the rest of the block.
+test("用户原文中的 HTML 标签按字面显示，换行和后续列表不丢失", () => {
   for (const markdown of [
     "Use a <textarea> here\nand a button\nplease",
     "Set <title>My\nPage</title> first\nthen deploy",
     "add <script>a()\nb()</script> to the page\nthen reload",
     "some *<style>x\ny</style>* then\nnext",
   ]) {
-    assert.equal(renderMarkdown(markdown, { keepLineBreaks: true }), renderMarkdown(markdown));
+    const html = renderMarkdown(markdown, { keepLineBreaks: true });
+    assert.match(html, /&lt;(?:textarea|title|script|style)&gt;/);
+    assert.doesNotMatch(html, /<(?:textarea|title|script|style)(?:\s|>)/);
+    assert.match(html, /<br\/>/);
   }
 
-  assert.match(renderMarkdown("normal <kbd>Ctrl</kbd>\nline two", { keepLineBreaks: true }), /<\/kbd><br\/>line two/);
+  assert.match(renderMarkdown("normal <kbd>Ctrl</kbd>\nline two", { keepLineBreaks: true }), /&lt;kbd&gt;Ctrl&lt;\/kbd&gt;<br\/>line two/);
+  // 助手消息原有的安全 HTML 展示不变。
+  assert.match(renderMarkdown("normal <kbd>Ctrl</kbd>"), /<kbd>Ctrl<\/kbd>/);
   const list = renderMarkdown("- item <textarea>\n  more\n- two\n  lines", { keepLineBreaks: true });
   assert.match(list, /<li>two<br\/>lines<\/li>/);
+});
+
+test("空代码块不产生 undefined，正常 JSON 和代码字符串保持原内容", () => {
+  for (const source of ["```javascript\n```", "```\n```", "```mermaid\n```", "```javascript\n"]) {
+    const html = renderMarkdown(source);
+    assert.doesNotMatch(html, /undefined/);
+  }
+  const json = renderMarkdown('```json\n{"name":"对话测试","ready":true}\n```');
+  assert.match(json, /对话测试/);
+  assert.match(json, /markdown-code-block/);
+  for (const keepLineBreaks of [false, true]) {
+    const html = renderMarkdown('```javascript\nconst element = "<div>测试 & 示例</div>";\n```', { keepLineBreaks });
+    assert.match(html, /&lt;div&gt;/);
+    assert.doesNotMatch(html, /<div>测试/);
+  }
+});
+
+test("用户 HTML 原文不触发图片加载，Markdown 表格与安全链接仍可用", () => {
+  const source = '**原文** "<div>测试 & 示例</div>"\n\n<img src="https://example.com/raw.png">\n\n| 文件 | 状态 |\n|---|---|\n| a.js | 正常 |\n\n[文档](https://example.com/docs)';
+  const html = renderMarkdown(source, { keepLineBreaks: true });
+  assert.match(html, /<strong>原文<\/strong>/);
+  assert.match(html, /&lt;div&gt;测试 &amp; 示例&lt;\/div&gt;/);
+  assert.match(html, /&lt;img/);
+  assert.doesNotMatch(html, /<img/);
+  assert.match(html, /<table>/);
+  assert.match(html, /href="https:\/\/example.com\/docs"/);
 });

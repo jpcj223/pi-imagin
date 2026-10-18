@@ -590,8 +590,30 @@ function remarkKeepLineBreaks() {
   return (tree: MarkdownTreeNode) => keepLineBreaks(tree);
 }
 
+/** 用户输入中的 HTML 是待讨论的原文，不作为页面元素执行或丢弃。 */
+function remarkUserHtmlAsText() {
+  return (tree: MarkdownTreeNode): void => {
+    const visit = (parent: MarkdownTreeNode): void => {
+      if (!parent.children) return;
+      parent.children = parent.children.map((node) => {
+        if (node.type !== "html") {
+          visit(node);
+          return node;
+        }
+        const text: MarkdownTreeNode = { type: "text", value: node.value ?? "" };
+        // 块级 HTML 不能直接作为根或列表项的文本节点，保留为普通段落。
+        return ["root", "blockquote", "listItem"].includes(parent.type)
+          ? { type: "paragraph", children: [text] }
+          : text;
+      });
+    };
+    visit(tree);
+  };
+}
+
 export const markdownUserRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
   ...(markdownRemarkPlugins ?? []),
+  remarkUserHtmlAsText,
   remarkKeepLineBreaks,
 ];
 export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [

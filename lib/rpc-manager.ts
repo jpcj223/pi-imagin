@@ -42,6 +42,8 @@ import {
 import { createSubagentController } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
+import { createPowerShellOutputExtension, preferUserPowerShellExtension } from "./powershell-operations";
+import { createConversationGuidanceExtension } from "./conversation-guidance";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
 import { createPiImaginBuiltinExtensions, createSubagentCodemodeExtension, createSubagentMcpExtensions } from "./builtin-extensions";
@@ -2426,6 +2428,7 @@ export async function startRpcSession(
         ?? (chatOnly ? subagentResources.appendSystemPrompt[0] ?? "" : undefined),
     }) : undefined;
     const subagentExtensionFactories = [
+      ...(process.platform === "win32" && subagentResources?.tools.includes("powershell") ? [createPowerShellOutputExtension(sessionCwd)] : []),
       ...(subagentCodemode ? [subagentCodemode] : []),
       ...(subagentMcp && subagentResources
         ? [...subagentMcp.extensions, createSubagentMcpPolicyExtension(() => subagentResources)]
@@ -2444,6 +2447,7 @@ export async function startRpcSession(
             noPromptTemplates: true,
             noThemes: true,
             noContextFiles: true,
+            extensionsOverride: preferUserPowerShellExtension,
             ...(chatOnly
               ? {
                   systemPrompt: " ",
@@ -2458,6 +2462,8 @@ export async function startRpcSession(
             extensionFactories: [
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
+              createConversationGuidanceExtension(),
+              ...(process.platform === "win32" ? [createPowerShellOutputExtension(sessionCwd)] : []),
               ...(projectScope ? [createProjectWorkspaceExtension(projectScope, () => settingsManager.getDefaultTools(), settingsManager)] : []),
               createProjectCommandBashExtension({
                 cwd: sessionCwd,
@@ -2469,7 +2475,7 @@ export async function startRpcSession(
                 isBuiltInSubagentsEnabled,
               ),
             ],
-            extensionsOverride: (base) => preferUserBashExtension(preferPiImaginSubagentExtension(base)),
+            extensionsOverride: (base) => preferUserPowerShellExtension(preferUserBashExtension(preferPiImaginSubagentExtension(base))),
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });

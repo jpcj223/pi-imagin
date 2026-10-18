@@ -40,6 +40,7 @@ import { createSubagentCodemodeExtension, createSubagentMcpExtensions } from "./
 import type { McpHost } from "./mcp-host";
 import { createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
 import { resolveShellTools } from "./powershell-settings";
+import { createPowerShellOutputExtension, preferUserPowerShellExtension } from "./powershell-operations";
 import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-settings";
 import { SubagentQueue } from "./subagent-queue";
 import { addWorktree, removeWorktree } from "./worktree";
@@ -322,6 +323,8 @@ export function createSubagentController(
           })
         : undefined;
       const extensionFactories = [
+        ...(process.platform === "win32" && resolveShellTools(profile.tools, settingsManager.getDefaultTools()).includes("powershell")
+          ? [createPowerShellOutputExtension(childCwd)] : []),
         ...(codemodeExtension ? [codemodeExtension] : []),
         ...(mcp ? [...mcp.extensions, createSubagentMcpPolicyExtension(() => mcpScope)] : []),
         ...(skillsBinding.loaderOptions.extensionFactories ?? []),
@@ -339,6 +342,7 @@ export function createSubagentController(
           noPromptTemplates: true,
           noThemes: true,
           noContextFiles: true,
+          extensionsOverride: preferUserPowerShellExtension,
           ...(chatOnly || promptPlan.exactSystemPrompt !== undefined
             ? {
                 systemPrompt: " ",
