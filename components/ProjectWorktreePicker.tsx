@@ -73,6 +73,8 @@ interface Props {
   projectLabel?: string;
   /** 新会话以单个可取消的项目标签展示，默认目录不作为项目选项。 */
   association?: boolean;
+  /** 新会话已使用独立项目选择器，此处只保留原有工作树操作。 */
+  hideProject?: boolean;
   /** Shown as ~ in the boxes' paths. */
   homeDir?: string;
   /** Running and unread counts by project key: badges in the project menu, and a dot in the files' project box for activity elsewhere. */
@@ -210,6 +212,7 @@ export function ProjectWorktreePicker({
   placeholder = "",
   projectLabel,
   association = false,
+  hideProject = false,
   homeDir,
   projectActivity,
   worktreeHint = null,
@@ -522,7 +525,7 @@ export function ProjectWorktreePicker({
 
   return (
     <div className={`project-picker is-${layout}`} role="group" aria-label={label}>
-      <div className={association && project ? "project-picker-association" : "project-picker-selection"}>
+      {!hideProject && <div className={association && project ? "project-picker-association" : "project-picker-selection"}>
         {association && project && (
           <button
             type="button"
@@ -565,7 +568,7 @@ export function ProjectWorktreePicker({
           )}
           {inline && <ChevronIcon size={9} className="project-picker-chevron sidebar-icon-down" />}
         </button>
-        </div>
+        </div>}
       {worktrees && (
         <button
           ref={worktreeRef}

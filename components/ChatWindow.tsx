@@ -1,10 +1,11 @@
 "use client";
+
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
-import { splitNoticeText } from "@/lib/notice-text";
+import { modelNotice, splitNoticeText } from "@/lib/notice-text";
 import { EXTENSION_DIALOG_BASE_WIDTH, fitExtensionDialogWidth } from "@/lib/extension-dialog-fit";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { collapsesProcessDetails, countToolCallBlocks, getDisplayableAssistantBlocks, hasAssistantAnswer, isHiddenCustomMessage, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
@@ -51,6 +52,7 @@ interface Props {
   onScrollPositionChange?: (sessionId: string, position: ChatScrollPosition) => void;
   sessionRunning?: boolean;
   newSessionCwd: string | null;
+  newSessionProjectId?: string | null;
   newSessionDraftKey: string | null;
   /** Shown above the composer while a fresh composer is still empty: where its session starts. */
   newSessionContextBar?: ReactNode;
@@ -170,7 +172,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, outlineHost, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
+export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionProjectId, newSessionDraftKey, newSessionContextBar, outlineHost, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -231,7 +233,7 @@ export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTarg
     handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, scrollUserMsgToTop,
     loadContext, activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
-    session, sessionRunning, newSessionCwd, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    session, sessionRunning, newSessionCwd, newSessionProjectId, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange: handleBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings,
     deferInitialScroll: Boolean(pendingScrollRestore),
@@ -1029,7 +1031,7 @@ export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTarg
           pointerEvents: "none",
         }}
       >
-        <NoticeShelf notices={notices} floating onPauseChange={setNoticePaused} />
+        <NoticeShelf notices={notices} floating onPauseChange={setNoticePaused} onOpenModels={() => onOpenSettings?.("models")} />
       </div>
 
       <div className="chat-message-area relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -1461,7 +1463,8 @@ const NOTICE_TEXT_PADDING_Y_PX = (NOTICE_MIN_HEIGHT_PX - 2 - NOTICE_LINE_BOX_PX)
 const NOTICE_MAX_HEIGHT_PX = 500;
 const NOTICE_TEXT_MAX_HEIGHT_PX = NOTICE_MAX_HEIGHT_PX - 2;
 
-function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: NoticeItem[]; floating?: boolean; onPauseChange?: (id: string | null) => void }) {
+function NoticeShelf({ notices, floating = false, onPauseChange, onOpenModels }: { notices: NoticeItem[]; floating?: boolean; onPauseChange?: (id: string | null) => void; onOpenModels?: () => void }) {
+  const { locale } = useI18n();
   if (notices.length === 0) return null;
   return (
     <div
@@ -1474,6 +1477,7 @@ function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: No
       }}
     >
       {notices.map((notice, index) => {
+        const modelProblem = notice.type === "error" ? modelNotice(notice.message, locale) : null;
         const color = notice.type === "error"
           ? "#ef4444"
           : notice.type === "warning"
@@ -1544,11 +1548,15 @@ function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: No
             {/* Full text by default: pre-line preserves \n (nowrap/normal collapse
                 newlines into spaces) and long lines wrap instead of truncating;
                 content taller than the cap scrolls inside the text area */}
-            <span
+            <div
               tabIndex={0}
               style={{ padding: `${NOTICE_TEXT_PADDING_Y_PX}px 0`, minWidth: 0, maxWidth: "100%", maxHeight: NOTICE_TEXT_MAX_HEIGHT_PX, overflowY: "auto", scrollbarWidth: "thin", whiteSpace: "pre-line", wordBreak: "break-word" }}
             >
-              {splitNoticeText(notice.message).map((part, partIndex) => part.kind === "art" ? (
+              {modelProblem ? <div className="model-problem-notice">
+                <span>{modelProblem.message}</span>
+                {onOpenModels && <button type="button" onClick={onOpenModels}>{modelProblem.action}</button>}
+                <details><summary>{modelProblem.detailsLabel}</summary><div>{modelProblem.details}</div></details>
+              </div> : splitNoticeText(notice.message).map((part, partIndex) => part.kind === "art" ? (
                 // A terminal QR code or bar (#755): every space kept, rows touching, and a
                 // font stack whose first font has the blocks too (the bundled Noto subset
                 // has none, so spaces and blocks would come from fonts of different widths).
@@ -1568,7 +1576,7 @@ function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: No
                   {part.text}
                 </span>
               ) : part.text)}
-            </span>
+            </div>
           </div>
         );
       })}

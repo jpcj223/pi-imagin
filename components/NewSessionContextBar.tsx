@@ -5,9 +5,10 @@ import { useI18n } from "@/hooks/useI18n";
 import type { NewSessionContext, NewSessionTarget, ProjectChoice } from "@/lib/new-session-context";
 import { focusIfLost } from "@/lib/stacked-dialog";
 import { ProjectWorktreePicker, type ProjectWorktreeControl, type ProjectWorktreePickerHandle } from "./ProjectWorktreePicker";
+import { NewSessionProjectPicker, type NewSessionProjectPickerHandle } from "./NewSessionProjectPicker";
 
-/** The bar's two controls. A move names the one it came from, which takes focus in the bar that replaces this one. */
-export type NewSessionContextControl = ProjectWorktreeControl;
+/** 记录项目、执行目录或工作树入口，切换后恢复到对应控件的焦点。 */
+export type NewSessionContextControl = ProjectWorktreeControl | "directory";
 
 interface Props {
   context: NewSessionContext;
@@ -20,8 +21,8 @@ interface Props {
   onPick: (target: NewSessionTarget, from: NewSessionContextControl) => void;
   /** "Use default directory": today's folder, which goes to `onPick`. */
   onUseDefaultDirectory: () => void;
-  /** "Open another project…": the folder picker, which hands its folder to `onPick`. */
-  onOpenFolder: (opener: HTMLElement | null) => void;
+  /** 统一项目弹窗保存后再关联目录，取消不改变当前会话。 */
+  onAddProject: (opener: HTMLElement | null) => void;
   onRefreshWorktrees: () => void;
   onCreateWorktree: (project: ProjectChoice, branch: string) => Promise<{ path: string } | { error: string }>;
 }
@@ -45,7 +46,7 @@ function loadHomeDir(): Promise<string> {
   return homeDirCheck;
 }
 
-/** 输入框下方的项目标签与工作树入口；切换及取消关联都复用原目录选择流程，携带草稿与模型选择。 */
+/** 输入框下方分别提供项目、执行目录及工作树入口，切换时携带草稿与模型选择。 */
 export function NewSessionContextBar({
   context,
   mobile,
@@ -53,13 +54,14 @@ export function NewSessionContextBar({
   onInitialFocusDone,
   onPick,
   onUseDefaultDirectory,
-  onOpenFolder,
+  onAddProject,
   onRefreshWorktrees,
   onCreateWorktree,
 }: Props) {
   const { t } = useI18n();
   const [homeDir, setHomeDir] = useState(() => homeDirFound);
   const pickerRef = useRef<ProjectWorktreePickerHandle>(null);
+  const projectPickerRef = useRef<NewSessionProjectPickerHandle>(null);
   const initialFocusRef = useRef(initialFocus);
   const onInitialFocusDoneRef = useRef(onInitialFocusDone);
   onInitialFocusDoneRef.current = onInitialFocusDone;
@@ -83,15 +85,17 @@ export function NewSessionContextBar({
     initialFocusRef.current = null;
     onInitialFocusDoneRef.current();
     const picker = pickerRef.current;
-    focusIfLost(document, (from === "worktree" ? picker?.button("worktree") : null) ?? picker?.button("project") ?? null);
+    focusIfLost(document, (from === "worktree" ? picker?.button("worktree") : projectPickerRef.current?.button(from)) ?? projectPickerRef.current?.button("project") ?? null);
   }, []);
 
   return (
     <div className="new-session-context">
-      <ProjectWorktreePicker
+      <NewSessionProjectPicker context={context} mobile={mobile} handleRef={projectPickerRef} onPick={onPick}
+        onClear={onUseDefaultDirectory} onAdd={onAddProject} />
+      {context.worktrees && context.worktrees.length > 0 && <ProjectWorktreePicker
         handleRef={pickerRef}
         layout="inline"
-        association
+        hideProject
         context={context}
         projectLabel={context.defaultWorkspace ? t("sidebar.selectProject") : undefined}
         mobile={mobile}
@@ -100,10 +104,10 @@ export function NewSessionContextBar({
         newWorktreeTitle={t("sidebar.newWorktreeForSession")}
         onPick={onPick}
         onUseDefaultDirectory={onUseDefaultDirectory}
-        onOpenFolder={onOpenFolder}
+        onOpenFolder={onAddProject}
         onRefreshWorktrees={onRefreshWorktrees}
         onCreateWorktree={onCreateWorktree}
-      />
+      />}
     </div>
   );
 }

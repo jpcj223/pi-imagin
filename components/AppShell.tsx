@@ -49,6 +49,7 @@ import { getInitialNavigation, linkedSessionId, withTabOpen } from "@/lib/initia
 import { clearTabOpenSession, getTabOpen, setTabOpenNewSession, setTabOpenSession } from "@/lib/tab-session";
 import { mergeCatalogRow } from "./session-catalog-helpers";
 import { getDraft, rekeyDraft } from "@/lib/draft-store";
+import { restoreNewSessionDraft, saveNewSessionDraft } from "@/lib/new-session-draft";
 import {
   contextForCwd,
   type NewSessionContext,
@@ -184,8 +185,14 @@ export function AppShell() {
   }, []);
   // The temporary id distinguishes consecutive fresh composers in one cwd.
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
+  const [newSessionProjectId, setNewSessionProjectId] = useState<string | null>(null);
   const [newSessionDraftId, setNewSessionDraftId] = useState("initial");
   const activeNewSessionDraftKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const save = () => { saveNewSessionDraft(activeNewSessionDraftKeyRef.current); };
+    window.addEventListener("pagehide", save);
+    return () => window.removeEventListener("pagehide", save);
+  }, []);
   // The bar above a fresh composer (NewSessionContextBar): the sidebar reports
   // what it shows and carries out its moves, which remount the composer. Its
   // model and reasoning picks, as it last reported them, go along with the
@@ -723,8 +730,8 @@ export function AppShell() {
       setTabOpenSession(selectedSession.id);
       return;
     }
-    if (newSessionCwd) setTabOpenNewSession(newSessionCwd);
-  }, [newSessionCwd, selectedSession]);
+    if (newSessionCwd) setTabOpenNewSession(newSessionCwd, undefined, newSessionProjectId, newSessionDraftId);
+  }, [newSessionCwd, newSessionProjectId, newSessionDraftId, selectedSession]);
 
   useEffect(() => {
     const requestedCwd = initialNavigation.requestedCwd;
@@ -749,10 +756,15 @@ export function AppShell() {
         // The sidebar will notify us when it adopts this cwd. Avoid remounting
         // the just-created empty chat during that initial synchronization.
         suppressCwdBumpRef.current = true;
-        const draftId = `initial:${requestedCwd}`;
+        const tab = getTabOpen();
+        const restoredDraft = tab?.kind === "new" && tab.cwd === requestedCwd ? tab : null;
+        // 恢复同一草稿键，避免刷新或取消项目关联后仅恢复目录却丢失未发送内容。
+        const draftId = restoredDraft?.draftId ?? `initial:${requestedCwd}`;
+        restoreNewSessionDraft(`new:${draftId}:${data.cwd}`);
         setNewSessionDraftId(draftId);
         activeNewSessionDraftKeyRef.current = `new:${draftId}:${data.cwd}`;
         setNewSessionCwd(data.cwd);
+        setNewSessionProjectId(restoredDraft?.projectId ?? null);
         setInitialCwdStatus("ready");
         if (!new URLSearchParams(window.location.search).get("cwd")) {
           router.replace(`?cwd=${encodeURIComponent(data.cwd)}`, { scroll: false });
@@ -875,6 +887,7 @@ export function AppShell() {
       if (prev && prev !== cwd) return null;
       return prev;
     });
+    setNewSessionProjectId(null);
     setSessionKey((k) => k + 1);
     setBranchTree([]);
     setBranchActiveLeafId(null);
@@ -925,6 +938,7 @@ export function AppShell() {
       }
     }
     setNewSessionCwd(null);
+    setNewSessionProjectId(null);
     setSelectedSession(session);
     setSessionKey((k) => k + 1);
     setBranchTree([]);
@@ -953,6 +967,7 @@ export function AppShell() {
   }, [activeCwd, changeFileWorkspace, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession]);
 
   const handleNewSession = useCallback((sessionId: string, cwd: string, projectKey?: string | null, options?: NewSessionOptions) => {
+    setNewSessionProjectId(options?.managedProjectId ?? null);
     setSettingsSection(null);
     invalidateWorkspaceRestore();
     const draftKey = `new:${sessionId}:${cwd}`;
@@ -1000,7 +1015,7 @@ export function AppShell() {
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
     onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
-    onDefaultNewSession: () => sidebarControlRef.current?.openDefaultDirectoryForNewSession(target => sidebarControlRef.current?.startNewSessionIn(target)),
+    onDefaultNewSession: () => sidebarControlRef.current?.startPreferredNewSession(),
     activeCwd,
   });
 
@@ -1030,6 +1045,7 @@ export function AppShell() {
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
     setNewSessionCwd(null);
+    setNewSessionProjectId(null);
     setSelectedSession(session);
     hydrateSelectedSession(session.id);
     router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
@@ -1131,6 +1147,7 @@ export function AppShell() {
     setRefreshKey((k) => k + 1);
     setSessionKey((k) => k + 1);
     setNewSessionCwd(null);
+    setNewSessionProjectId(null);
     setSelectedSession((prev) => ({
       ...(prev ?? { path: "", cwd: "", created: "", modified: "", messageCount: 0, firstMessage: "" }),
       id: newSessionId,
@@ -1178,6 +1195,7 @@ export function AppShell() {
       activeNewSessionDraftKeyRef.current = cwd ? `new:${draftId}:${cwd}` : null;
       setSelectedSession(null);
       setNewSessionCwd(cwd ?? null);
+      setNewSessionProjectId(null);
       setSessionKey((k) => k + 1);
       setBranchTree([]);
       setBranchActiveLeafId(null);
@@ -1299,19 +1317,21 @@ export function AppShell() {
   // somewhere else: the folder in use would remount it for nothing. The
   // control the move came from takes focus in the bar of the new composer.
   const handlePickNewSessionContext = useCallback((target: NewSessionTarget, from: NewSessionContextControl) => {
-    if (selectedSession !== null || !effectiveNewSessionCwd || target.cwd === effectiveNewSessionCwd) return;
+    if (selectedSession !== null || !effectiveNewSessionCwd
+      || (target.cwd === effectiveNewSessionCwd && (target.managedProjectId ?? null) === newSessionProjectId)) return;
     newSessionBarFocusRef.current = from;
     // A worktree just created already left its move, with the branch.
-    if (target.projectKey && target.projectRoot && newSessionMoveRef.current?.cwd !== target.cwd) {
-      newSessionMoveRef.current = { cwd: target.cwd, project: { key: target.projectKey, root: target.projectRoot }, branch: null };
+    if ((target.managedProjectId || (target.projectKey && target.projectRoot)) && newSessionMoveRef.current?.cwd !== target.cwd) {
+      newSessionMoveRef.current = { cwd: target.cwd, managedProjectId: target.managedProjectId,
+        project: { key: target.projectKey ?? target.cwd, root: target.projectRoot ?? target.cwd }, branch: null };
     }
     sidebarControlRef.current?.startNewSessionIn({ ...target, carryComposer: true });
-  }, [effectiveNewSessionCwd, selectedSession]);
+  }, [effectiveNewSessionCwd, selectedSession, newSessionProjectId]);
   // The folder picker answers later: its pick runs the newest closure, guard included.
   const pickNewSessionContextRef = useRef(handlePickNewSessionContext);
   pickNewSessionContextRef.current = handlePickNewSessionContext;
-  const handleOpenFolderForNewSession = useCallback((opener: HTMLElement | null) => {
-    sidebarControlRef.current?.openFolderForNewSession((target) => pickNewSessionContextRef.current(target, "project"), opener);
+  const handleAddProjectForNewSession = useCallback((opener: HTMLElement | null) => {
+    sidebarControlRef.current?.openProjectEditorForNewSession(null, opener);
   }, []);
   const handleDefaultDirectoryForNewSession = useCallback(() => {
     sidebarControlRef.current?.openDefaultDirectoryForNewSession((target) => pickNewSessionContextRef.current(target, "project"));
@@ -1338,7 +1358,7 @@ export function AppShell() {
       onInitialFocusDone={handleNewSessionBarFocusDone}
       onPick={handlePickNewSessionContext}
       onUseDefaultDirectory={handleDefaultDirectoryForNewSession}
-      onOpenFolder={handleOpenFolderForNewSession}
+      onAddProject={handleAddProjectForNewSession}
       onRefreshWorktrees={handleRefreshNewSessionWorktrees}
       onCreateWorktree={handleCreateNewSessionWorktree}
     />
@@ -1438,6 +1458,7 @@ export function AppShell() {
     <>
       <SessionSidebar
         selectedSessionId={selectedSession?.id ?? null}
+        selectedManagedProjectId={selectedSession ? null : newSessionProjectId}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         controlRef={sidebarControlRef}
@@ -2082,7 +2103,7 @@ export function AppShell() {
       overflow: "hidden",
       background: "var(--bg)",
     }}>
-      <WorkspaceRail onSearch={() => sidebarControlRef.current?.openSearch()} settingsOpen={settingsSection !== null} onSettings={() => settingsSection ? closeSettings() : openSettingsSection(getLastSettingsSection(projectTrustCwd))} onHome={() => { if (settingsSection) closeSettings(); }} />
+      <WorkspaceRail onSearch={() => { if (settingsSection) closeSettings(); sidebarControlRef.current?.openSearch(); }} settingsOpen={settingsSection !== null} onSettings={() => settingsSection ? closeSettings() : openSettingsSection(getLastSettingsSection(projectTrustCwd))} onHome={() => { if (settingsSection) closeSettings(); }} />
       {/* Mobile overlay backdrop */}
       <div
         className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
@@ -2102,7 +2123,7 @@ export function AppShell() {
       <div
         ref={sidebarResizer.panelRef}
         id="session-sidebar"
-        inert={settingsSection !== null}
+        onClickCapture={() => { if (settingsSection) closeSettings(); }}
         className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
@@ -2270,6 +2291,7 @@ export function AppShell() {
               onScrollPositionChange={handleSessionScrollPositionChange}
               sessionRunning={Boolean(selectedSession && runningSessionIds.has(selectedSession.id))}
               newSessionCwd={effectiveNewSessionCwd}
+              newSessionProjectId={newSessionProjectId}
               newSessionDraftKey={newSessionDraftKey}
               newSessionContextBar={newSessionContextBar}
               initialNewSessionChoices={selectedSession === null ? carriedNewSessionChoices : null}

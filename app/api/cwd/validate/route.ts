@@ -5,6 +5,8 @@ import { isAbsolute, resolve } from "path";
 import { allowFileRoot } from "@/lib/file-access";
 import { projectIdentityKey } from "@/lib/project-identity";
 import { resolveProject } from "@/lib/worktree";
+import { prepareProjectWorkspace, ProjectStateError } from "@/lib/managed-projects";
+import { isApiRequestAllowed } from "@/lib/request-security";
 
 function normalizeCwd(cwd: string): string {
   if (cwd === "~") return homedir();
@@ -16,7 +18,7 @@ function normalizeCwd(cwd: string): string {
 // Validates a candidate workspace before the UI selects it.
 export async function POST(req: Request) {
   try {
-    const body = await req.json() as { cwd?: unknown };
+    const body = await req.json() as { cwd?: unknown; projectId?: unknown };
     const cwd = typeof body.cwd === "string" ? body.cwd.trim() : "";
 
     if (!cwd) {
@@ -24,6 +26,11 @@ export async function POST(req: Request) {
     }
 
     const normalizedCwd = normalizeCwd(cwd);
+    if (body.projectId !== undefined) {
+      if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+      if (typeof body.projectId !== "string") return NextResponse.json({ error: "Invalid projectId" }, { status: 400 });
+      await prepareProjectWorkspace(body.projectId, normalizedCwd);
+    }
     let stat: Stats;
     try {
       stat = statSync(normalizedCwd);
@@ -44,6 +51,6 @@ export async function POST(req: Request) {
       projectKey: projectIdentityKey(project.projectRoot),
     });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: String(error) }, { status: error instanceof ProjectStateError ? error.status : 500 });
   }
 }

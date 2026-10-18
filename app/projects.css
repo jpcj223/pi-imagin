@@ -1,0 +1,58 @@
+/* 项目表单独立作用域，不覆盖聊天、文件查看器和原有目录选择器。 */
+.project-editor-backdrop {position:fixed;inset:0;z-index:950;display:flex;align-items:center;justify-content:center;padding:20px;background:rgb(0 0 0 / 28%);}
+.project-editor {display:flex;flex-direction:column;width:560px;max-width:100%;max-height:calc(100dvh - 40px);border:1px solid var(--border);border-radius:16px;background:var(--bg);color:var(--text);box-shadow:0 18px 70px rgb(0 0 0 / 16%);font-size:13px;}
+.project-editor header {display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:22px 24px 18px;flex-shrink:0;}
+.project-editor h2 {font-size:20px;line-height:1.4;font-weight:600;margin:0;}
+.project-editor header p {color:var(--text-muted);font-size:12px;margin:5px 0 0;}
+.project-editor button {border:1px solid var(--border);background:var(--bg);color:var(--text);padding:8px 12px;border-radius:7px;font:inherit;cursor:pointer;flex-shrink:0;}
+.project-editor button:hover:not(:disabled) {background:var(--bg-hover);}
+.project-editor button:disabled {opacity:.45;cursor:default;}
+.project-editor header>button {border:0;font-size:22px;line-height:1;padding:5px 8px;}
+.project-editor-body {padding:0 24px 22px;display:flex;flex-direction:column;gap:20px;overflow-y:auto;min-height:0;}
+.project-editor label {display:flex;flex-direction:column;gap:8px;font-size:12px;font-weight:500;}
+.project-editor input,.project-editor select {min-width:0;width:100%;border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--bg);color:var(--text);font:inherit;font-size:14px;font-weight:400;}
+.project-editor-label {display:flex;justify-content:space-between;font-size:12px;margin-bottom:8px;}
+.project-editor-label span {color:var(--text-muted);}
+.project-editor-folders {border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+.project-editor-folder {display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);}
+.project-editor-folder>div {flex:1;min-width:0;}
+.project-editor-folder input {border:0;padding:2px 0;border-radius:3px;font-size:13px;}
+.project-editor-folder small {display:block;color:var(--text-muted);font-size:11px;overflow-wrap:anywhere;margin-top:4px;}
+.project-editor-folder button {border:0;padding:5px;font-size:11px;}
+.project-editor-folder button[aria-pressed="true"] {color:var(--accent);}
+.project-editor .project-editor-add {display:flex;align-items:center;justify-content:center;gap:6px;width:100%;border:0;border-radius:0;padding:13px;background:var(--bg-panel);color:var(--accent);}
+.project-editor-empty {padding:20px 12px;text-align:center;color:var(--text-muted);font-size:12px;}
+.project-editor-hint {margin:0;color:var(--text-muted);font-size:12px;line-height:1.65;overflow-wrap:anywhere;}
+.project-editor-recents {font-size:12px;color:var(--text-muted);}
+.project-editor-recents summary {cursor:pointer;}
+.project-editor-recents>div {display:flex;gap:8px;margin:10px 0;}
+.project-editor-recents>button {display:block;border:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 0;text-align:left;}
+.project-editor footer {display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:16px 24px;border-top:1px solid var(--border);flex-shrink:0;}
+.project-editor .project-editor-primary {background:var(--accent);color:var(--bg);border-color:transparent;}
+.project-editor .project-editor-primary:hover:not(:disabled) {background:var(--accent-hover);}
+.project-editor .project-editor-remove {margin-right:auto;color:var(--error,#b44141);background:transparent;border:0;padding-left:0;}
+.project-editor-error {color:var(--error,#b44141);margin:0;font-size:12px;overflow-wrap:anywhere;}
+.project-editor-load-error {color:var(--text-muted);font-size:11px;padding:4px 15px;}
+.project-editor-load-error button {border:0;background:transparent;color:var(--accent);margin-left:6px;cursor:pointer;}
+@media(max-width:600px) {
+ .project-editor-backdrop {padding:10px;}
+ .project-editor {max-height:calc(100dvh - 20px);}
+ .project-editor header {padding:18px 16px 14px;}
+ .project-editor-body {padding:0 16px 18px;}
+ .project-editor footer {padding:14px 16px;flex-wrap:wrap;}
+ .project-editor input,.project-editor select {font-size:16px;}
+ .project-editor-folder {flex-wrap:wrap;gap:6px;}
+ .project-editor-folder>div {flex-basis:calc(100% - 25px);}
+ .project-editor-folder button {min-height:40px;}
+ .project-editor button {min-height:40px;}
+}
+.workspace-new-project .new-session-context {flex-wrap:wrap;gap:6px 10px;}
+.new-session-project-picker {display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;min-width:0;max-width:100%;}
+.new-session-project-picker .project-picker-association {max-width:100%;}
+.new-session-project-picker .project-picker-button {display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:240px;padding:5px 8px;border:0;border-radius:7px;background:transparent;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer;}
+.new-session-project-picker .project-picker-button:hover,.new-session-project-picker .project-picker-button[aria-expanded="true"] {background:var(--bg-hover);color:var(--text);}
+.new-session-project-picker .project-picker-button:focus-visible {outline:2px solid var(--accent);outline-offset:2px;}
+.new-session-project-picker .project-picker-button>svg {flex-shrink:0;}
+.new-session-project-picker .project-picker-leaf {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+.new-session-directory-label {flex-shrink:0;color:var(--text-muted);font-size:11px;}
+@media(max-width:600px) {.new-session-project-picker .project-picker-button {min-height:34px;max-width:calc(100vw - 72px);}}

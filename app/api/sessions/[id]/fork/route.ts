@@ -11,6 +11,7 @@ import {
   resolveSessionPath,
 } from "@/lib/session-reader";
 import type { SessionInfo } from "@/lib/types";
+import { persistProjectFork } from "@/lib/project-session-fork";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (diskLatest && !wrapper.inner.sessionManager.getEntry(diskLatest)) liveLeafId = undefined;
     }
     const fork = forkSessionBranch(sourcePath, liveLeafId, sourceTitle);
+    await persistProjectFork(id, fork.sessionId, sourcePath, fork.path);
     cacheSessionPath(fork.sessionId, fork.path);
     invalidateSessionListCache();
 

@@ -82,7 +82,7 @@ function readApplyPatchPaths(input: Record<string, unknown> | undefined, result:
 /**
  * Collect the distinct files a single assistant turn actually wrote.
  *
- * Every entry is derived from a `write`/`edit`/`apply_patch` tool call whose
+ * Every entry is derived from a `write`/`edit`/`apply_patch`/`project_copy_file` tool call whose
  * result arrived and did not error — never from the reply text. A path the
  * assistant merely mentions in prose is not evidence that any file was
  * touched, so it is not a source here; the tool call is the record of what
@@ -100,12 +100,17 @@ export function extractTurnWrittenFiles(
 
   for (const block of content) {
     if (block.type !== "toolCall") continue;
-    if (!isFileWritingToolName(block.toolName) && !isApplyPatchToolName(block.toolName)) continue;
+    const isProjectCopy = block.toolName === "project_copy_file";
+    if (!isProjectCopy && !isFileWritingToolName(block.toolName) && !isApplyPatchToolName(block.toolName)) continue;
 
     const result = toolResults?.get(block.toolCallId);
     if (!result || result.isError) continue;
 
-    const rawPaths = isApplyPatchToolName(block.toolName)
+    // 复制只修改目标，按工具返回的实际目标生成入口，不能将读取的源文件计为写入。
+    const copyDestination = isProjectCopy && result.details && typeof result.details === "object"
+      ? (result.details as { destination?: unknown }).destination : undefined;
+    const rawPaths = isProjectCopy ? [typeof copyDestination === "string" ? copyDestination : null]
+      : isApplyPatchToolName(block.toolName)
       ? readApplyPatchPaths(block.input, result)
       : [readToolPath(block.input)];
 

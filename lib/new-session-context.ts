@@ -8,6 +8,7 @@
  */
 
 import { projectNameOf } from "./session-tree";
+import { createProjectSessionResolver, type ManagedProject } from "./managed-projects-shared";
 
 export interface WorktreeChoice {
   path: string;
@@ -25,6 +26,7 @@ export interface ProjectChoice {
 
 /** Where a new session starts: the header "+", a group's "+", the composer's bar. */
 export interface NewSessionTarget {
+  managedProjectId?: string;
   cwd: string;
   /** The target's project identity, handed to the shell so it adopts that project. */
   projectKey?: string;
@@ -36,6 +38,8 @@ export interface NewSessionTarget {
 
 /** How the shell starts a new session (`onNewSession`'s last argument). */
 export interface NewSessionOptions {
+  /** 独立项目身份随草稿传到服务端，避免保存后目录复用导致会话串项目。 */
+  managedProjectId?: string;
   /** Move the fresh composer's draft and model picks to the new one instead of parking the draft. */
   carryComposer?: boolean;
 }
@@ -43,6 +47,9 @@ export interface NewSessionOptions {
 /** What the sidebar reports for its cwd, for the bar above a fresh composer. */
 export interface NewSessionContext {
   cwd: string;
+  /** 项目列表以稳定身份展示；执行目录单独从其关联文件夹中选择。 */
+  managedProjects?: ManagedProject[];
+  managedProjectId?: string;
   /** 默认工作目录仅显示选择入口，不把日期当作关联项目名称。 */
   defaultWorkspace?: boolean;
   project: ProjectChoice;
@@ -66,6 +73,7 @@ export type ProjectWorktreeContext = Omit<NewSessionContext, "cwd" | "project"> 
 
 /** A move the shell made from the bar, kept until the sidebar reports its cwd. */
 export interface NewSessionMove {
+  managedProjectId?: string;
   cwd: string;
   project: ProjectChoice;
   /** The branch of a worktree the bar just created at `cwd`, which no report lists yet. */
@@ -105,6 +113,10 @@ export function contextForCwd(
   const alias = project.alias ?? projects.find((choice) => choice.key === project.key)?.alias;
   return {
     cwd,
+    ...(context?.managedProjects ? {
+      managedProjects: context.managedProjects,
+      managedProjectId: moved?.managedProjectId ?? createProjectSessionResolver({ version: 1, revision: 0, projects: context.managedProjects, sessions: {} }).byPath(cwd)?.id,
+    } : {}),
     project: alias === undefined ? project : { ...project, alias },
     worktrees: null,
     currentWorktreePath: null,
@@ -184,6 +196,8 @@ export function newSessionContextKey(context: NewSessionContext | null): string 
   return JSON.stringify([
     context.cwd,
     context.defaultWorkspace ?? false,
+    context.managedProjectId ?? null,
+    context.managedProjects?.map(project => [project.id, project.name, project.defaultFolderId, project.folders.map(folder => [folder.id, folder.name, folder.path]), project.workspace?.path ?? null]) ?? null,
     context.project.key,
     context.project.root,
     context.project.alias ?? null,

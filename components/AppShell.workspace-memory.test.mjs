@@ -413,6 +413,7 @@ test("the bar of the new composer shows the bar's own move until the sidebar rep
     },
     sidebarNewSessionContext: null,
     selectedSession: null,
+    newSessionProjectId: null,
     effectiveNewSessionCwd: "/work/app",
   });
   context.setSidebarNewSessionContext = (value) => { context.sidebarNewSessionContext = value; };

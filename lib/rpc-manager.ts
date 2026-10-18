@@ -48,6 +48,10 @@ import { createPiImaginBuiltinExtensions, createSubagentCodemodeExtension, creat
 import type { McpHost } from "./mcp-host";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension, createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
+import { assertProjectScopeDirectories, bindProjectSession, inheritProjectSession } from "./managed-projects";
+import type { ProjectSessionScope } from "./managed-projects-shared";
+import { persistProjectFork } from "./project-session-fork";
+import { createProjectWorkspaceExtension } from "./project-workspace-extension";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
 import {
@@ -121,6 +125,7 @@ type ExtensionCommandContextActionsLike = {
 };
 
 type AgentSessionWrapperOptions = {
+  projectScope?: ProjectSessionScope;
   exactSystemPrompt?: () => string;
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
@@ -213,6 +218,9 @@ const COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT = new Set([
 ]);
 
 export interface RpcSessionStartOptions {
+  projectId?: string;
+  /** 仅供工具策略重建未落盘会话使用，不从客户端请求中接收。 */
+  projectScopeSourceSessionId?: string;
   toolNames?: string[];
   initialModel?: { provider: string; modelId: string };
   allowInitialModelFallback?: boolean;
@@ -252,7 +260,7 @@ const CUSTOM_UI_KEYBINDINGS = new TuiKeybindingsManager(TUI_KEYBINDINGS);
 
 // 会话级工具不随历史分支切换：用于访问其他工具的能力及由总开关控制的子智能体工具。
 // 目标分支未记录这些工具时仍保留它们。
-const SESSION_TOOL_NAMES = new Set<string>(["codemode", "tool_search", ...SUBAGENT_CONTROL_TOOL_NAMES]);
+const SESSION_TOOL_NAMES = new Set<string>(["codemode", "tool_search", "project_command", "project_copy_file", ...SUBAGENT_CONTROL_TOOL_NAMES]);
 
 /**
  * The active tools for a coding tool selection. The selection replaces only the coding
@@ -314,6 +322,7 @@ export class AgentSessionWrapper {
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
   private readonly exactSystemPrompt?: () => string;
+  private readonly projectScope?: ProjectSessionScope;
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
@@ -342,6 +351,7 @@ export class AgentSessionWrapper {
     options: AgentSessionWrapperOptions = {},
   ) {
     this.exactSystemPrompt = options.exactSystemPrompt;
+    this.projectScope = options.projectScope ? structuredClone(options.projectScope) : undefined;
     this.chatOnly = options.chatOnly ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
@@ -792,6 +802,8 @@ export class AgentSessionWrapper {
       }
 
       if (type === "prompt" || type === "steer" || type === "follow_up") {
+        // SDK 的 before_agent_start 异常只上报通知，必须在运行入口明确拒绝失效目录。
+        if (this.projectScope) assertProjectScopeDirectories(this.projectScope);
         const imageError = validateAgentImages(command.images);
         if (imageError) throw new Error(imageError);
       }
@@ -881,6 +893,8 @@ export class AgentSessionWrapper {
           }
           let prompt: Promise<void>;
           try {
+            // 等待 MCP 等异步准备期间目录也可能被删除，在真正请求前再次确认。
+            if (this.projectScope) assertProjectScopeDirectories(this.projectScope);
             prompt = this.inner.prompt(command.message as string, {
               ...(promptImages?.length ? { images: promptImages } : {}),
               ...(streamingBehavior ? { streamingBehavior } : {}),
@@ -1049,6 +1063,7 @@ export class AgentSessionWrapper {
           }
 
           const newSessionId = forkedManager.getSessionId();
+          await persistProjectFork(sessionManager.getSessionId(), newSessionId, currentSessionFile, newSessionFile);
           cacheSessionPath(newSessionId, newSessionFile);
           invalidateSessionListCache();
           if (!keepSource) await this.shutdownAfterSessionReplacement("fork");
@@ -1074,6 +1089,7 @@ export class AgentSessionWrapper {
         if (!forkedPath) throw new Error("Failed to create forked session");
 
         const newSessionId = SessionManager.open(forkedPath, sessionDir).getSessionId();
+        await persistProjectFork(sessionManager.getSessionId(), newSessionId, currentSessionFile, forkedPath);
         cacheSessionPath(newSessionId, forkedPath);
         invalidateSessionListCache();
         return { cancelled: false, newSessionId };
@@ -1100,6 +1116,7 @@ export class AgentSessionWrapper {
           if (!clonedPath || !existsSync(clonedPath)) throw new Error("Failed to clone current session branch");
 
           const newSessionId = SessionManager.open(clonedPath, sessionDir).getSessionId();
+          await persistProjectFork(sessionManager.getSessionId(), newSessionId, currentSessionFile, clonedPath);
           cacheSessionPath(newSessionId, clonedPath);
           invalidateSessionListCache();
           await this.shutdownAfterSessionReplacement("clone");
@@ -2243,6 +2260,7 @@ export async function setRpcSessionTools(
   }
 
   const started = await startRpcSession(`__recreate__${randomUUID()}`, "", sessionCwd, {
+    projectScopeSourceSessionId: existing.sessionId,
     ...(toolNames !== undefined ? { toolNames } : {}),
     ...(model ? { initialModel: { provider: model.provider, modelId: model.id } } : {}),
     allowInitialModelFallback: true,
@@ -2344,6 +2362,13 @@ export async function startRpcSession(
     // Some extensions access the SDK's global theme even outside the terminal UI.
     if (!chatOnly) initTheme();
     const agentDir = getAgentDir();
+    // 尚无 JSONL 的会话重建会获得新 ID；先继承原快照，不能按当前目录重新猜项目。
+    if (!subagentResources && options.projectScopeSourceSessionId) {
+      await inheritProjectSession(options.projectScopeSourceSessionId, sessionManager.getSessionId());
+    }
+    const projectScope = !subagentResources
+      ? await bindProjectSession(sessionManager.getSessionId(), sessionCwd, options.projectId)
+      : undefined;
 
     // Determine which tools to pass based on requested toolNames.
     // Since v0.68.0, session creation expects string[] tool names instead of Tool[] instances.
@@ -2433,6 +2458,7 @@ export async function startRpcSession(
             extensionFactories: [
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
+              ...(projectScope ? [createProjectWorkspaceExtension(projectScope, () => settingsManager.getDefaultTools(), settingsManager)] : []),
               createProjectCommandBashExtension({
                 cwd: sessionCwd,
                 settings: settingsManager,
@@ -2533,6 +2559,7 @@ export async function startRpcSession(
     const mcpHost = builtins?.mcpHost ?? subagentMcp?.mcpHost;
     const wrapper = new AgentSessionWrapper(inner, {
       exactSystemPrompt,
+      projectScope,
       chatOnly,
       onAgentRunComplete: (completedSessionId, sessionName) => {
         void notifySessionComplete(completedSessionId, sessionName).catch((error) => {

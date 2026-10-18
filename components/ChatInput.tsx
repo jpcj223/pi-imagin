@@ -1741,10 +1741,12 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               </svg>
             </button>
             {/* Model selector - visible always, disabled while the session or switch is busy */}
-            {(modelOptions.length > 0 || model || modelError) && onModelChange && (
+            {onModelChange && (
               <ModelSelector
                 options={modelOptions}
                 value={model}
+                emptyLabel={locale.startsWith("zh") ? "未选择模型" : "Select model"}
+                selectedLabel={model?.modelId === "unknown" ? (locale.startsWith("zh") ? "未选择模型" : "Select model") : undefined}
                 onChange={onModelChange}
                 disabled={isStreaming}
                 busy={modelSwitching}

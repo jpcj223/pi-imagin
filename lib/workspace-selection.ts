@@ -12,9 +12,9 @@ export function registeredWorkspace(cwd: string, projects: SessionUiState["proje
   return entry ? { key: entry[0], root: entry[1].root } : null;
 }
 
-export async function validateWorkspaceSelection(cwd: string, request: typeof fetch = fetch, signal?: AbortSignal): Promise<{ cwd: string; root: string; key: string }> {
+export async function validateWorkspaceSelection(cwd: string, request: typeof fetch = fetch, signal?: AbortSignal, projectId?: string): Promise<{ cwd: string; root: string; key: string }> {
   const response = await request("/api/cwd/validate", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cwd }), signal,
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cwd, ...(projectId ? { projectId } : {}) }), signal,
   });
   const data = await response.json() as { cwd?: string; projectRoot?: string; projectKey?: string; error?: string };
   if (!response.ok || !data.cwd || !data.projectRoot || !data.projectKey) throw new Error(data.error ?? `HTTP ${response.status}`);

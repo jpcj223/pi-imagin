@@ -1,6 +1,8 @@
 import { getAdditionalAllowedRoots, normalizeSlashes } from "./allowed-roots";
 import { isExistingPathWithinRoots, isPathWithinRoots } from "./path-security";
 import { listAllSessions } from "./session-reader";
+import { readManagedProjects } from "./managed-projects";
+import { projectExecutionFolders } from "./managed-projects-shared";
 export { allowFileRoot, normalizeSlashes } from "./allowed-roots";
 export { isWindowsAbsolutePath } from "./paths";
 
@@ -29,6 +31,16 @@ export async function getAllowedFileRoots(): Promise<Set<string>> {
   }
 
   for (const root of getAdditionalAllowedRoots()) roots.add(root);
+  try {
+    const managed = readManagedProjects();
+    for (const project of managed.projects) {
+      for (const folder of projectExecutionFolders(project)) roots.add(normalizeSlashes(folder.path));
+    }
+    const existingIds = new Set(sessions.map(session => session.id));
+    for (const [id, scope] of Object.entries(managed.sessions)) {
+      if (existingIds.has(id)) for (const folder of scope.folders) roots.add(normalizeSlashes(folder.path));
+    }
+  } catch { /* 项目元数据异常时不扩大权限，也不阻断原有会话目录。 */ }
 
   globalThis.__piAllowedRootsCache = { roots, expiresAt: now + ALLOWED_ROOTS_TTL_MS };
   return roots;

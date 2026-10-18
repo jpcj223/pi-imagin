@@ -650,7 +650,7 @@ export function buildArchiveRows(
     if (!isFamilyArchived(family, uiState, runningIds)) continue;
     resolver.noteFamily(family);
     const archivedAt = finiteNumber(familyEntry(uiState, family.root.id)?.archivedAt) ?? 0;
-    const key = isDefaultWorkspace(familyProjectRoot(family), input.defaultCwdParent, uiState) ? DEFAULT_SESSIONS_KEY : familyProjectKey(family);
+    const key = uiState.removedProjects?.includes(familyProjectKey(family)) || isDefaultWorkspace(familyProjectRoot(family), input.defaultCwdParent, uiState) ? DEFAULT_SESSIONS_KEY : familyProjectKey(family);
     const group = groups.get(key);
     if (group) {
       group.families.push({ family, archivedAt });

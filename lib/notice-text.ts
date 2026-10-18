@@ -32,3 +32,22 @@ export function splitNoticeText(message: string): NoticeTextPart[] {
   });
   return parts;
 }
+
+/** 仅转换已识别的模型故障；其他工具或扩展提示保持原样，技术细节按需展开。 */
+export function modelNotice(message: string, locale: string): { message: string; action: string; detailsLabel: string; details: string } | null {
+  const zh = locale.startsWith("zh");
+  let text: string;
+  if (/no api key found|missing (?:api key|credentials)|api key (?:is )?(?:missing|not configured)/i.test(message)) {
+    text = zh ? "当前模型缺少认证配置，请在模型设置中添加 API Key 或登录。" : "Authentication is missing for this model. Add an API key or sign in in model settings.";
+  } else if (/no (?:available )?models(?: available| found)?\b|no model selected|model .*not found/i.test(message)) {
+    text = zh ? "没有可用的模型，请在模型设置中添加或启用模型。" : "No model is available. Add or enable a model in settings.";
+  } else if (/invalid api key|incorrect api key|authentication (?:failed|error)|invalid authentication/i.test(message)) {
+    text = zh ? "模型认证失败，请检查 API Key 或重新登录。" : "Model authentication failed. Check the API key or sign in again.";
+  } else if (/fetch failed|ECONNREFUSED|ETIMEDOUT|ENOTFOUND/i.test(message)) {
+    text = zh ? "连接失败，请检查服务地址和网络后重试。" : "Connection failed. Check the service URL and network, then retry.";
+  } else return null;
+  const details = message.replace(/\bBearer\s+[^\s,;]+/gi, "Bearer [已隐藏]")
+    .replace(/\bsk-[a-z0-9_-]+/gi, "[已隐藏]")
+    .replace(/((?:api[_ -]?key|token|authorization)\s*[:=]\s*)[^\s,;]+/gi, "$1[已隐藏]");
+  return { message: text, action: zh ? "前往模型设置" : "Open model settings", detailsLabel: zh ? "技术信息" : "Technical details", details };
+}

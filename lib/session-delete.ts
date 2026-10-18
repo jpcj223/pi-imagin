@@ -27,6 +27,7 @@ import {
 } from "./session-reader";
 import { sessionPathKey } from "./session-path";
 import { forgetSessionUiState, readSessionUiState } from "./session-ui-state";
+import { forgetProjectSessions } from "./managed-projects";
 import { listSessionFamilies } from "./session-family";
 import { isFamilyArchived } from "./session-tree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
@@ -260,6 +261,7 @@ export async function deleteSessions(
   // Drop their pins and archive times; best effort, the files are already gone.
   try {
     await forgetSessionUiState(deletedSessionIds);
+    await forgetProjectSessions(deletedSessionIds);
   } catch (error) {
     console.warn(`[pi-imagin] could not clear the sidebar state of deleted sessions: ${error instanceof Error ? error.message : String(error)}`);
   }

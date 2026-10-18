@@ -73,6 +73,11 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { useSessionUiState } from "@/hooks/useSessionUiState";
+import { useManagedProjects } from "@/hooks/useManagedProjects";
+import { managedProjectSidebar } from "@/lib/managed-project-sidebar";
+import { createProjectSessionResolver, defaultProjectFolder, projectContainsCwd, projectExecutionFolders, type ManagedProject, type ProjectChange } from "@/lib/managed-projects-shared";
+import { loadNewSessionProject, preferredNewSessionProject, rememberNewSessionProject } from "@/lib/new-session-project";
+import { ProjectEditor } from "./ProjectEditor";
 import { filesFoldState, useSidebarMotion } from "@/hooks/useSidebarMotion";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { chooseDesktopDirectory } from "@/lib/desktop-bridge";
@@ -192,6 +197,7 @@ export interface SelectSessionOptions {
 
 interface Props {
   selectedSessionId: string | null;
+  selectedManagedProjectId?: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean, entryId?: string, blockIndex?: number, options?: SelectSessionOptions) => void;
   /** projectKey: the target's project identity when it is known (a group's "+", the composer's bar). */
   onNewSession?: (sessionId: string, cwd: string, projectKey?: string | null, options?: NewSessionOptions) => void;
@@ -234,6 +240,8 @@ interface Props {
  */
 export interface SessionSidebarControl {
   openSearch(): void;
+  startPreferredNewSession(): void;
+  openProjectEditorForNewSession(projectId: string | null, opener: HTMLElement | null): void;
   /** Identity, then the sidebar's cwd, then `onNewSession`, as any new session. */
   startNewSessionIn(target: NewSessionTarget): void;
   /** 标题区和侧栏共用同一个会话操作菜单。 */
@@ -480,10 +488,13 @@ function buttonAnchor(element: HTMLElement, align: "start" | "end"): SidebarMenu
   return { kind: "rect", rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, align };
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, initialNavigationReady = true, onStartupReady, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, initialNavigationReady = true, onStartupReady, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
+  const managed = useManagedProjects(refreshKey);
+  const [projectEditor, setProjectEditor] = useState<{ project?: ManagedProject; initialPath?: string; initialName?: string; mode?: "edit" | "start" } | null>(null);
+  const projectEditorComposerRef = useRef<{ token: number; opener: HTMLElement | null } | null>(null);
   // Tracked in a ref only: the version is compared against the polled value to
   // decide whether the list needs reloading, and no render reads it.
   const sessionListVersionRef = useRef<number | null>(null);
@@ -1040,22 +1051,34 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : projectSelection(cwd, cwd);
   }, [validatedProject, worktreeState, allSessions, projectSelection, uiState.projects]);
 
+  const managedResolver = useMemo(() => createProjectSessionResolver(managed.state), [managed.state]);
+  const workspaceOwnerId = selectedCwd ? managedResolver.byPath(selectedCwd)?.id : undefined;
   // 刷新及浏览已有项目也恢复原有目录授权，校验完成前不加载文件或通知工作区切换。
   useEffect(() => {
     if (!selectedCwd) return;
     const controller = new AbortController();
     setWorkspaceAccessError(null);
-    void validateWorkspaceSelection(selectedCwd, fetch, controller.signal).then(project => {
+    void validateWorkspaceSelection(selectedCwd, fetch, controller.signal, workspaceOwnerId).then(project => {
       if (controller.signal.aborted) return;
       setValidatedProject(project);
       setAuthorizedCwd(selectedCwd);
     }).catch(error => { if (!controller.signal.aborted) setWorkspaceAccessError(String(error)); });
     return () => controller.abort();
-  }, [selectedCwd]);
+  }, [selectedCwd, workspaceOwnerId]);
 
   // The project of the sidebar's cwd: the files tab shows it, and its group in
   // the sessions tab exists even before it has a session.
   const selectedProject = useMemo(() => projectFor(selectedCwd), [projectFor, selectedCwd]);
+  const selectedManagedProject = useMemo(() => {
+    if (!selectedCwd) return undefined;
+    return selectedManagedProjectId ? managed.state.projects.find(project => project.id === selectedManagedProjectId)
+      : managedResolver.forSession(allSessions.find(session => session.id === selectedSessionId) ?? { id: selectedSessionId ?? "", cwd: selectedCwd });
+  }, [allSessions, managed.state.projects, managedResolver, selectedCwd, selectedManagedProjectId, selectedSessionId]);
+  useEffect(() => {
+    if (selectedCwd && selectedCwd === authorizedCwd && selectedManagedProject) {
+      rememberNewSessionProject({ projectId: selectedManagedProject.id, cwd: selectedCwd });
+    }
+  }, [authorizedCwd, selectedCwd, selectedManagedProject]);
 
   // A worktree/session refresh can hydrate the stable key without changing
   // cwd, so notify when either changes. The parent treats same-cwd key changes
@@ -1195,7 +1218,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const res = await fetch("/api/cwd/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: path }),
+        body: JSON.stringify({ cwd: path, projectId: managedResolver.byPath(path)?.id }),
       });
       const data = await res.json().catch(() => ({})) as {
         cwd?: string;
@@ -1237,7 +1260,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     } finally {
       setCustomPathValidating(false);
     }
-  }, [applyUiState, customPathOpen, customPathValue, customPathValidating, focusAfterCommit]);
+  }, [applyUiState, customPathOpen, customPathValue, customPathValidating, focusAfterCommit, managedResolver]);
 
   const handleCustomPathClick = useCallback(() => {
     setCustomPathError(null);
@@ -1325,29 +1348,35 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // works when the prop value won't change — e.g. re-clicking the already
   // open session after manually switching worktrees.
   const handleSelectSessionFromList = useCallback((s: SessionInfo, entryId?: string, blockIndex?: number, options?: SelectSessionOptions) => {
+    // 展示副本可跨目录合并分组；传给工作区的仍是原始会话身份。
+    s = allSessions.find(original => original.id === s.id) ?? s;
     workspaceSelectionToken.current += 1;
     setAllSessions((current) => current.some((session) => session.id === s.id) ? current : [s, ...current]);
     if (s.cwd) setSelectedCwd(s.cwd);
     onSelectSession(s, false, entryId, blockIndex, options);
-  }, [onSelectSession]);
+  }, [onSelectSession, allSessions]);
 
   // Every "new session" goes through here. The cwd moves first, on the click
   // path like a session pick, and the shell gets the target's project so it
   // adopts it up front: a session in another project closes the previous
   // project's file tabs instead of being mistaken for identity hydration.
-  const startNewSessionIn = useCallback(async ({ cwd, carryComposer }: NewSessionTarget) => {
+  const startNewSessionIn = useCallback(async ({ cwd, carryComposer, managedProjectId }: NewSessionTarget) => {
     const token = ++workspaceSelectionToken.current;
     try {
-      const project = await validateWorkspaceSelection(cwd);
+      const ownerId = managedProjectId ?? managedResolver.byPath(cwd)?.id;
+      const project = await validateWorkspaceSelection(cwd, fetch, undefined, ownerId);
       if (token !== workspaceSelectionToken.current) return;
       setValidatedProject(project);
       setAuthorizedCwd(project.cwd);
       setSelectedCwd(project.cwd);
-      onNewSession?.(createTempSessionId(), project.cwd, project.key, carryComposer ? { carryComposer: true } : undefined);
+      // 复用目录索引的最长匹配，嵌套项目不能被前面的父目录项目抢占。
+      const owner = managedProjectId ?? (managedResolver.byPath(project.cwd) ?? managedResolver.byPath(project.root))?.id;
+      const options = { ...(carryComposer ? { carryComposer: true } : {}), ...(owner ? { managedProjectId: owner } : {}) };
+      onNewSession?.(createTempSessionId(), project.cwd, project.key, Object.keys(options).length ? options : undefined);
     } catch (error) {
       if (token === workspaceSelectionToken.current) showToast(String(error));
     }
-  }, [onNewSession, showToast]);
+  }, [managedResolver, onNewSession, showToast]);
   // The handle below is made once: it calls the newest closure.
   const startNewSessionInRef = useRef(startNewSessionIn);
   startNewSessionInRef.current = startNewSessionIn;
@@ -1355,6 +1384,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const externalSessionMenuRef = useRef<((id: string, opener: HTMLElement) => void) | null>(null);
   useImperativeHandle(controlRef, () => ({
     openSearch: () => setSessionSearchOpen(true),
+    startPreferredNewSession: () => preferredNewSessionRef.current(),
+    openProjectEditorForNewSession: (projectId, opener) => {
+      const project = projectId ? managedProjectsRef.current.find(item => item.id === projectId) : undefined;
+      if (projectId && !project) { showToast("项目已更新，请重新选择。"); return; }
+      projectEditorComposerRef.current = { token: workspaceSelectionToken.current, opener };
+      setProjectEditor(project ? { project } : {});
+    },
     openSessionMenu: (id, opener) => externalSessionMenuRef.current?.(id, opener),
     startNewSessionIn: (target) => startNewSessionInRef.current(target),
     openFolderForNewSession: (onPicked, returnFocusTo) => {
@@ -1374,14 +1410,71 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     },
     refreshWorktrees,
     createWorktree,
-  }), [createWorktree, refreshWorktrees]);
+  }), [createWorktree, refreshWorktrees, showToast]);
+  const managedProjectsRef = useRef(managed.state.projects);
+  managedProjectsRef.current = managed.state.projects;
 
-  // Header "+": a new session in the sidebar's current cwd (worktree).
+  const changeProjectFromEditor = useCallback(async (request: ProjectChange) => {
+    const origin = projectEditorComposerRef.current;
+    const selectionToken = origin?.token ?? workspaceSelectionToken.current;
+    const previousIds = new Set(managed.state.projects.map(project => project.id));
+    const next = await managed.change(request);
+    // 只调整保存期间未切换的空白会话，不影响历史会话或迟到响应之后的新选择。
+    if (selectionToken !== workspaceSelectionToken.current || selectedSessionIdRef.current) return next;
+    if (request.action === "remove") {
+      if (selectedManagedProject?.id === request.id) {
+        folderPickRef.current = target => {
+          if (selectionToken === workspaceSelectionToken.current && !selectedSessionIdRef.current) void startNewSessionInRef.current({ ...target, carryComposer: true });
+        };
+        void handleDefaultCwdRef.current("new-session");
+      }
+      return next;
+    }
+    const saved = request.id ? next.projects.find(project => project.id === request.id)
+      : next.projects.find(project => !previousIds.has(project.id) && project.name === request.name.trim()
+        && project.folders.length === request.folders.length && request.folders.every(folder => project.folders.some(item => item.path === folder.path)));
+    if (!saved) return next;
+    const validCurrent = selectedCwd && (projectContainsCwd(saved, selectedCwd)
+      || (worktreeState?.forCwd === selectedCwd && worktreeState.worktrees.some(worktree => worktree.path === selectedCwd) && projectContainsCwd(saved, worktreeState.projectRoot)));
+    if ((!request.id && origin) || (request.id && selectedManagedProject?.id === saved.id && !validCurrent)) {
+      const folder = defaultProjectFolder(saved);
+      if (folder) await startNewSessionInRef.current({ cwd: folder.path, managedProjectId: saved.id, carryComposer: true });
+    }
+    return next;
+  }, [managed, selectedCwd, selectedManagedProject, worktreeState]);
+
+  // 顶部入口与 Ctrl+N 共用规则；取消项目关联仍使用独立的默认目录入口。
   const handleNewSession = useCallback(() => {
+    if (!managed.loaded) return;
+    if (!selectedManagedProject && selectedCwd && !isDefaultWorkspace(selectedCwd, defaultCwdParent, uiState)
+      && projectChoiceListRef.current.some(project => project.root === selectedCwd || project.key === selectedProject?.key)) {
+      void startNewSessionInRef.current({ cwd: selectedCwd }); return;
+    }
+    const target = preferredNewSessionProject(managed.state.projects, selectedCwd, selectedManagedProject?.id ?? null, loadNewSessionProject());
+    if (target) { void startNewSessionInRef.current(target); return; }
     folderPickRef.current = (target) => startNewSessionInRef.current(target);
     folderReturnFocusRef.current = null;
     void handleDefaultCwdRef.current("new-session");
-  }, []);
+  }, [defaultCwdParent, managed.loaded, managed.state.projects, selectedCwd, selectedManagedProject, selectedProject, uiState]);
+  const preferredNewSessionRef = useRef(handleNewSession);
+  preferredNewSessionRef.current = handleNewSession;
+  const initialProjectAttempted = useRef(false);
+  const initialProjectStarting = useRef(false);
+  const [initialProjectPending, setInitialProjectPending] = useState(false);
+  useEffect(() => {
+    if (!initialNavigationReady || loading || !managed.loaded || !defaultCwdLoaded || initialProjectAttempted.current) return;
+    initialProjectAttempted.current = true;
+    // 地址、已有会话与本标签草稿优先，不能用默认选择覆盖正在恢复的内容。
+    if (skipInitialProjectSelection || initialSessionId || selectedCwd || allSessions.length) return;
+    const target = preferredNewSessionProject(managed.state.projects, null, null, loadNewSessionProject());
+    if (!target) return;
+    initialProjectStarting.current = true;
+    setInitialProjectPending(true);
+    void startNewSessionInRef.current(target).finally(() => {
+      initialProjectStarting.current = false;
+      setInitialProjectPending(false);
+    });
+  }, [allSessions.length, defaultCwdLoaded, initialNavigationReady, initialSessionId, loading, managed.loaded, managed.state.projects, selectedCwd, skipInitialProjectSelection]);
 
   const recentProjects = useMemo(() => getRecentProjects(allSessions), [allSessions]);
   const [groupingDay, setGroupingDay] = useState(() => new Date().setHours(0, 0, 0, 0));
@@ -1392,7 +1485,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     return () => { clearInterval(timer); window.removeEventListener("focus", refresh); };
   }, []);
 
-  const sessionFamilies = useMemo(() => listSessionFamilies(allSessions), [allSessions]);
+  const managedDisplay = useMemo(() => managedProjectSidebar(managed.state, allSessions, uiState, null), [managed.state, allSessions, uiState]);
+  const sessionFamilies = useMemo(() => listSessionFamilies(managedDisplay.sessions), [managedDisplay.sessions]);
   const familyByRootId = useMemo(
     () => new Map(sessionFamilies.map((family) => [family.root.id, family])),
     [sessionFamilies],
@@ -1456,8 +1550,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const currentProjectKey = selectedProject?.key ?? null;
   const currentProjectRoot = selectedProject?.root ?? null;
   const currentProject = useMemo(
-    () => (selectedCwd === authorizedCwd && currentProjectKey && currentProjectRoot ? { key: currentProjectKey, root: currentProjectRoot } : null),
-    [currentProjectKey, currentProjectRoot, selectedCwd, authorizedCwd],
+    () => managedProjectSidebar(managed.state, allSessions, uiState, selectedCwd === authorizedCwd && currentProjectKey && currentProjectRoot ? { key: currentProjectKey, root: currentProjectRoot } : null, selectedCwd ?? undefined).current,
+    [managed.state, allSessions, uiState, currentProjectKey, currentProjectRoot, selectedCwd, authorizedCwd],
   );
   // What the tree shows and every toggle reads: the saved choices over the
   // groups kept open for the page. Writes go to the saved choices alone
@@ -1467,8 +1561,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     [groupExpansion, keptOpenGroups],
   );
   const model = useMemo(() => buildSessionTree({
-    sessions: allSessions,
-    uiState,
+    sessions: managedDisplay.sessions,
+    uiState: managedDisplay.uiState,
     runningIds: runningSessionIds,
     awaitingIds: awaitingInputSessionIds,
     unreadIds: unreadSessionIds,
@@ -1481,12 +1575,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     defaultCwdParent,
     now: groupingDay,
     sectionExpansion: groupExpansion,
-  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed, defaultCwdParent, groupingDay, groupExpansion]);
+  }), [managedDisplay, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed, defaultCwdParent, groupingDay, groupExpansion]);
   // 仅在展开时构建归档行，普通项目与默认会话始终保留。
   const archiveMounted = archiveView;
   const archiveRows = useMemo(() => (archiveMounted ? buildArchiveRows({
-    sessions: allSessions,
-    uiState,
+    sessions: managedDisplay.sessions,
+    uiState: managedDisplay.uiState,
     runningIds: runningSessionIds,
     awaitingIds: awaitingInputSessionIds,
     unreadIds: unreadSessionIds,
@@ -1495,7 +1589,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     defaultCwdParent,
     now: groupingDay,
     sectionExpansion: groupExpansion,
-  }) : []), [archiveMounted, allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, defaultCwdParent, groupingDay, groupExpansion]);
+  }) : []), [archiveMounted, managedDisplay, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, defaultCwdParent, groupingDay, groupExpansion]);
   const projectByKey = useMemo(
     () => new Map(model.projects.map((project) => [project.key, project])),
     [model.projects],
@@ -1532,9 +1626,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // with the names the user gave them.
   const projectNames = uiState.projectNames;
   const projectChoiceList = useMemo(
-    () => mergeProjectChoices(model.projects, recentProjects.filter(project => !uiState.removedProjects?.includes(project.key) && !isDefaultWorkspace(project.root, defaultCwdParent, uiState)), projectNames),
-    [model.projects, recentProjects, projectNames, defaultCwdParent, uiState],
+    () => mergeProjectChoices(model.projects.filter(project => !project.key.startsWith("managed:")), [...recentProjects, ...managed.state.projects.flatMap(project => projectExecutionFolders(project).map(folder => ({ root: folder.path, key: /^[a-z]:/i.test(folder.path) ? folder.path.replace(/\//g, "\\").toLowerCase() : folder.path })))].filter(project => !uiState.removedProjects?.includes(project.key) && !isDefaultWorkspace(project.root, defaultCwdParent, uiState)), projectNames),
+    [model.projects, managed.state.projects, recentProjects, projectNames, defaultCwdParent, uiState],
   );
+  const projectChoiceListRef = useRef(projectChoiceList);
+  projectChoiceListRef.current = projectChoiceList;
 
   // What both pickers show for this cwd: the project, its worktrees where the
   // files tab offers them (the top of a git checkout), every project. The
@@ -1545,13 +1641,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const listed = showWorktreeSwitcher && worktreeState !== null;
     return {
       cwd: selectedCwd,
-      defaultWorkspace: isDefaultWorkspace(selectedCwd, defaultCwdParent, uiState),
-      project: withProjectAlias(selectedProject, projectNames),
+      managedProjects: managed.state.projects,
+      managedProjectId: selectedManagedProject?.id,
+      defaultWorkspace: !selectedManagedProject && isDefaultWorkspace(selectedCwd, defaultCwdParent, uiState),
+      project: { ...withProjectAlias(selectedProject, projectNames), ...(selectedManagedProject ? { alias: selectedManagedProject.name } : {}) },
       worktrees: listed ? worktreeState.worktrees.map(({ path, branch, isMain }) => ({ path, branch, isMain })) : null,
       currentWorktreePath: listed ? currentWorktreePath : null,
       projects: projectChoiceList,
     };
-  }, [selectedCwd, selectedProject, showWorktreeSwitcher, worktreeState, currentWorktreePath, projectChoiceList, projectNames, defaultCwdParent, uiState]);
+  }, [selectedCwd, selectedProject, selectedManagedProject, managed.state.projects, showWorktreeSwitcher, worktreeState, currentWorktreePath, projectChoiceList, projectNames, defaultCwdParent, uiState]);
   const newSessionContextRef = useRef(newSessionContext);
   newSessionContextRef.current = newSessionContext;
   const newSessionContextSignature = newSessionContextKey(newSessionContext);
@@ -2102,12 +2200,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // pinned project without sessions keeps its server identity.
   const handleGroupNew = useCallback((project: SidebarProject) => {
     setMenu(null);
+    const workspace = managed.state.projects.find(item => `managed:${item.id}` === project.key);
+    if (workspace) { setProjectEditor({ project: workspace, mode: "start" }); return; }
     startNewSessionIn({
       cwd: project.current && selectedCwd ? selectedCwd : project.root,
       projectKey: project.key,
       projectRoot: project.root,
     });
-  }, [selectedCwd, startNewSessionIn]);
+  }, [managed.state.projects, selectedCwd, startNewSessionIn]);
 
   const closeMenu = useCallback(() => setMenu(null), []);
 
@@ -2202,6 +2302,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // "Open in Files" of another project is a deliberate project switch, the
   // same as choosing it in the files' project list.
   const openProjectInFiles = (project: SidebarProject) => {
+    if (project.key.startsWith("managed:")) {
+      void commitCustomPath(project.root, { remember: false, purpose: "files" }).then(() => revealFiles("project-button"));
+      return;
+    }
     workspaceSelectionToken.current += 1;
     setValidatedProject({ cwd: project.root, root: project.root, key: project.key });
     setSelectedCwd(project.root);
@@ -2245,8 +2349,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const groupMenuItems = (project: SidebarProject, olderCount: number): SidebarMenuItem[] => {
     const archivedCount = archiveIndex.countByProject.get(project.key) ?? 0;
+    const workspace = managed.state.projects.find(p => `managed:${p.id}` === project.key);
     return [
-      { type: "item", id: "rename-project", label: t("sidebar.renameProject"), icon: <PencilIcon />, onSelect: () => startProjectRename(project) },
+      { type: "item", id: "edit-project", label: workspace ? "编辑项目" : "管理项目与关联文件夹", icon: <PencilIcon />, onSelect: () => setProjectEditor(workspace ? { project: workspace } : { initialPath: project.root, initialName: project.name }) },
+      ...(workspace ? [{ type: "item" as const, id: "new-project-session", label: "在项目中新建会话", icon: <PlusIcon />, onSelect: () => setProjectEditor({ project: workspace, mode: "start" }) }] : [{ type: "item" as const, id: "rename-project", label: t("sidebar.renameProject"), icon: <PencilIcon />, onSelect: () => startProjectRename(project) }]),
       { type: "item", id: "open-in-files", label: t("sidebar.openInFilesTab"), icon: <FolderIcon />, onSelect: () => openProjectInFiles(project) },
       {
         type: "item",
@@ -2266,6 +2372,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       },
       { type: "separator", id: "separator-delete" },
       { type: "item", id: "remove-project", label: "从侧栏移除项目", icon: <TrashIcon />, danger: true, onSelect: () => {
+        if (workspace) { setProjectEditor({ project: workspace }); return; }
         void applyUiState({ action: "remove-project", projectKey: project.key }).then(ok => {
           if (ok) showToast("项目已移除，文件和会话均保留，可通过添加项目恢复。");
         });
@@ -2303,6 +2410,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const startupReportedRef = useRef(false);
   useEffect(() => {
     if (startupReportedRef.current || !initialNavigationReady || loading || !uiStateLoaded) return;
+    // 只有空白首页的默认项目恢复需要等待项目目录；已有会话不增加这项启动依赖。
+    if ((!managed.loaded && !skipInitialProjectSelection && !initialSessionId && selectedCwd === null && allSessions.length === 0)
+      || initialProjectStarting.current || initialProjectPending) return;
     if (!defaultCwdLoaded && !error) return;
     if (initialSessionId && !restoredRef.current) return;
     if (!skipInitialProjectSelection && allSessions.length > 0 && selectedCwd === null) return;
@@ -2310,7 +2420,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     // 等目录切换通知与初始选择一起完成，再允许主区域显示欢迎页。
     startupReportedRef.current = true;
     onStartupReady?.();
-  }, [initialNavigationReady, loading, uiStateLoaded, defaultCwdLoaded, error, initialSessionId, skipInitialProjectSelection, allSessions.length, selectedCwd, authorizedCwd, workspaceAccessError, onStartupReady]);
+  }, [initialNavigationReady, loading, uiStateLoaded, defaultCwdLoaded, error, initialSessionId, skipInitialProjectSelection, allSessions.length, selectedCwd, authorizedCwd, workspaceAccessError, onStartupReady, managed.loaded, initialProjectPending]);
   const projectRows = model.projectRows.filter(row => row.kind !== "footer-archived");
   const treeProps = {
     onToggleSection: (key: string) => saveGroupChoices({ ...groupExpansion, [key]: groupExpansion[key] === false }, []),
@@ -2486,6 +2596,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       onFocus={(event) => { sidebarFocusRef.current = event.target; }}
       onBlur={(event) => { if (event.relatedTarget === null && !document.hasFocus()) return; if (!event.currentTarget.contains(event.relatedTarget)) sidebarFocusRef.current = null; }}
     >
+      {projectEditor && <ProjectEditor {...projectEditor} recentPaths={recentProjects.map(project => project.root)}
+        onClose={() => {
+          const composerOrigin = projectEditorComposerRef.current;
+          projectEditorComposerRef.current = null;
+          const key = projectEditor.project ? `managed:${projectEditor.project.id}` : null;
+          setProjectEditor(null);
+          focusAfterCommit(() => {
+            if (composerOrigin) return composerOrigin.opener?.isConnected ? composerOrigin.opener : document.querySelector<HTMLButtonElement>('.new-session-project-selector');
+            const group = key ? groupHeaderButton(key) : null;
+            if (group?.getClientRects().length) return group;
+            const add = document.querySelector<HTMLButtonElement>('.workspace-project-heading button');
+            return add?.getClientRects().length ? add : document.querySelector<HTMLTextAreaElement>('.chat-input-textarea');
+          });
+        }} onChange={changeProjectFromEditor}
+        onStart={cwd => void startNewSessionIn({ cwd, managedProjectId: projectEditor.project?.id })}
+        onBrowse={cwd => { void commitCustomPath(cwd, { remember: false, purpose: "files" }).then(() => revealFiles("project-button")); }} />}
       {customPathOpen && (
         <DirectoryPicker
           initialPath={customPathValue}
@@ -2553,7 +2679,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           type="button"
           className="sidebar-new-button"
           onClick={handleNewSession}
-          title="新建会话 · 默认工作区"
+          disabled={!managed.loaded}
+          title="新建会话 · 优先当前或上次项目"
         >
           <PlusIcon size={12} />
           <span className="sidebar-new-label">新建会话</span><kbd className="workspace-new-shortcut">Ctrl N</kbd>
@@ -2563,7 +2690,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
       {sessionSearchOpen && <SessionSearchDialog query={sessionSearchQuery} onQueryChange={setSessionSearchQuery} onClose={() => setSessionSearchOpen(false)} selectedSessionId={selectedSessionId} onSelectSession={handleSelectSessionFromList} archivedSessionIds={archiveIndex.ids} />}
 
-      <div className="workspace-project-heading" hidden={sidebarTab === "files"}><span>项目</span><button type="button" onClick={handleCustomPathClick} aria-label="添加项目" title="添加项目"><PlusIcon size={15} /></button></div>
+      <div className="workspace-project-heading" hidden={sidebarTab === "files"}><span>项目</span><button type="button" onClick={() => setProjectEditor({})} aria-label="添加项目" title="添加项目"><PlusIcon size={15} /></button></div>
+      {managed.error && <div className="project-editor-load-error" role="alert">项目读取失败，原有会话仍可使用。<button type="button" onClick={() => void managed.refresh()}>重试</button></div>}
       <button type="button" className="workspace-files-back" hidden={sidebarTab !== "files"} onClick={() => switchTab("sessions")}>← 返回项目会话</button>
 
       {/* Sessions: every project's sessions, or the archive. A tab's panel,

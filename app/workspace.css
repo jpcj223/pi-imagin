@@ -345,3 +345,9 @@ html:not([data-theme="light"]) {--terminal-bg:var(--bg-panel);}
 .workspace-top[inert] {z-index:auto;}
 /* 手机抽屉置于辅助栏和顶部工具栏之上，保留原有模态交互。 */
 @media(max-width:640px){.workspace-shell .sidebar-container {z-index:400!important;}.workspace-shell .sidebar-overlay-backdrop {z-index:399!important;}}
+
+/* 模型故障使用简短说明与操作入口，技术细节默认折叠。 */
+.model-problem-notice {display:flex;flex-direction:column;gap:8px;max-width:440px;}
+.model-problem-notice>button {align-self:flex-start;border:1px solid var(--border);border-radius:6px;background:var(--bg-hover);color:var(--accent);font:inherit;font-size:12px;padding:4px 9px;cursor:pointer;}
+.model-problem-notice summary {font-size:11px;color:var(--text-dim);cursor:pointer;}
+.model-problem-notice details>div {padding-top:6px;font-size:11px;overflow-wrap:anywhere;white-space:pre-wrap;}

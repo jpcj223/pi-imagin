@@ -66,6 +66,13 @@ test("inline: the project's name and the branch as text, no path and no notes", 
   assert.doesNotMatch(render({ homeDir: "/home/me" }) + render({ layout: "row" }), /project-picker-name|<svg width="12"/);
 });
 
+test("新会话隐藏旧项目入口时，仍保留原有工作树切换",()=>{
+ const html=render({layout:"inline",hideProject:true});
+ assert.doesNotMatch(html,/is-project|project-picker-clear/);
+ assert.match(html,/feature\/x/);
+ assert.match(html,/aria-haspopup="menu"/);
+});
+
 test("row: the files' boxes below the sessions, side by side, with everything the stacked ones have", () => {
   const activity = new Map([["lib-key", { running: 1, unread: 0 }]]);
   const hint = { label: "Open repo root", title: "Open the repository root to manage worktrees." };
