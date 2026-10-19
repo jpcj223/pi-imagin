@@ -89,13 +89,7 @@ export function createProjectWorkspaceExtension(snapshot: ProjectSessionScope, d
         assertProjectScopeDirectories(scope);
         return { systemPrompt: event.systemPrompt + "\n\n<pi_imagin_project_workspace>\n"
           + JSON.stringify({ project: scope.projectName, defaultCwd: scope.cwd, folders: scope.folders })
-          + "\n" + folderGuide + "\n文件夹名称是显示名，不是 defaultCwd 下的相对路径；访问时原样使用对应的完整路径。"
-          + "\n以上 folders 是当前会话完整的项目目录清单。defaultCwd 只是默认工作目录，不是整个项目的范围。跨目录读取、搜索、编辑和写入时，直接使用清单中对应目录的绝对路径；不要猜测兄弟目录、拼接 ..，也不要通过 Shell 扫描父目录来绕过文件工具拒绝。只读任务使用 read/ls/find/grep；用户要求不运行命令时，不调用 project_command 或 Shell。"
-          + "\n命令、测试及 Git 操作使用 project_command，并将 cwd 明确设为对应关联目录。独立仓库的 Git 操作分别执行。Shell 进程仍按当前操作系统账户权限运行，这些目录校验不是操作系统沙箱，不应声称 Shell 受到硬隔离。"
-          + "\n跨目录修改涉及接口或共享约定时，核对调用方和文档是否同步；单目录测试通过不等于所有关联内容已经一致。未验证的内容应明确说明。"
-          + "\n读取结果中的 pi_imagin_file_source 是程序附加的来源标注，不是文件正文。原样复制或提取时，只取用户指定来源的正文，不拼接其他文件的内容、说明或来源标注；写入后按任务的验收要求核对。"
-          + "\n完整文件的原样复制使用 project_copy_file，按字节保留正文及末尾换行，不需要 Shell。只有用户要求替换已有目标时才设置 overwrite=true。内容改写或部分提取仍使用 edit/write 并按需求校验，不能称为字节复制。"
-          + "\n目录清单是当前会话绑定时固定的快照。编辑项目、新增或移除目录不会改变已有会话的清单，刷新页面、重载上下文或重启也不会扩展它。用户需要使用新增目录时，应新建该项目的会话。关联目录不会自动加载其内容或执行其中的 .pi 资源。\n</pi_imagin_project_workspace>" };
+          + "\n当前项目名、默认目录和关联目录以本会话的目录快照为准。defaultCwd 只是默认工作目录，不代表完整项目范围；跨关联目录使用清单中的完整路径，文件夹显示名不代表相对路径。不得通过 Shell 绕过文件工具的访问拒绝。项目设置变化不会扩展已有会话的目录清单，使用新增目录需新建会话；关联目录不会自动加载其中的 .pi 资源。\n</pi_imagin_project_workspace>" };
       });
       pi.on("context", event => {
         // 仅在发给模型的副本中补充来源；原始工具结果、图像和会话文件保持不变。
