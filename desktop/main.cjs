@@ -13,6 +13,18 @@ const launchStarted = Date.now();
 
 const development = !app.isPackaged && Boolean(process.env.PI_IMAGIN_DESKTOP_DEV_URL);
 app.setName(development ? "Pi Imagin Dev" : "Pi Imagin");
+// 开发窗口不能沿用 Electron 的任务栏身份，否则 Windows 会复用其旧快捷方式图标。
+const desktopAppId = development ? "local.pi-imagin.desktop.dev" : "local.pi-imagin.desktop";
+if (process.platform === "win32") app.setAppUserModelId(desktopAppId);
+
+function configureTaskbar(window, icon) {
+  if (process.platform !== "win32") return;
+  window.setAppDetails({
+    appId: desktopAppId,
+    ...(fs.existsSync(icon) ? { appIconPath: icon, appIconIndex: 0 } : {}),
+    ...(app.isPackaged ? { relaunchCommand: `"${process.execPath}"`, relaunchDisplayName: "Pi Imagin" } : {}),
+  });
+}
 // 开发窗口拥有独立浏览器数据与单实例锁，不复用正式桌面配置。
 const profile = development ? path.resolve(process.env.PI_IMAGIN_DESKTOP_DEV_PROFILE || path.join(app.getPath("appData"), "Pi Imagin Development", "attach"))
   : process.env.PI_IMAGIN_DESKTOP_TEST_DIR ? path.resolve(process.env.PI_IMAGIN_DESKTOP_TEST_DIR) : path.join(app.getPath("appData"), "Pi Imagin");
@@ -150,6 +162,7 @@ else {
       backgroundColor: "#f6f8fa", show: false,
       webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false },
     });
+    configureTaskbar(mainWindow, icon);
     background = installBackground({ app, Tray, Menu, window: mainWindow, icon, isQuitting: () => quitting, record, enabled: !development });
     installWorkspaceNavigation(mainWindow, () => origin, () => starting || quitting);
     startupView = createStartupView({ WebContentsView, window: mainWindow, isQuitting: () => quitting, canShow: () => !background.isHidden() && process.env.PI_IMAGIN_DESKTOP_SMOKE !== "1", record });
@@ -190,7 +203,8 @@ else {
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
       // 完整历史在应用窗口内打开，模型文档与其他外部链接由默认应用处理。
       if (isOwnedUrl(url, origin)) {
-        const history = new BrowserWindow({ parent: mainWindow, width: 1200, height: 800, title: "完整历史 · Pi Imagin", webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false } });
+        const history = new BrowserWindow({ parent: mainWindow, width: 1200, height: 800, title: "完整历史 · Pi Imagin", icon: fs.existsSync(icon) ? icon : undefined, webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false } });
+        configureTaskbar(history, icon);
         history.webContents.setWindowOpenHandler(({ url: link }) => { if (isExternalUrl(link) && !isOwnedUrl(link, origin)) void shell.openExternal(link); return { action: "deny" }; });
         history.webContents.on("will-navigate", (event, link) => { if (!isOwnedUrl(link, origin)) { event.preventDefault(); if (isExternalUrl(link)) void shell.openExternal(link); } });
         void history.loadURL(url);

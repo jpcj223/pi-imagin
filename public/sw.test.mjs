@@ -65,6 +65,7 @@ test("push always shows a notification, even when a window is visible", async ()
     options: {
       body: "Task finished.",
       data: { url: "/?session=session-1" },
+      icon: "/icons/icon-cosmic-ocean-192.png",
       tag: "pi-session-complete:session-1",
       renotify: true,
     },
@@ -181,11 +182,11 @@ test("install precaches offline assets but not the runtime manifest", async () =
 
   assert.deepEqual(precached, [
     "/offline.html",
-    "/icons/logo-ocean.png",
-    "/icons/icon-ocean-192.png",
-    "/icons/icon-ocean-512.png",
-    "/icons/apple-touch-ocean.png",
-    "/icons/favicon-ocean-32.png",
+    "/icons/logo-cosmic-ocean.png",
+    "/icons/icon-cosmic-ocean-192.png",
+    "/icons/icon-cosmic-ocean-512.png",
+    "/icons/apple-touch-cosmic-ocean.png",
+    "/icons/favicon-cosmic-ocean-32.png",
   ]);
   assert.equal(skipped, true);
 });

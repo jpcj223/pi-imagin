@@ -1,15 +1,15 @@
 const CACHE_PREFIX = "pi-imagin";
 const LEGACY_CACHE_PREFIX = "pi-web";
 const CACHE_VERSION = new URL(self.location.href).searchParams.get("v") || "dev";
-const STATIC_CACHE = `${CACHE_PREFIX}-static-${CACHE_VERSION}-ocean-v1`;
+const STATIC_CACHE = `${CACHE_PREFIX}-static-${CACHE_VERSION}-cosmic-ocean-v1`;
 const OFFLINE_URL = "/offline.html";
 const PRECACHE_URLS = [
   OFFLINE_URL,
-  "/icons/logo-ocean.png",
-  "/icons/icon-ocean-192.png",
-  "/icons/icon-ocean-512.png",
-  "/icons/apple-touch-ocean.png",
-  "/icons/favicon-ocean-32.png",
+  "/icons/logo-cosmic-ocean.png",
+  "/icons/icon-cosmic-ocean-192.png",
+  "/icons/icon-cosmic-ocean-512.png",
+  "/icons/apple-touch-cosmic-ocean.png",
+  "/icons/favicon-cosmic-ocean-32.png",
 ];
 // A reachable port backed by a dead upstream accepts the connection and then
 // never answers: fetch() neither resolves nor rejects, so the navigation hangs
@@ -93,6 +93,7 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
+      icon: "/icons/icon-cosmic-ocean-192.png",
       data: { url: typeof url === "string" && url ? url : "/" },
       ...(typeof tag === "string" && tag ? { tag, renotify: true } : {}),
     }),

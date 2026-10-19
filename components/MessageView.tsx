@@ -823,7 +823,7 @@ function AssistantMessageView({
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/icons/icon-ocean-192.png" alt="" width={22} height={22} />
+        <img src="/icons/icon-cosmic-ocean-192.png" alt="" width={22} height={22} />
         <strong>Pi Imagin</strong>
         {message.provider && (
           <span className="workspace-answer-model">{getModelDisplayName(message.provider, message.model, modelNames)}</span>

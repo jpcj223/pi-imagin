@@ -124,7 +124,7 @@ export function PiImaginTitle({ onWidthChange }: {
       onClick={handleClick}
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- 本地图标已导出固定尺寸，不需要在线图片优化。 */}
-      <img src="/icons/logo-ocean.png" width={24} height={24} alt="" className="sidebar-brand-logo" loading="lazy" decoding="async" />
+      <img src="/icons/logo-cosmic-ocean.png" width={24} height={24} alt="" className="sidebar-brand-logo" loading="lazy" decoding="async" />
       <span>{text}</span>
     </button>
   );

@@ -63,6 +63,7 @@ async function prepare() {
     socket.once("error", () => resolve(false));
   });
   if (devRunning) throw new Error("请先停止本项目的开发服务，再构建安装包，避免覆盖 .next");
+  await run(process.execPath, [path.join(root, "bin/generate-brand-icons.mjs")]);
   fs.mkdirSync(buildRoot, { recursive: true });
   console.log("正在准备并校验内置 Node.js 运行时…");
   const nodeDir = await prepareNode();
@@ -82,13 +83,7 @@ async function prepare() {
   fs.writeFileSync(path.join(server, manifestName), JSON.stringify(frameworkManifest));
   const icons = path.join(buildRoot, "desktop-icons");
   cleanBuildDirectory(icons);
-  const sharp = require(path.join(root, "node_modules/sharp"));
-  const png = await sharp(path.join(root, "public/icons/icon-ocean-512.png")).resize(256, 256).png().toBuffer();
-  const header = Buffer.alloc(22);
-  header.writeUInt16LE(1, 2); header.writeUInt16LE(1, 4);
-  header.writeUInt16LE(1, 10); header.writeUInt16LE(32, 12);
-  header.writeUInt32LE(png.length, 14); header.writeUInt32LE(22, 18);
-  fs.writeFileSync(path.join(icons, "icon.ico"), Buffer.concat([header, png]));
+  fs.copyFileSync(path.join(root, "public/icons/icon-cosmic-ocean.ico"), path.join(icons, "icon.ico"));
   fs.writeFileSync(path.join(buildRoot, "desktop-build.json"), JSON.stringify({ nodeVersion, nodeSha256: crypto.createHash("sha256").update(fs.readFileSync(path.join(nodeDir, "node.exe"))).digest("hex"), time: new Date().toISOString() }, null, 2));
   console.log("正在生成 Windows 安装包…");
   await run(process.execPath, [path.join(__dirname, "node_modules/electron-builder/out/cli/cli.js"), "--win", "nsis", "--x64", "--publish", "never"], { cwd: __dirname });

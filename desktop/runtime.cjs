@@ -18,7 +18,7 @@ function pathsFor(app, resourcesPath) {
   return {
     server: path.join(base, app.isPackaged ? "server" : "desktop-server"),
     node: path.join(base, app.isPackaged ? "node" : "desktop-node", "node.exe"),
-    icon: path.join(base, app.isPackaged ? "icons" : "desktop-icons", "icon.ico"),
+    icon: app.isPackaged ? path.join(base, "icons", "icon.ico") : path.resolve(__dirname, "../public/icons/icon-cosmic-ocean.ico"),
     launcher: app.isPackaged ? path.join(resourcesPath, "server-launcher.cjs") : path.join(__dirname, "server.cjs"),
   };
 }

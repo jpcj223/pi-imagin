@@ -26,19 +26,19 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: "/icons/favicon-ocean-32.png",
+        url: "/icons/favicon-cosmic-ocean-32.png",
         sizes: "32x32",
         type: "image/png",
       },
       {
-        url: "/icons/icon-ocean-192.png",
+        url: "/icons/icon-cosmic-ocean-192.png",
         sizes: "192x192",
         type: "image/png",
       },
     ],
     apple: [
       {
-        url: "/icons/apple-touch-ocean.png",
+        url: "/icons/apple-touch-cosmic-ocean.png",
         sizes: "180x180",
         type: "image/png",
       },

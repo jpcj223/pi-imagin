@@ -73,7 +73,7 @@ test("the brand is a button named for what its click shows, with the brand's tex
   const app = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0";
   const pi = process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0";
   assert.ok(html.startsWith(`<button type="button" class="sidebar-brand" aria-label="Pi Imagin, versions: web ${app}, pi ${pi}">`));
-  assert.match(html, /<img[^>]*src="\/icons\/logo-ocean\.png"[^>]*alt=""/);
+  assert.match(html, /<img[^>]*src="\/icons\/logo-cosmic-ocean\.png"[^>]*alt=""/);
   assert.ok(html.endsWith("<span>Pi Imagin</span></button>"));
   assert.doesNotMatch(html, /style=/, "no inline styles: its look is app/sidebar.css's");
   // In every language, with the visible name in it.

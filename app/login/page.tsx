@@ -49,7 +49,7 @@ function LoginForm() {
     <main className="web-login-page">
       <div className="web-login-shell">
         <header className="web-login-brand">
-          <Image src="/icons/logo-ocean.png" width={52} height={52} alt="" priority />
+          <Image src="/icons/logo-cosmic-ocean.png" width={52} height={52} alt="" priority />
           <div>
             <h1>Pi Imagin</h1>
             <p>{t("auth.prompt")}</p>

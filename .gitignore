@@ -18,6 +18,8 @@
 /design/*
 !/design/pi-imagin-logo-ocean-blue-v9.png
 !/design/pi-imagin-logo-selected-prototype.png
+!/design/pi-imagin-logo-cosmic.png
+!/design/pi-imagin-logo-cosmic-ocean.png
 
 # next.js
 /.next/
