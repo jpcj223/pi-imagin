@@ -13,6 +13,7 @@
 # testing
 /coverage
 /test-results/
+/output/playwright/
 
 # 品牌探索过程留在本机，只提交选定原稿。
 /design/*

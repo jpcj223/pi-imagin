@@ -39,6 +39,7 @@
     "node_modules",
     ".desktop-dev",
     "build",
-    "dist-desktop"
+    "dist-desktop",
+    "test-results"
   ]
 }
