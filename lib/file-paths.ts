@@ -45,3 +45,30 @@ export function getRelativeFilePath(filePath: string, cwd?: string): string {
 export function joinFilePath(parent: string, child: string): string {
   return `${normalizeFilePathSlashes(parent).replace(/\/$/, "")}/${child}`;
 }
+
+export interface ExplorerFolder { name: string; path: string }
+
+function pathKey(path: string): string {
+  const normalized = normalizeFilePathSlashes(path).replace(/\/$/, "");
+  return /^[a-z]:\//i.test(normalized) || normalized.startsWith("//") ? normalized.toLowerCase() : normalized;
+}
+
+export function fileOwnerRoot(path: string, folders: readonly ExplorerFolder[], fallback: string): string {
+  const target = pathKey(path);
+  return [...folders].sort((a, b) => b.path.length - a.path.length).find(folder => {
+    const root = pathKey(folder.path);
+    return target === root || target.startsWith(`${root}/`);
+  })?.path ?? fallback;
+}
+
+/** 同名根仅补充父目录；目录身份始终使用真实路径。 */
+export function explorerFolders(folders: readonly ExplorerFolder[]): ExplorerFolder[] {
+  const unique = [...new Map(folders.map(folder => [pathKey(folder.path), folder])).values()];
+  return unique.map(folder => ({ ...folder, name: unique.filter(other => other.name === folder.name).length > 1
+    ? `${folder.name} · ${getFileDirectory(folder.path) || getFileName(folder.path)}` : folder.name }));
+}
+
+/** Git 按目录返回统计，嵌套根只查询外层，避免文件和增删行重复计数。 */
+export function independentRoots(folders: readonly ExplorerFolder[]): ExplorerFolder[] {
+  return folders.filter(folder => !folders.some(other => other !== folder && pathKey(folder.path).startsWith(`${pathKey(other.path)}/`)));
+}

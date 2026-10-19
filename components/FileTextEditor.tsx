@@ -22,7 +22,7 @@ export default function FileTextEditor({ path, wrap, fallback, onSelectedLines }
       pending = true;
       void refreshFileDraft(path).then(snapshot => {
         if (!snapshot) return;
-        if (active) { setLoaded(true); setReason(snapshot.editable ? null : snapshot.reason ?? "该文件仅支持查看。" ); }
+        if (active) { setLoaded(true); setReason(snapshot.editable ? null : `只读：${snapshot.reason ?? "该文件仅支持查看。"}`); }
       }).catch(error => {
         if (active) { setLoaded(true); setReason(error.message); }
       }).finally(() => { pending = false; });
@@ -83,5 +83,8 @@ export default function FileTextEditor({ path, wrap, fallback, onSelectedLines }
           }
         }} />
     </div>
+    <footer className="file-editor-statusbar" aria-label="文件编辑状态">
+      <span>可直接编辑</span><span role="status">{draft.saving ? "正在保存…" : fileDraftDirty(draft) ? "未保存 · Ctrl+S 保存" : "已保存"}</span>
+    </footer>
   </div>;
 }

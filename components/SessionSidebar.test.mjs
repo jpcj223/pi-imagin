@@ -184,7 +184,7 @@ test("workspace validation gates file actions and retained split-layout CSS fits
   assert.doesNotMatch(html, /class="sidebar-files-actions"|class="sidebar-files-keys"/);
   assert.match(html, /class="project-picker-button is-project is-empty"/);
   // The keys share their group's width alike, 18 to 26px each. The group
-  // never shrinks under its seven keys' minimum nor grows past their
+  // never shrinks under its five keys' minimum nor grows past their
   // maximum, and its grow factor, far above the toggle's (1), gives it the
   // room the toggle's content leaves before the toggle takes any.
   const keyRule = sidebarRule(".sidebar-files-keys .sidebar-tool-button");
@@ -195,7 +195,7 @@ test("workspace validation gates file actions and retained split-layout CSS fits
   assert.ok(keysGroup, "the keys' group: a grow factor, no shrink, its keys' minimum and maximum");
   const [, groupGrow, minCount, groupKeyMin, maxCount, groupKeyMax] = keysGroup.map(Number);
   assert.ok(groupGrow >= 1000, "the toggle gets a fraction of a pixel until the keys are at their widest");
-  assert.deepEqual([minCount, groupKeyMin, maxCount, groupKeyMax], [7, keyMin, 7, keyMax]);
+  assert.deepEqual([minCount, groupKeyMin, maxCount, groupKeyMax], [5, keyMin, 5, keyMax]);
   assert.match(sidebarRule(".sidebar-files-section-toggle"), /(?:^|\s)flex: 1 1 auto;/);
 
   // The fit, added up from the CSS: the sidebar's width less its line, the
@@ -214,8 +214,8 @@ test("workspace validation gates file actions and retained split-layout CSS fits
   const content = (label, count = 0) => 2 * toggleInset + 12 + 3 + label + (count ? 3 + count : 0);
   const fit = (width, toggleContent) => {
     const room = width - 1 - left - right - gap;
-    const key = Math.min(keyMax, Math.max(keyMin, (room - toggleContent) / 7));
-    return { key, toggle: room - 7 * key };
+    const key = Math.min(keyMax, Math.max(keyMin, (room - toggleContent) / 5));
+    return { key, toggle: room - 5 * key };
   };
   // 默认宽度已收窄；旧分栏工具栏保证可操作的最小按钮和折叠入口即可。
   const filesCount = fit(SIDEBAR_DEFAULT_WIDTH, content(34, 26));
@@ -227,7 +227,7 @@ test("workspace validation gates file actions and retained split-layout CSS fits
   // in it wraps out of view, whole).
   const narrowest = fit(SIDEBAR_MIN_WIDTH, content(34, 26));
   assert.equal(narrowest.key, keyMin);
-  assert.ok(narrowest.toggle >= toggleMin, `${toggleMin} + ${gap} + 7 × ${keyMin} fits ${SIDEBAR_MIN_WIDTH - 1 - left - right}`);
+  assert.ok(narrowest.toggle >= toggleMin, `${toggleMin} + ${gap} + 5 × ${keyMin} fits ${SIDEBAR_MIN_WIDTH - 1 - left - right}`);
 });
 
 test("a key disabled under the focus hands it to the nearest key still enabled, the next one first", () => {
@@ -342,7 +342,7 @@ test("the hidden file panel asks for a project before workspace restoration", ()
   const html = render({ selectedCwd: "/work/alpha" });
   const filesPanel = html.slice(html.indexOf('id="session-sidebar-panel-files"'));
   // Before the sidebar has a cwd: the project box asks for one.
-  assert.match(filesPanel, /<div class="project-picker is-stacked" role="group" aria-label="Project and worktree"><div class="project-picker-selection"><button type="button" class="project-picker-button is-project is-empty" title="" aria-haspopup="menu" aria-expanded="false">/);
+  assert.match(filesPanel, /<div class="project-picker is-stacked is-project-browser" role="group" aria-label="Project and worktree"><div class="project-picker-selection"><button type="button" class="project-picker-button is-project is-empty" title="" aria-haspopup="menu" aria-expanded="false">/);
   assert.match(filesPanel, /<span class="project-picker-label">Select project…<\/span>/);
 });
 

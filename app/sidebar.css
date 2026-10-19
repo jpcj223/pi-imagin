@@ -1300,9 +1300,9 @@ a.session-tree-main {
    the rest (a fraction of a pixel until then). */
 .sidebar-files-keys {
   display: flex;
-  flex: 1000 0 calc(7 * 18px);
+  flex: 1000 0 calc(5 * 18px);
   align-items: center;
-  max-width: calc(7 * 26px);
+  max-width: calc(5 * 26px);
 }
 
 /* The section's keys: the files tab's square keys, a step under the row's
@@ -1480,26 +1480,17 @@ a.session-tree-main {
   padding: 2px var(--sidebar-files-inset-right) 4px 15px;
 }
 
-/* The head's last row: the actions on that folder and the tree's two
-   views, used often enough to stay in view (its search is the toolbar
-   row's). The folder's four from the left, the tree's views (ignored files,
-   changes) at the right end, the row's edges on the boxes'. Always the same
-   six (the changes view is disabled, not gone, without changes), so nothing
-   moves as the count flips. At the sidebar's 180px minimum they give way
-   together, down to 21px wide, and the gap before the views closes. */
+/* 文件操作保持一行；目录相关操作由树中的明确目标提供。 */
 .sidebar-files-actions {
   display: flex;
-  /* 七个文件操作在最窄侧栏内仍可完整展示；触屏大按钮可换行。 */
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   margin-top: 4px;
 }
-
-/* The first of the tree's views. A wrapper around the two would be sized
-   by their icons, not their 32px basis, and squeeze them at any width. */
-.sidebar-files-views-start {
-  margin-left: auto;
+.sidebar-files-actions .sidebar-tool-button {
+  flex-basis: 28px;
+  height: 28px;
 }
 
 /* Square keys, borderless and dim: their box shows on hover. */

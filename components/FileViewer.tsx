@@ -1178,9 +1178,6 @@ function TextFileViewer({
   const gitDiffRequestRef = useRef(0);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const autoDiffAppliedRef = useRef(false);
-  const defaultPreviewEligibleRef = useRef(
-    initialState === undefined && initialDisplayMode === undefined,
-  );
   const scrollRestorePendingRef = useRef(true);
   const viewerStateRef = useRef<FileViewerState>({
     displayMode: requestedInitialDisplayMode,
@@ -1355,25 +1352,7 @@ function TextFileViewer({
 
   const isDelimitedTable = isDelimitedTablePath(filePath);
 
-  useEffect(() => {
-    // HTML gets the same rendered-first treatment as markdown: a generated page
-    // is usually more useful viewed than read as source. Both have a preview
-    // mode already; the source tab stays one click away. A restored choice or
-    // explicit mode hint always wins over this default. A CSV/TSV file opens
-    // as its table, even while only its first chunk is loaded.
-    if (
-      defaultPreviewEligibleRef.current
-      && data
-      && (
-        isDelimitedTable
-        || (data.language === "markdown" && !data.truncated)
-        || (data.language === "html" && (!data.truncated || data.size <= HTML_PREVIEW_MAX_BYTES))
-      )
-    ) {
-      defaultPreviewEligibleRef.current = false;
-      updateDisplayMode("preview");
-    }
-  }, [data, isDelimitedTable, updateDisplayMode]);
+  // 新打开的文本保持源码编辑；仅显式选择或恢复已保存状态时进入预览。
 
   // Large HTML: the source view loads 256 KB chunks, but a half document cannot
   // render, so the preview fetches the whole file once. A new `data` (watch

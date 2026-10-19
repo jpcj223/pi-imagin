@@ -6,6 +6,21 @@ import ts from "typescript";
 
 const source = await readFile(new URL("./FileViewer.tsx", import.meta.url), "utf8");
 
+test("文本加载完成后保持直接编辑，显式预览和差异状态仍可恢复", () => {
+  const file=ts.createSourceFile("FileViewer.tsx",source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+  const viewer=file.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==="TextFileViewer");
+  const effects=viewer.body.statements.filter(n=>ts.isExpressionStatement(n)&&ts.isCallExpression(n.expression)&&n.expression.expression.getText(file)==="useEffect"&&n.expression.arguments[0].getText(file).includes("updateDisplayMode")).map(n=>n.getText(file)).join("\n");
+  const {outputText}=ts.transpileModule(effects,{});
+  const run=new Function("useEffect","data","displayMode","isDelimitedTable","defaultPreviewEligibleRef","HTML_PREVIEW_MAX_BYTES","gitDiffResolved","hasGitDiff","requestedInitialDisplayMode","autoDiffAppliedRef","updateDisplayMode",outputText);
+  for(const language of ["markdown","html","text"]){
+    for(const mode of ["source","preview","diff"]){
+      let actual=mode;
+      run(fn=>fn(),{language,truncated:false,size:50},mode,language==="text",{current:true},10*1024*1024,true,true,mode,{current:false},next=>{actual=next;});
+      assert.equal(actual,mode,`${language} 的 ${mode} 不应被文件加载自动切换`);
+    }
+  }
+});
+
 test("lightweight source rows are skipped for highlighted, diff, and preview views", () => {
   // Execute the source-view calculations without mounting the file-fetching component.
   const file = ts.createSourceFile("FileViewer.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);

@@ -8,7 +8,7 @@
  */
 
 import { projectNameOf } from "./session-tree";
-import { createProjectSessionResolver, type ManagedProject } from "./managed-projects-shared";
+import { createProjectSessionResolver, defaultProjectFolder, projectContainsCwd, type ManagedProject } from "./managed-projects-shared";
 
 export interface WorktreeChoice {
   path: string;
@@ -176,6 +176,27 @@ export function describeProjectChoices(choices: readonly ProjectChoice[]): Array
     name,
     note: choice.alias === undefined && (counts.get(name) ?? 0) > 1 ? parentFolderName(choice.root) : null,
   }));
+}
+
+/** 文件区只选择项目；关联目录由文件树展开，默认目录只作为内部浏览起点。 */
+export function fileProjectChoices(context: ProjectWorktreeContext): Array<{ id: string; name: string; selected: boolean; target: NewSessionTarget }> {
+  const managed = context.managedProjects ?? [];
+  return [
+    ...managed.flatMap(project => {
+      const folder = defaultProjectFolder(project);
+      if (!folder) return [];
+      return [{ id: `managed:${project.id}`, name: project.name,
+        selected: context.managedProjectId === project.id,
+        target: { managedProjectId: project.id, cwd: folder.path, projectKey: `managed:${project.id}`, projectRoot: folder.path } }];
+    }),
+    ...describeProjectChoices((context.managedProjects !== undefined ? [] : projectChoices(context)).filter(choice =>
+      !(context.defaultWorkspace && choice.key === context.project?.key)
+      && (!managed.length || choice.key === context.project?.key)
+      && !managed.some(project => projectContainsCwd(project, choice.root)),
+    )).map(({ choice, name, note }) => ({ id: choice.key, name: note ? `${name} · ${note}` : name,
+      selected: !context.managedProjectId && choice.key === context.project?.key,
+      target: { cwd: choice.root, projectKey: choice.key, projectRoot: choice.root } })),
+  ];
 }
 
 /** The checkout a picker shows: `currentWorktreePath`'s, else the main one. */

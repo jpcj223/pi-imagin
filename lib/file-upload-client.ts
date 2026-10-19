@@ -64,6 +64,19 @@ export function uploadFiles(
 /** One file or folder dropped onto the chat. */
 export type DroppedItem = { kind: "file"; file: File } | { kind: "folder"; name: string };
 
+/** 必须在 drop 回调内读取，系统目录不能作为普通文件提交上传。 */
+export function readDroppedItems(dataTransfer: DataTransfer): DroppedItem[] {
+  const items: DroppedItem[] = [];
+  for (const item of Array.from(dataTransfer.items)) {
+    if (item.kind !== "file") continue;
+    const entry = item.webkitGetAsEntry?.();
+    if (entry?.isDirectory) { items.push({ kind: "folder", name: entry.name }); continue; }
+    const file = item.getAsFile();
+    if (file) items.push({ kind: "file", file });
+  }
+  return items.length ? items : Array.from(dataTransfer.files).map(file => ({ kind: "file", file }));
+}
+
 /**
  * Sorts a chat drop: images are attached to the prompt as before, other files
  * are uploaded into the working directory and mentioned, and folders are left

@@ -83,8 +83,7 @@ import { ProjectEditor } from "./ProjectEditor";
 import { filesFoldState, useSidebarMotion } from "@/hooks/useSidebarMotion";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { chooseDesktopDirectory } from "@/lib/desktop-bridge";
-import { DismissButton } from "./DismissButton";
-import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
+import { FileExplorer } from "./FileExplorer";
 import { PiImaginTitle } from "./PiImaginTitle";
 import { registeredWorkspace, validateWorkspaceSelection } from "@/lib/workspace-selection";
 import { ProjectWorktreePicker, type ProjectWorktreePickerHandle, type WorktreeRemoval } from "./ProjectWorktreePicker";
@@ -113,20 +112,7 @@ import {
   SearchIcon,
   TerminalIcon,
   TrashIcon,
-  UploadIcon,
 } from "./SidebarIcons";
-
-interface FileManagerAvailability {
-  supported: boolean;
-  reason: string | null;
-  platform: string;
-}
-
-// Server error codes with a translation; any other code is shown verbatim.
-const FILE_MANAGER_ERROR_KEYS: Record<string, string> = {
-  remote: "sidebar.openInExplorerRemoteOnly",
-  "unsupported-platform": "sidebar.openInExplorerUnsupported",
-};
 
 declare global {
   interface Window {
@@ -528,7 +514,7 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
   const nonGitCwdsRef = useRef<Set<string> | null>(null);
   nonGitCwdsRef.current ??= new Set(loadNonGitCwds());
   const [explorerKey, setExplorerKey] = useState(0);
-  const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
+  const [fileActionDirectory, setFileActionDirectory] = useState<string | null>(null);
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
@@ -536,8 +522,6 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
   const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [showIgnoredFiles, setShowIgnoredFiles] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
-  const [fileManager, setFileManager] = useState<FileManagerAvailability | null>(null);
-  const [fileManagerError, setFileManagerError] = useState<string | null>(null);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [awaitingInputSessionIds, setAwaitingInputSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
@@ -549,7 +533,6 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
   const runningPollAuthoritativeRef = useRef(false);
   const detailsHydrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fileExplorerRef = useRef<FileExplorerHandle>(null);
 
   // The files below the sessions (desktop, by default: both in view, a
   // separator between them, the files section foldable to its header row),
@@ -822,57 +805,6 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
       }
     };
   }, [loadSessions, refreshKey]);
-
-  // Only the server can raise a file-manager window, and only when the browser
-  // runs on that same machine. Ask it once so the button can pick the right
-  // label (Explorer / Finder / generic) and disable itself when unavailable.
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/open-in-explorer")
-      .then((res) => res.ok ? res.json() as Promise<FileManagerAvailability> : null)
-      .then((data) => { if (!cancelled && data) setFileManager(data); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
-  // A failure belongs to the project it happened on.
-  useEffect(() => {
-    setFileManagerError(null);
-  }, [selectedCwd, selectedCwdProp]);
-
-  /** Resolves true when it failed: the message is then in the files' body. */
-  const openInFileManager = useCallback(async (): Promise<boolean> => {
-    const dir = selectedCwd ?? selectedCwdProp;
-    if (!dir) return false;
-    try {
-      const res = await fetch("/api/open-in-explorer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: dir }),
-      });
-      if (res.ok) {
-        setFileManagerError(null);
-        return false;
-      }
-      const data = await res.json().catch(() => ({})) as { error?: string };
-      setFileManagerError(data.error ?? `HTTP ${res.status}`);
-    } catch (error) {
-      setFileManagerError(error instanceof Error ? error.message : String(error));
-    }
-    return true;
-  }, [selectedCwd, selectedCwdProp]);
-
-  const fileManagerLabel = t(
-    fileManager?.platform === "darwin"
-      ? "sidebar.openInFinder"
-      : fileManager?.platform === "win32"
-        ? "sidebar.openInExplorer"
-        : "sidebar.openInFileManager",
-  );
-  const fileManagerUnavailable = fileManager?.supported === false;
-  const fileManagerErrorMessage = fileManagerError
-    ? t(FILE_MANAGER_ERROR_KEYS[fileManagerError] ?? fileManagerError)
-    : null;
 
   // Persist unread markers so they survive a browser refresh before the user
   // has actually opened the completed session.
@@ -1520,11 +1452,11 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
   // archived family is out of sight, so it does not count as activity.
   const projectActivity = useMemo(
     () => getProjectActivity(
-      archiveIndex.ids.size === 0 ? allSessions : allSessions.filter((session) => !archiveIndex.ids.has(session.id)),
+      archiveIndex.ids.size === 0 ? managedDisplay.sessions : managedDisplay.sessions.filter((session) => !archiveIndex.ids.has(session.id)),
       runningSessionIds,
       unreadSessionIds,
     ),
-    [allSessions, archiveIndex, runningSessionIds, unreadSessionIds],
+    [managedDisplay.sessions, archiveIndex, runningSessionIds, unreadSessionIds],
   );
 
   const showWorktreeSwitcher = Boolean(
@@ -2475,6 +2407,16 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
   } as const;
 
   const explorerCwd = selectedCwd === authorizedCwd ? selectedCwd : null;
+  // 文件浏览归属按浏览目录解析，不借用聊天会话的项目身份。
+  const fileProject = selectedCwd ? managedResolver.byPath(selectedCwd) : undefined;
+  const explorerFolders = useMemo(() => fileProject ? projectExecutionFolders(fileProject) : undefined, [fileProject]);
+  const filesContext = {
+    ...(newSessionContext ?? { project: null, worktrees: null, currentWorktreePath: null, projects: projectChoiceList }),
+    managedProjects: managed.state.projects,
+    managedProjectId: fileProject?.id,
+    defaultWorkspace: !fileProject && !!selectedCwd && isDefaultWorkspace(selectedCwd, defaultCwdParent, uiState),
+    project: selectedProject ? { ...withProjectAlias(selectedProject, projectNames), ...(fileProject ? { alias: fileProject.name } : {}) } : null,
+  };
   const changedFilesTitle = explorerCwd && changesCount > 0 ? t("sidebar.changedFiles", { count: changesCount }) : undefined;
   // The changes view's key turns disabled once nothing is changed (a
   // commit, a revert), under a keyboard user too. The browser blurs it to
@@ -2510,42 +2452,11 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
   const keyIconSize = stacked ? 13 : 14;
   const terminalButton = (
     <ToolbarIconButton
-      onClick={() => { if (explorerCwd) onOpenTerminal?.(explorerCwd); }}
-      disabled={!explorerCwd || !onOpenTerminal}
-      title={t("terminal.open")}
+      onClick={() => { if (fileActionDirectory) onOpenTerminal?.(fileActionDirectory); }}
+      disabled={!explorerCwd || !fileActionDirectory || !onOpenTerminal}
+      title={fileActionDirectory ? `${t("terminal.open")} · ${fileActionDirectory}` : "请先选择目标文件夹，再打开终端"}
     >
       <TerminalIcon size={keyIconSize} />
-    </ToolbarIconButton>
-  );
-  const fileManagerButton = (
-    <ToolbarIconButton
-      onClick={() => {
-        void openInFileManager().then((failed) => {
-          // Its failure shows in the files' body. Below the sessions this key
-          // is in the header row, there while the section is folded too: a
-          // folded section opens, else the message would wait unseen.
-          if (failed && stacked) setFilesSectionCollapsed(false);
-        });
-      }}
-      disabled={!explorerCwd || fileManagerUnavailable}
-      title={fileManagerUnavailable
-        ? t(fileManager?.reason === "remote" ? "sidebar.openInExplorerRemoteOnly" : "sidebar.openInExplorerUnsupported")
-        : fileManagerLabel}
-    >
-      <FolderIcon size={keyIconSize} />
-    </ToolbarIconButton>
-  );
-  const uploadButton = (
-    <ToolbarIconButton
-      onClick={() => {
-        // The upload's progress and summary are the tree's: a folded section opens.
-        if (stacked && filesCollapsed) setFilesSectionCollapsed(false);
-        fileExplorerRef.current?.openUploadPicker();
-      }}
-      disabled={!explorerCwd || explorerUploadBusy}
-      title={t("sidebar.uploadFilesTitle")}
-    >
-      <UploadIcon size={keyIconSize} />
     </ToolbarIconButton>
   );
   const refreshButton = (
@@ -2792,11 +2703,7 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
             </button>
             <div className="sidebar-files-keys" role="group" aria-label={t("sidebar.fileActions")}>
               {terminalButton}
-              {fileManagerButton}
-              {uploadButton}
               {refreshButton}
-              {ignoredFilesButton()}
-              {changesButton}
               <ToolbarIconButton
                 onClick={() => {
                   // Folded, the section opens first, with the field open and focused.
@@ -2814,6 +2721,8 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
               >
                 <SearchIcon size={13} />
               </ToolbarIconButton>
+              {ignoredFilesButton()}
+              {changesButton}
             </div>
           </div>
         )}
@@ -2839,7 +2748,7 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
             <ProjectWorktreePicker
               handleRef={filesPickerRef}
               layout={stacked ? "row" : "stacked"}
-              context={newSessionContext ?? { project: null, worktrees: null, currentWorktreePath: null, projects: projectChoiceList }}
+              context={filesContext}
               mobile={isMobile}
               label={t("sidebar.projectAndWorktree")}
               placeholder={initialSessionId && !restoredRef.current ? "" : t("sidebar.selectProject")}
@@ -2863,11 +2772,7 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
             {!stacked && explorerCwd && (
               <div className="sidebar-files-actions" role="group" aria-label={t("sidebar.fileActions")}>
                 {onOpenTerminal && terminalButton}
-                {fileManagerButton}
-                {uploadButton}
                 {refreshButton}
-                {ignoredFilesButton("sidebar-files-views-start")}
-                {changesButton}
                 <ToolbarIconButton
                   onClick={() => setFileSearchOpen(open => !open)}
                   title={t("sidebar.searchFiles")}
@@ -2876,16 +2781,12 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
                 >
                   <SearchIcon size={keyIconSize} />
                 </ToolbarIconButton>
+                {ignoredFilesButton()}
+                {changesButton}
               </div>
             )}
           </div>
 
-          {explorerCwd && fileManagerErrorMessage && (
-            <div role="alert" className="sidebar-files-error">
-              <span className="sidebar-files-error-text">{fileManagerErrorMessage}</span>
-              <DismissButton onClick={() => setFileManagerError(null)} title={t("files.dismissError")} />
-            </div>
-          )}
           {/* Mounted whenever there is a cwd, also while the tab or the folded
               section hides it, so the expanded tree, a search and an upload in
               progress survive a switch. */}
@@ -2893,13 +2794,14 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
             {selectedCwd && !explorerCwd && <div role={workspaceAccessError ? "alert" : "status"} style={{ padding: 14, color: workspaceAccessError ? "var(--error, #dc2626)" : "var(--text-muted)", fontSize: 12 }}>{workspaceAccessError ?? t("chat.loadingSession")}</div>}
             {explorerCwd && (
               <FileExplorer
-                ref={fileExplorerRef}
                 cwd={explorerCwd}
+                folders={explorerFolders}
                 onOpenFile={onOpenFile ?? (() => {})}
                 refreshKey={explorerKey}
                 onAtMention={onAtMention}
                 onAtMentions={onAtMentions}
-                onUploadBusyChange={setExplorerUploadBusy}
+                onDirectoryChange={setFileActionDirectory}
+                onOpenTerminal={onOpenTerminal}
                 changesCollapsed={changesCollapsed}
                 onChangesCountChange={setChangesCount}
                 fileSearchOpen={fileSearchOpen}

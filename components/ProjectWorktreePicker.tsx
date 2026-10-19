@@ -5,6 +5,7 @@ import { useI18n } from "@/hooks/useI18n";
 import {
   currentWorktreeOf,
   describeProjectChoices,
+  fileProjectChoices,
   projectChoices,
   type NewSessionTarget,
   type ProjectChoice,
@@ -59,8 +60,7 @@ interface Props {
    * worktree's branch as text on the page (no path, no notes).
    * The files' own: "stacked", full width, one under the other (the files
    * tab); "row", side by side in one row (the files below the sessions).
-   * Both have the files' boxes (the whole path, the worktree's notes) and
-   * extras: the activity dot, the worktree hint, the menus' minimum width.
+   * 文件区只显示项目名称；工作树仍保留分支、状态和原有操作。
    */
   layout: "inline" | "stacked" | "row";
   context: ProjectWorktreeContext;
@@ -96,7 +96,7 @@ interface Props {
 }
 
 /** Narrower than this, a files box's menu keeps this width instead of the box's. */
-const STACKED_MENU_MIN_WIDTH = 220;
+const STACKED_MENU_MIN_WIDTH = 240;
 
 /** Substitute the home dir prefix with ~ (display only; the boxes cut the path at its left). */
 function displayPath(path: string, homeDir?: string): string {
@@ -364,7 +364,11 @@ export function ProjectWorktreePicker({
   };
 
   const projectItems = (): SidebarMenuItem[] => {
-    const choices = describeProjectChoices(projectChoices(pickerContext)).map(({ choice, name, note }): SidebarMenuItem => {
+    if (stacked) return fileProjectChoices(pickerContext).map(({ id, name, selected, target }) => ({
+      type: "item", id: `project:${id}`, label: name, title: name, checked: selected,
+      onSelect: () => { if (!selected) onPick(target, "project"); },
+    }));
+    const choices: SidebarMenuItem[] = describeProjectChoices(projectChoices(pickerContext)).map(({ choice, name, note }): SidebarMenuItem => {
       const activity = projectActivity?.get(choice.key);
       // A desktop shows the whole path, unless the user named the project:
       // then that name alone, in the same code type; the tooltip keeps the path.
@@ -524,7 +528,7 @@ export function ProjectWorktreePicker({
   );
 
   return (
-    <div className={`project-picker is-${layout}`} role="group" aria-label={label}>
+    <div className={`project-picker is-${layout}${stacked ? " is-project-browser" : ""}`} role="group" aria-label={label}>
       {!hideProject && <div className={association && project ? "project-picker-association" : "project-picker-selection"}>
         {association && project && (
           <button
@@ -544,14 +548,12 @@ export function ProjectWorktreePicker({
           aria-expanded={menu?.kind === "project"}
           onClick={(event) => openMenu("project", event.currentTarget)}
         >
-          {/* Inline: a folder icon, the name (cut at its end) and a chevron;
-              the tooltip is the path. The files': the whole path, cut at its
-              left (the folder name at its end is what tells paths apart), no
-              icon and no chevron: the path is the box. A project the user
-              named shows that name; the tooltip keeps the path. */}
-          {inline && !(association && project) && <FolderIcon size={12} className="project-picker-icon" />}
+          {/* 项目名称省略尾部，真实路径保留在悬浮提示中。 */}
+          {(stacked || (inline && !(association && project))) && <FolderIcon size={12} className="project-picker-icon" />}
           {/* A twin's parent folder is cut before its name, the "/" never. */}
-          {projectLabel !== undefined ? <span className="project-picker-label">{projectLabel}</span> : inline && project ? (
+          {projectLabel !== undefined ? <span className="project-picker-label">{projectLabel}</span> : stacked ? (
+            <span className="project-picker-label">{project?.alias ?? (project ? projectNameOf(project.root) : placeholder)}</span>
+          ) : inline && project ? (
             <span className="project-picker-name">
               {project.alias === undefined && projectName?.note && <><span className="project-picker-parent">{projectName.note}</span>/</>}
               <span className="project-picker-leaf">{project.alias ?? projectName?.name ?? projectNameOf(project.root)}</span>
@@ -566,7 +568,7 @@ export function ProjectWorktreePicker({
           {otherActivity && (
             <span className="project-picker-activity" role="img" title={t("sidebar.newActivity")} aria-label={t("sidebar.newActivity")} />
           )}
-          {inline && <ChevronIcon size={9} className="project-picker-chevron sidebar-icon-down" />}
+          <ChevronIcon size={9} className="project-picker-chevron sidebar-icon-down" />
         </button>
         </div>}
       {worktrees && (
@@ -610,7 +612,8 @@ export function ProjectWorktreePicker({
         onClose={closeMenu}
         returnFocusTo={menu?.opener ?? null}
         width={menu?.width}
-        classic={classic}
+        classic={classic && !(stacked && menu?.kind === "project")}
+        compact={stacked && menu?.kind === "project"}
         footer={menuFooter}
         focusKey={body ? `${body.kind}:${body.kind === "remove" && body.dirty}` : "list"}
       >

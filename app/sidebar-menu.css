@@ -891,3 +891,22 @@ html[data-keyboard-open] .sidebar-sheet {
   height: 40px;
   font-size: 14px;
 }
+
+.project-picker.is-project-browser .project-picker-button.is-project {
+  height: 30px;
+  padding: 0 9px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+}
+.project-picker.is-project-browser .project-picker-button.is-project:hover,
+.project-picker.is-project-browser .project-picker-button.is-project[aria-expanded="true"] {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+.project-picker.is-project-browser .project-picker-button.is-project .project-picker-label {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}

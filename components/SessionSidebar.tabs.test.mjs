@@ -36,7 +36,7 @@ test("the tabs layout keeps the brand, two tabs and no stacked files section hea
   // Both panels are tab panels; the files' is hidden behind its tab.
   assert.match(html, /<div id="session-sidebar-panel-files" role="tabpanel" aria-labelledby="session-sidebar-tab-files" hidden="" class="sidebar-panel sidebar-files-panel">/);
   // 项目选择器保持挂载；验证前不显示文件操作。
-  assert.match(html, /<div class="sidebar-files-head"><div class="project-picker is-stacked" role="group"/);
+  assert.match(html, /<div class="sidebar-files-head"><div class="project-picker is-stacked is-project-browser" role="group"/);
   // No file search key: the toolbar row's search is the tab's.
   assert.doesNotMatch(html, /aria-controls="file-search-input"/);
 });

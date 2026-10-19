@@ -77,11 +77,15 @@ html:not([data-theme="light"]) {--terminal-bg:var(--bg-panel);}
 .workspace-settings-body .config-sidebar {width:190px;}
 .workspace-settings-body .settings-general {padding:0 8px;}
 .workspace-file-actions-trigger {position:absolute;right:4px;top:2px;width:22px;height:20px;background:var(--bg-panel);border:0;border-radius:4px;color:var(--text-dim);cursor:pointer;padding:0 3px;font-size:13px;flex:none;}
-.workspace-file-menu {position:fixed;z-index:1200;width:250px;padding:10px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:9px;box-shadow:0 8px 30px #182c4320;display:flex;flex-direction:column;gap:5px;font-size:12px;}
+.workspace-file-menu {position:fixed;z-index:1200;width:250px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;box-sizing:border-box;padding:10px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:9px;box-shadow:0 8px 30px #182c4320;display:flex;flex-direction:column;gap:5px;font-size:12px;}
 .workspace-file-menu strong {font-weight:500;overflow-wrap:anywhere;padding:5px;}
 .workspace-file-menu button {background:var(--bg-panel);border:0;border-radius:5px;text-align:left;padding:8px;color:var(--text);cursor:pointer;}
 .workspace-file-menu .is-danger {color:#b04c4c;}
 .workspace-file-menu input {width:100%;border:1px solid var(--border);padding:7px;border-radius:5px;margin:8px 0;background:var(--bg);color:var(--text);}
+.workspace-file-row.is-upload-target {background:var(--bg-selected)!important;outline:1px solid var(--accent);outline-offset:-1px;}
+.file-explorer {position:relative;}
+.file-explorer-drop-hint {position:sticky;top:0;z-index:2;margin:4px 8px;padding:7px 9px;border:1px solid var(--accent);border-radius:6px;background:var(--bg);color:var(--accent);font-size:12px;pointer-events:none;}
+.file-explorer-upload-target {padding:3px 0 6px;font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .workspace-file-undo {padding:8px;font-size:12px;background:var(--bg-selected);color:var(--text-muted);}
 .workspace-file-undo button {margin-left:8px;border:0;background:none;color:var(--accent);cursor:pointer;}
 
