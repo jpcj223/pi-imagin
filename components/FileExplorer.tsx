@@ -8,7 +8,7 @@ import {
   encodeFilePathForApi,
   explorerFolders,
   fileOwnerRoot,
-  independentRoots,
+  mergeProjectGitStatuses,
   getFileDirectory,
   getFileName,
   getRelativeFilePath,
@@ -1004,19 +1004,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all(independentRoots(browseFolders).map(folder => fetchGitStatus(folder.path).catch(() => null)))
+    Promise.all(browseFolders.map(async folder => ({ cwd: folder.path, status: await fetchGitStatus(folder.path).catch(() => null) })))
       .then(statuses => {
         if (cancelled) return;
-        const files = new Map<string, GitFileStatus>();
-        const totals = { additions: 0, deletions: 0 };
-        for (const status of statuses) {
-          if (!status?.isGitRepository) continue;
-          for (const file of status.files) files.set(normalizeFilePathSlashes(file.filePath), file);
-          totals.additions += status.additions;
-          totals.deletions += status.deletions;
-        }
-        setGitFiles([...files.values()]);
-        setGitLineStats(totals);
+        const merged = mergeProjectGitStatuses(statuses);
+        setGitFiles(merged.files);
+        setGitLineStats({ additions: merged.additions, deletions: merged.deletions });
       });
     return () => { cancelled = true; };
   }, [browseFolders, refreshKey, treeRefreshKey]);

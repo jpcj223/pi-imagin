@@ -59,7 +59,8 @@ function decode(bytes: Buffer) {
   if (bytes[0] === 0xff && bytes[1] === 0xfe) { encoding = "utf16le"; bom = 2; }
   else if (bytes[0] === 0xfe && bytes[1] === 0xff) { encoding = "utf16be"; bom = 2; }
   else if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) bom = 3;
-  const original = new TextDecoder(encoding === "utf8" ? "utf-8" : encoding === "utf16le" ? "utf-16le" : "utf-16be", { fatal: true }).decode(bytes.subarray(bom));
+  // 文件 BOM 已单独处理，正文开头的 U+FEFF 必须作为用户内容保留。
+  const original = new TextDecoder(encoding === "utf8" ? "utf-8" : encoding === "utf16le" ? "utf-16le" : "utf-16be", { fatal: true, ignoreBOM: true }).decode(bytes.subarray(bom));
   if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(original)) throw new Error("binary");
   const crlf = original.includes("\r\n"), remaining = original.replace(/\r\n/g, "");
   if ((crlf && /[\r\n]/.test(remaining)) || (remaining.includes("\r") && remaining.includes("\n"))) throw new Error("mixed-newlines");
@@ -101,7 +102,7 @@ export async function saveEditableFile(target: string, roots: Set<string>, text:
       const normalized = text.replace(/\r\n|\r/g, "\n");
       if (normalized.split("\n", 10002).length > 10000) throw new FileEditError("编辑内容超过 10,000 行，未保存。", 413);
       if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(normalized)
-        || new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(normalized, "utf8")) !== normalized)
+        || new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(Buffer.from(normalized, "utf8")) !== normalized)
         throw new FileEditError("编辑内容包含非文本或不完整字符，未保存。");
       const restored = normalized.replace(/\n/g, format.newline === "CRLF" ? "\r\n" : format.newline === "CR" ? "\r" : "\n");
       let bytes = Buffer.from(restored, format.encoding === "utf8" ? "utf8" : "utf16le");

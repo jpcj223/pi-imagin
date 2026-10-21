@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { adoptDiskFileDraft, changeFileDraft, fileDraftDirty, getFileEditDraft, refreshFileDraft, rememberFileCursor, saveComparedFileDraft, saveFileDraft, selectedFileLines, subscribeFileDraft } from "@/lib/file-edit-drafts";
+import { adoptDiskFileDraft, changeFileDraft, fileDraftDirty, getFileEditDraft, isFileEditLocked, refreshFileDraft, rememberFileCursor, saveComparedFileDraft, saveFileDraft, selectedFileLines, subscribeFileDraft } from "@/lib/file-edit-drafts";
 import { simpleCodeTokens } from "@/lib/simple-code-highlight";
 
 export default function FileTextEditor({ path, wrap, fallback, onSelectedLines }: { path: string; wrap: boolean; fallback: ReactNode; onSelectedLines: (range: { startLine: number; endLine: number } | null) => void }) {
   const draft = useSyncExternalStore(subscribeFileDraft, () => getFileEditDraft(path), () => null);
+  const locked = useSyncExternalStore(subscribeFileDraft, () => isFileEditLocked(path), () => false);
   const [reason, setReason] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [comparison, setComparison] = useState(false);
@@ -68,6 +69,7 @@ export default function FileTextEditor({ path, wrap, fallback, onSelectedLines }
       {!wrap && <div className="file-editor-gutter" aria-hidden="true"><div ref={gutter}>{text.split("\n").map((_, index) => <div key={index}>{index + 1}</div>)}</div></div>}
       <div className="file-editor-overlay" aria-hidden="true"><pre ref={code}>{tokens.map((token, index) => <span className={`file-code-${token.kind}`} key={index}>{token.text}</span>)}{"\n"}</pre></div>
       <textarea ref={input} data-file-editor spellCheck={false} autoCapitalize="off" autoCorrect="off" aria-label={`文件编辑器 ${path.replaceAll("\\", "/").split("/").at(-1)}`} value={text} wrap={wrap ? "soft" : "off"}
+        readOnly={locked} aria-busy={locked}
         onChange={event => changeFileDraft(path, event.currentTarget.value)} onScroll={syncScroll}
         onSelect={event => {
           syncScroll(); const el = event.currentTarget;
@@ -77,6 +79,7 @@ export default function FileTextEditor({ path, wrap, fallback, onSelectedLines }
           if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); event.stopPropagation(); void saveFileDraft(path); }
           else if (event.key === "Tab" && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
+            if (locked) return;
             if (!document.execCommand("insertText", false, "  ")) {
               const el = event.currentTarget; el.setRangeText("  ", el.selectionStart, el.selectionEnd, "end"); changeFileDraft(path, el.value);
             }
@@ -84,7 +87,7 @@ export default function FileTextEditor({ path, wrap, fallback, onSelectedLines }
         }} />
     </div>
     <footer className="file-editor-statusbar" aria-label="文件编辑状态">
-      <span>可直接编辑</span><span role="status">{draft.saving ? "正在保存…" : fileDraftDirty(draft) ? "未保存 · Ctrl+S 保存" : "已保存"}</span>
+      <span>{locked ? "正在处理文件操作，暂时只读" : "可直接编辑"}</span><span role="status">{draft.saving ? "正在保存…" : fileDraftDirty(draft) ? "未保存 · Ctrl+S 保存" : "已保存"}</span>
     </footer>
   </div>;
 }

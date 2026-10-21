@@ -8,12 +8,27 @@ export interface FileEditDraft {
 }
 const drafts = new Map<string, FileEditDraft>();
 const readVersions = new Map<string, number>();
+const mutationLocks = new Set<string>();
 const listeners = new Set<() => void>();
 const summaries = new Set<() => void>();
 let revision = 0;
 const key = (path: string) => /^[a-z]:[\\/]|^\\\\/i.test(path) ? path.replaceAll("\\", "/").toLowerCase() : path;
 function invalidateRead(path: string) { const id = key(path), next = (readVersions.get(id) ?? 0) + 1; readVersions.set(id, next); return next; }
 export const getFileEditDraft = (path: string) => drafts.get(key(path)) ?? null;
+export function isFileEditLocked(path: string) {
+  const target = key(path);
+  return [...mutationLocks].some(root => target === root || target.startsWith(root + "/"));
+}
+/** 在检查草稿与发送请求之间同步加锁，覆盖所有子文件及迟到读取。 */
+export function lockFileEditsWithin(path: string): () => void {
+  const root = key(path).replace(/\/$/, "");
+  if (isFileEditLocked(path) || [...mutationLocks].some(other => other.startsWith(root + "/"))) throw new Error("该文件或目录正在进行其他操作。");
+  if (hasFileEditsWithin(path)) throw new Error("该文件或目录中有未保存修改，请先保存或关闭对应文件。");
+  mutationLocks.add(root);
+  for (const path of readVersions.keys()) if (isFileEditLocked(path)) invalidateRead(path);
+  for (const listener of listeners) listener();
+  return () => { mutationLocks.delete(root); for (const listener of listeners) listener(); };
+}
 export const fileDraftDirty = (draft: FileEditDraft | null | undefined) => Boolean(draft && draft.text !== draft.baseText);
 export const hasFileEdits = () => [...drafts.values()].some(draft => fileDraftDirty(draft) || draft.saving);
 export function hasFileEditsWithin(path: string) {
@@ -48,9 +63,10 @@ export async function requestFileEdit(path: string, action: "read" | "save", val
 }
 
 export async function refreshFileDraft(path: string) {
+  if (isFileEditLocked(path)) return null;
   const requestVersion = invalidateRead(path);
   const snapshot = await requestFileEdit(path, "read");
-  if (readVersions.get(key(path)) !== requestVersion) return null;
+  if (isFileEditLocked(path) || readVersions.get(key(path)) !== requestVersion) return null;
   const current = getFileEditDraft(path);
   if (current?.saving) return snapshot;
   if (snapshot.editable && typeof snapshot.text === "string" && snapshot.version) {
@@ -68,6 +84,7 @@ export async function refreshFileDraft(path: string) {
 }
 
 export function changeFileDraft(path: string, text: string) {
+  if (isFileEditLocked(path)) return;
   const current = getFileEditDraft(path);
   if (current) publish(path, { ...current, text, error: null });
 }
@@ -75,6 +92,7 @@ export function rememberFileCursor(path: string, position: Pick<FileEditDraft, "
   const current = getFileEditDraft(path); if (current) drafts.set(key(path), { ...current, ...position });
 }
 export async function saveFileDraft(path: string): Promise<boolean> {
+  if (isFileEditLocked(path)) return false;
   const current = getFileEditDraft(path);
   if (!current) return true;
   if (current.saving) return false;

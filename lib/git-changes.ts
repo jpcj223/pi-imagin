@@ -186,10 +186,13 @@ async function createTrackedFilePatch(
 }
 
 export async function getGitFileDiff(cwd: string, filePath: string): Promise<GitFileDiffResponse> {
-  const repositoryRoot = await findRepositoryRoot(cwd);
+  const resolvedFilePath = path.resolve(cwd, filePath);
+  // 由已授权目标确定所属仓库；已删除的父目录逐级回退，不依赖当前会话目录。
+  let directory = path.dirname(resolvedFilePath);
+  while (!fs.existsSync(directory) && path.dirname(directory) !== directory) directory = path.dirname(directory);
+  const repositoryRoot = await findRepositoryRoot(directory);
   if (!repositoryRoot || !isWithinPath(repositoryRoot, filePath)) return { supported: false };
 
-  const resolvedFilePath = path.resolve(filePath);
   const relativePath = toGitPath(path.relative(repositoryRoot, resolvedFilePath));
   const entries = await readStatusEntries(repositoryRoot);
   const entry = entries.find((candidate) => candidate.path === relativePath);

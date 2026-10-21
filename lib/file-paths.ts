@@ -68,7 +68,19 @@ export function explorerFolders(folders: readonly ExplorerFolder[]): ExplorerFol
     ? `${folder.name} · ${getFileDirectory(folder.path) || getFileName(folder.path)}` : folder.name }));
 }
 
-/** Git 按目录返回统计，嵌套根只查询外层，避免文件和增删行重复计数。 */
-export function independentRoots(folders: readonly ExplorerFolder[]): ExplorerFolder[] {
-  return folders.filter(folder => !folders.some(other => other !== folder && pathKey(folder.path).startsWith(`${pathKey(other.path)}/`)));
+/** 只有同一仓库的重叠查询才能合并，不能吞掉独立嵌套仓库。 */
+export function mergeProjectGitStatuses(results: readonly { cwd: string; status: import("./git-types").GitStatusResponse | null }[]) {
+  const usable = results.filter(item => item.status?.isGitRepository && item.status.repositoryRoot);
+  const selected = usable.filter((item, index) => !usable.some((other, otherIndex) => {
+    if (item === other || pathKey(item.status!.repositoryRoot!) !== pathKey(other.status!.repositoryRoot!)) return false;
+    const current = pathKey(item.cwd), parent = pathKey(other.cwd);
+    return current.startsWith(parent + "/") || (current === parent && otherIndex < index);
+  }));
+  const files = new Map<string, import("./git-types").GitFileStatus>();
+  let additions = 0, deletions = 0;
+  for (const { status } of selected) {
+    for (const file of status!.files) files.set(pathKey(file.filePath), file);
+    additions += status!.additions; deletions += status!.deletions;
+  }
+  return { files: [...files.values()], additions, deletions };
 }
