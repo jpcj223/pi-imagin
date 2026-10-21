@@ -54,6 +54,7 @@ import { providerBadgeLabel } from "./enabled-models-helpers";
 import { OAuthPastePanel } from "./OAuthPastePanel";
 import { ProviderIcon } from "./ProviderIcon";
 import { ProviderUsageSummary } from "./ProviderUsageSummary";
+import { ModelIdInput } from "./ModelIdInput";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1086,7 +1087,7 @@ function ModelDetail({
       </ConfigDetailHeader>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label="ID *"><TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono /></Field>
+        <Field label="ID *"><ModelIdInput value={model.id} onChange={(v) => set("id", v)} providerName={providerName} provider={provider} existingModels={(provider.models ?? []).filter(entry => entry !== model)} style={inputStyle} /></Field>
         <Field label="Name"><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder="Display name" /></Field>
       </div>
 

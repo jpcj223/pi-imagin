@@ -14,6 +14,7 @@ import { checkExtensionDialogSizing, checkExtensionDialogs, extensionSource } fr
 import { checkChatAppearance } from "./chat-appearance.mjs";
 import { checkCodeBackground } from "./code-background.mjs";
 import { checkModelDiscovery } from "./model-discovery.mjs";
+import { checkModelIdSuggestions } from "./model-id-suggestions.mjs";
 import { checkFilesPlacement, showSidebarSessions } from "./sidebar.mjs";
 import { checkSessionNavigation } from "./session-navigation.mjs";
 import { checkProjects } from "./projects.mjs";
@@ -490,6 +491,7 @@ try {
       await checkFilesPlacement(page);
       console.log("PASS: project file navigation preserves the mounted tree and search");
       await checkModelDiscovery(page);
+      await checkModelIdSuggestions(page);
     }
     await page.goto(`${base}/?session=${CODE_BACKGROUND}`, { waitUntil: "domcontentloaded" });
     await page.locator(".markdown-code-block pre").waitFor();

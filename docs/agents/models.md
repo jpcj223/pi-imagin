@@ -56,3 +56,5 @@ API Key 使用 `lib/provider-credential-store.ts` 保存；不要通过可能触
 模型测试路由为 `app/api/models-config/test/route.ts`，测试包含系统提示词，以检测接口对 `developer` 角色的支持。不支持该角色时，设置 `compat.supportsDeveloperRole: false`，保持系统提示词为 `system`，不需要关闭推理能力。
 
 模型发现只复制含义明确的能力字段，如 `contextWindow`、`maxTokens`、`reasoning: true` 和对应 pi 级别的映射；忽略含义不稳定的字段及无效值。
+
+模型 ID 输入框聚焦或点击时获取当前供应商的模型列表，并结合其余已配置模型提供可滚动候选。键入只做本地筛选；选择候选只填入 ID，不自动补齐参数或保存。列表失败或无匹配仍可自由输入本地／自定义 ID；连接变更会清除旧候选，防止迟到响应串入。
