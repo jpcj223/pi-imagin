@@ -47,6 +47,8 @@ export interface AttachedImage {
 interface Props {
   onSend: (message: string, images?: AttachedImage[]) => void;
   onAbort: () => void;
+  stopStatus?: "stopping" | "delayed" | null;
+  thinkingSwitching?: boolean;
   onSteer?: (message: string, images?: AttachedImage[]) => void;
   onFollowUp?: (message: string, images?: AttachedImage[]) => void;
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => void;
@@ -649,7 +651,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 // Memoized: its props hold still while a reply streams or a tool runs, and the
 // chat around it re-renders through both.
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
+  onSend, onAbort, stopStatus, thinkingSwitching, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
   defaultModel, onSetDefaultModel,
   onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
@@ -1759,6 +1761,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
                 <button
                   onClick={() => setThinkingDropdownOpen((v) => !v)}
+                  disabled={thinkingSwitching}
+                  aria-busy={thinkingSwitching}
                   title={isStreaming
                     ? t("chat.currentReasoning", { level: thinkingDisplayLabel })
                     : t("chat.changeReasoning", { level: thinkingDisplayLabel })}
@@ -1796,10 +1800,11 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   <div style={{
                     position: "absolute", bottom: "calc(100% + 6px)",
                     ...(isMobile ? { left: 0 } : { right: 0 }),
-                    zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
+                      zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
                     borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
                     overflow: "hidden", minWidth: 180,
                   }}>
+                    {isStreaming && <div role="status" style={{ padding: "8px 12px", maxWidth: 240, fontSize: 11, color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>{t("chat.reasoningNextRequest")}</div>}
                     {THINKING_LEVELS.filter((lvl) => {
                       if (!availableThinkingLevels) return true;
                       if (lvl === "auto") return true;
@@ -2759,7 +2764,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         </div>}
           {isStreaming ? (
             <div className="workspace-streaming-actions" style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
-              <button type="button" className="workspace-stop" onClick={onAbort} title={t("chat.stopAgent")}><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="1" width="8" height="8" rx="1.5" /></svg>{t("chat.stop")}</button>
+              {stopStatus && <span role="status" style={{ fontSize: 11, color: "var(--text-muted)", maxWidth: 240 }}>{t(stopStatus === "delayed" ? "chat.stopDelayed" : "chat.stopping")}</span>}
+              <button type="button" className="workspace-stop" disabled={Boolean(stopStatus)} aria-busy={Boolean(stopStatus)} onClick={onAbort} title={t("chat.stopAgent")}><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="1" width="8" height="8" rx="1.5" /></svg>{t(stopStatus ? "chat.stopping" : "chat.stop")}</button>
               {onSteer && (
                 <button
                   className="workspace-steer"

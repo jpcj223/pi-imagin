@@ -210,7 +210,7 @@ export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTarg
 
   const {
     loading, error, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
-    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
+    agentRunning, stopStatus, thinkingSwitching, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -910,6 +910,8 @@ export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTarg
       ref={chatInputRef}
       onSend={handleSend}
       onAbort={handleAbort}
+      stopStatus={stopStatus}
+      thinkingSwitching={thinkingSwitching}
       onSteer={agentRunning ? handleSteer : undefined}
       onFollowUp={agentRunning ? handleFollowUp : undefined}
       onPromptWithStreamingBehavior={agentRunning ? handlePromptWithStreamingBehavior : undefined}

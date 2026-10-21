@@ -320,6 +320,7 @@ export class AgentSessionWrapper {
   private agentRunNeedsCompletion = false;
   // Whether the last run ended because it was stopped (pi 1.1's `agent_settled.aborted`), not finished.
   private lastRunAborted = false;
+  private abortPromise: Promise<unknown> | null = null;
   private promptAdmissionTail: Promise<void> = Promise.resolve();
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
@@ -946,7 +947,8 @@ export class AgentSessionWrapper {
         }
       }
 
-      case "abort":
+      case "abort": {
+        if (this.abortPromise) return this.abortPromise;
         this.forceShutdownOnIdle = true;
         // Arm the forced cleanup now: the reset above ran before this flag,
         // and the final reset only runs once the SDK run has unwound.
@@ -954,17 +956,20 @@ export class AgentSessionWrapper {
         // Stop must unwind extension commands that have not started the agent yet.
         this.extensionUiAbortController.abort(new DOMException("Extension UI cancelled by Stop", "AbortError"));
         // A prompt still waiting for MCP servers is withdrawn before it starts a run.
-        if (this.mcpPromptWait) {
-          const wait = this.mcpPromptWait;
-          wait.controller.abort();
-          await wait.done;
-        }
-        try {
-          await this.withFinalIdleReset(() => this.inner.abort());
+        const wait = this.mcpPromptWait;
+        wait?.controller.abort();
+        // 模型/工具与 MCP 准备并行取消，不能让前一个等待阻挡真正的中止信号。
+        this.abortPromise = this.withFinalIdleReset(async () => {
+          await Promise.all([this.inner.abort(), wait?.done]);
           return null;
+        });
+        try {
+          return await this.abortPromise;
         } finally {
+          this.abortPromise = null;
           if (!this.isRunning()) this.forceShutdownOnIdle = false;
         }
+      }
 
       case "get_state": {
         const model = this.inner.model;
@@ -1135,7 +1140,17 @@ export class AgentSessionWrapper {
       }
 
       case "set_thinking_level": {
-        const level = command.level as string;
+        let level = command.level as string;
+        if (level === "auto") {
+          const settings = this.inner.settingsManager;
+          await settings.reload();
+          const model = this.inner.model;
+          const scope = await resolveVisibleModels(this.inner.modelRuntime as ModelRuntime, settings.getEnabledModels());
+          level = (model ? scope.thinkingLevelPins[`${model.provider}/${model.id}`]
+            ?? settings.getModelThinkingLevel(model.provider, model.id) : undefined)
+            ?? settings.getDefaultThinkingLevel() ?? "medium";
+        }
+        if (!THINKING_LEVEL_NAMES.has(level as ThinkingLevel)) throw new Error("Invalid thinking level");
         this.inner.setThinkingLevel(level);
         // setThinkingLevel clamps xhigh→high for models where supportsXhigh()===false.
         // If the model has DeepSeek thinking compat (reasoningEffortMap maps xhigh→max),
@@ -1144,7 +1159,7 @@ export class AgentSessionWrapper {
           this.inner.agent.state.thinkingLevel = "xhigh";
         }
         invalidateSessionListCache();
-        return null;
+        return { thinkingLevel: this.inner.agent.state?.thinkingLevel ?? level };
       }
 
       case "compact": {

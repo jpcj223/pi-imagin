@@ -362,6 +362,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [streamingStore] = useState(createStreamingStore);
   const dispatch = streamingStore.dispatch;
   const [agentRunning, setAgentRunning] = useState(false);
+  const [stopStatus, setStopStatus] = useState<"stopping" | "delayed" | null>(null);
+  const stopRequestRef = useRef<{ sid: string } | null>(null);
+  const [thinkingSwitching, setThinkingSwitching] = useState(false);
+  const thinkingRequestRef = useRef(false);
+  const [currentThinkingAuto, setCurrentThinkingAuto] = useState(false);
+  useEffect(() => {
+    if (stopStatus !== "stopping") return;
+    const timer = setTimeout(() => setStopStatus("delayed"), 8000);
+    return () => clearTimeout(timer);
+  }, [stopStatus]);
   const [bashRunning, setBashRunning] = useState(false);
   const [pendingBash, setPendingBash] = useState<{ command: string; excludeFromContext: boolean } | null>(null);
   const [modelNames, setModelNames] = useState<Record<string, string>>({});
@@ -1192,6 +1202,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, onAttentionNeeded, opts.chatInputRef]);
 
   const settleUiStage = useCallback(() => {
+    stopRequestRef.current = null;
+    setStopStatus(null);
     const wasRunning = agentRunningRef.current;
     agentRunningRef.current = false;
     setAgentRunning(false);
@@ -1880,21 +1892,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
-    if (!sid) return;
-    if (bashRunningRef.current) {
-      try {
-        await sendAgentCommand(sid, { type: "abort_bash" });
-      } catch (e) {
-        console.error("Failed to abort bash:", e);
-      }
-      return;
-    }
+    if (!sid || stopRequestRef.current?.sid === sid) return;
+    const request = { sid };
+    stopRequestRef.current = request;
+    setStopStatus("stopping");
     try {
-      await sendAgentCommand(sid, { type: "abort" });
+      await sendAgentCommand(sid, { type: bashRunningRef.current ? "abort_bash" : "abort" });
     } catch (e) {
-      console.error("Failed to abort:", e);
+      if (sessionHookMountedRef.current && sessionIdRef.current === sid) {
+        addNotice({ type: "error", message: `停止失败：${e instanceof Error ? e.message : String(e)}` });
+      }
+    } finally {
+      if (stopRequestRef.current === request) {
+        stopRequestRef.current = null;
+        if (sessionHookMountedRef.current && sessionIdRef.current === sid) setStopStatus(null);
+      }
     }
-  }, []);
+  }, [addNotice]);
 
   const handleFork = useCallback(async (entryId: string) => {
     if (bashRunningRef.current) return;
@@ -2355,31 +2369,41 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [opts.chatInputRef, addNotice]);
 
   const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
-    if (level === "auto") {
-      thinkingLevelOverrideRef.current = null;
-      setNewSessionThinkingLevel(null);
-      setCurrentThinkingOverride(null);
-      return;
-    }
+    if (thinkingRequestRef.current) return;
+    const previous = thinkingLevelOverrideRef.current;
+    const selected = level === "auto" ? null : level;
     if (isNew) {
-      thinkingLevelOverrideRef.current = level;
-      setNewSessionThinkingLevel(level);
+      thinkingLevelOverrideRef.current = selected;
+      setNewSessionThinkingLevel(selected);
     } else {
-      setCurrentThinkingOverride(level);
+      setCurrentThinkingOverride(selected);
     }
-    const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
-    if (!sid) return;
+    thinkingRequestRef.current = true;
+    setThinkingSwitching(true);
+    let sid = sessionIdRef.current;
     try {
-      await sendAgentCommand(sid, { type: "set_thinking_level", level });
+      sid ??= await ensuringNewSessionRef.current;
+      if (!sid) return;
+      const result = await sendAgentCommand<{ thinkingLevel?: string }>(sid, { type: "set_thinking_level", level });
       if (sessionHookMountedRef.current && sessionIdRef.current === sid) {
-        setLiveThinkingLevel(level);
+        const applied = asConcreteThinkingLevel(result?.thinkingLevel) ?? selected;
+        setLiveThinkingLevel(applied);
+        setCurrentThinkingAuto(level === "auto");
+        if (isNew && level === "auto") setNewSessionDefaultThinkingLevel(applied);
         setCurrentThinkingOverride(null);
+        if (agentRunningRef.current) addNotice({ type: "info", message: "推理强度已更新，从下一次模型请求生效；当前请求保持原强度。" });
       }
     } catch (e) {
-      console.error("Failed to set thinking level:", e);
-      setCurrentThinkingOverride(null);
+      if (sessionHookMountedRef.current && (!sid || sessionIdRef.current === sid)) {
+        if (isNew) { thinkingLevelOverrideRef.current = previous; setNewSessionThinkingLevel(previous); }
+        setCurrentThinkingOverride(null);
+        addNotice({ type: "error", message: `切换推理强度失败：${e instanceof Error ? e.message : String(e)}` });
+      }
+    } finally {
+      thinkingRequestRef.current = false;
+      if (sessionHookMountedRef.current) setThinkingSwitching(false);
     }
-  }, [isNew]);
+  }, [addNotice, isNew]);
 
   const handleSetDefaultThinkingLevel = useCallback(async (level: ConcreteThinkingLevel) => {
     try {
@@ -2511,6 +2535,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Load session on mount
   useEffect(() => {
     sessionHookMountedRef.current = true;
+    stopRequestRef.current = null;
+    setStopStatus(null);
+    setCurrentThinkingAuto(false);
     // Usage reads started before a remount are stale.
     contextUsageAppliedIdRef.current = contextUsageRequestIdRef.current;
     if (session) {
@@ -2756,13 +2783,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
-    agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, stopStatus, thinkingSwitching, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices: noticeState.visible, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
-    isAutoThinkingSelection: isNew && newSessionThinkingLevel === null,
+    isAutoThinkingSelection: isNew ? newSessionThinkingLevel === null : currentThinkingAuto,
     defaultModel: newSessionDefaultModel,
     savedDefaultThinkingLevel,
     agentPhase,
