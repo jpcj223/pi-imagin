@@ -44,6 +44,7 @@ import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { createPowerShellOutputExtension, preferUserPowerShellExtension } from "./powershell-operations";
 import { createConversationGuidanceExtension } from "./conversation-guidance";
+import { createCredentialFileGuardExtension } from "./credential-file-guard";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
 import { createPiImaginBuiltinExtensions, createSubagentCodemodeExtension, createSubagentMcpExtensions } from "./builtin-extensions";
@@ -2428,6 +2429,8 @@ export async function startRpcSession(
         ?? (chatOnly ? subagentResources.appendSystemPrompt[0] ?? "" : undefined),
     }) : undefined;
     const subagentExtensionFactories = [
+      // 只增加权限守卫，不扩展子智能体快照中允许的工具。
+      createCredentialFileGuardExtension(agentDir),
       ...(process.platform === "win32" && subagentResources?.tools.includes("powershell") ? [createPowerShellOutputExtension(sessionCwd)] : []),
       ...(subagentCodemode ? [subagentCodemode] : []),
       ...(subagentMcp && subagentResources
@@ -2463,6 +2466,8 @@ export async function startRpcSession(
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
               createConversationGuidanceExtension(),
+              // 凭证访问保护只注册拦截器，不向模型增加专用工具或额外系统提示。
+              createCredentialFileGuardExtension(agentDir),
               ...(process.platform === "win32" ? [createPowerShellOutputExtension(sessionCwd)] : []),
               ...(projectScope ? [createProjectWorkspaceExtension(projectScope, () => settingsManager.getDefaultTools(), settingsManager)] : []),
               createProjectCommandBashExtension({
