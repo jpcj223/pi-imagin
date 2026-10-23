@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
+import { flushSync } from "react-dom";
+import { cancelThemeTransition, runThemeTransition } from "@/lib/theme-transition";
 import { isDarkTheme, isThemePreference, type ThemePreference, type ResolvedTheme } from "@/lib/theme";
 
 export type { ThemePreference, ResolvedTheme } from "@/lib/theme";
@@ -77,6 +79,7 @@ function syncAutoThemeFromSystem(): void {
   if (current.preference !== "auto") return;
   const theme = getSystemTheme();
   if (theme === current.theme) return;
+  cancelThemeTransition();
   setThemeState("auto", theme, false);
 }
 
@@ -116,48 +119,18 @@ export function useTheme() {
 
   const setThemePreference = useCallback((nextPreference: ThemePreference, origin?: ToggleOrigin) => {
     const current = ensureState();
-    if (current.preference === nextPreference) return;
+    if (current.preference === nextPreference) {
+      cancelThemeTransition();
+      return;
+    }
     const nextTheme = resolveTheme(nextPreference);
 
     const apply = () => {
       setThemeState(nextPreference, nextTheme, true);
     };
 
-    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    const supportsVT = typeof document.startViewTransition === "function";
-
-    if (!supportsVT || reduceMotion) {
-      apply();
-      return;
-    }
-
-    const x = origin?.x ?? window.innerWidth / 2;
-    const y = origin?.y ?? window.innerHeight / 2;
-    const endRadius = Math.hypot(
-      Math.max(x, window.innerWidth - x),
-      Math.max(y, window.innerHeight - y),
-    );
-
-    const transition = document.startViewTransition(apply);
-    transition.ready
-      .then(() => {
-        document.documentElement.animate(
-          {
-            clipPath: [
-              `circle(0px at ${x}px ${y}px)`,
-              `circle(${endRadius}px at ${x}px ${y}px)`,
-            ],
-          },
-          {
-            duration: 450,
-            easing: "cubic-bezier(0.22, 0.61, 0.36, 1)",
-            pseudoElement: "::view-transition-new(root)",
-          },
-        );
-      })
-      .catch(() => {
-        // transition cancelled — ignore
-      });
+    // 将 React 控件选中状态与主题变量纳入同一次新快照。
+    runThemeTransition(() => flushSync(apply), origin);
   }, []);
 
   return {

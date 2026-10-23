@@ -868,6 +868,7 @@ export interface PluginPackageInfo {
   version?: string;
   configuredVersion?: string;
   description?: string;
+  logo?: string;
   counts: PluginResourceCounts;
   resources: PluginResourceInfo[];
   status: "loaded" | "installed" | "missing" | "disabled";

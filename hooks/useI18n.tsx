@@ -6,7 +6,7 @@ import { translateMessage } from "@/lib/i18n/format";
 import type { Locale, LocalePlugin, TranslationParams } from "@/lib/i18n/types";
 
 const LOCALE_STORAGE_KEY = "pi-locale";
-const defaultLocale: Locale = "zh-CN";
+export const DEFAULT_LOCALE: Locale = "zh-CN";
 
 interface I18nContextValue {
   locale: Locale;
@@ -24,7 +24,7 @@ function getMessages(): Record<string, Record<string, string>> {
   }));
 }
 
-function readInitialLocale(fallback: Locale = defaultLocale): Locale {
+function readInitialLocale(fallback: Locale = DEFAULT_LOCALE): Locale {
   try {
     const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
     if (stored === "en" || stored === "zh-CN" || stored === "zh-TW") return stored;
@@ -39,7 +39,7 @@ function readInitialLocale(fallback: Locale = defaultLocale): Locale {
  * @param props React 子节点
  * @returns 包含语言上下文的 React 节点
  */
-export function I18nProvider({ children, initialLocale = defaultLocale }: { children: React.ReactNode; initialLocale?: Locale }) {
+export function I18nProvider({ children, initialLocale = DEFAULT_LOCALE }: { children: React.ReactNode; initialLocale?: Locale }) {
   const [locale, setLocaleState] = useState<Locale>(initialLocale);
   const [hydrated, setHydrated] = useState(false);
   const supportedLocales = useMemo(

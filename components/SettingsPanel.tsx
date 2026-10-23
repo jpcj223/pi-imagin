@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { useI18n } from "@/hooks/useI18n";
+import { useEffect, useLayoutEffect, useRef, useState, type HTMLAttributes, type ReactNode, type RefObject } from "react";
+import { DEFAULT_LOCALE, useI18n } from "@/hooks/useI18n";
+import { resetFontPreference } from "@/hooks/useFontPreferences";
 import { useTheme } from "@/hooks/useTheme";
 import { THEME_OPTIONS } from "@/lib/theme";
 import { ThemeIcon } from "./ThemeIcon";
@@ -14,7 +15,7 @@ import {
   CHAT_CONTENT_FONT_SIZE_MIN,
   useChatAppearance,
 } from "@/hooks/useChatAppearance";
-import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
+import { ENTER_SEND_MODE_DEFAULT, useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
 import {
@@ -35,15 +36,21 @@ import { PluginsConfig } from "./PluginsConfig";
 import { McpConfig } from "./McpConfig";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
+import { SIDEBAR_DEFAULT_WIDTH } from "@/lib/panel-layout";
 
 interface Props {
   open?: boolean;
   embedded?: boolean;
   sidebarOffset?: number;
+  workspaceSidebarWidth?: number;
+  workspaceLayoutRef?: RefObject<HTMLDivElement | null>;
+  sidebarSeparatorProps?: HTMLAttributes<HTMLDivElement>;
+  sidebarResizing?: boolean;
   cwd: string | null;
   sessionId: string | null;
   initialSection: SettingsSection;
   onClose: () => void;
+  onHome?: () => void;
   onSessionReloaded: () => void;
   quoteSelectionEnabled: boolean;
   onQuoteSelectionChange: (enabled: boolean) => void;
@@ -91,6 +98,10 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const [webAuthEnabled, setWebAuthEnabled] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  const [resetConfirm, setResetConfirm] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetStatus, setResetStatus] = useState<"done" | "reload" | "failed" | null>(null);
+  const [resetError, setResetError] = useState("");
 
   useEffect(() => {
     setThinkingExpanded(isThinkingExpandedByDefault());
@@ -173,8 +184,59 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     }
   };
 
+  const restoreDefaults = async () => {
+    if (resetting || shellSaving) return;
+    setResetting(true);
+    setResetStatus(null);
+    setResetError("");
+    try {
+      // 先完成可能失败的共享 Shell 写入，再恢复本机偏好；只通过现有接口更新这一项。
+      const response = await fetch("/api/tools/settings");
+      let tools = await response.json() as ToolSettingsResponse & { error?: string };
+      if (!response.ok || tools.error) throw new Error(tools.error ?? `HTTP ${response.status}`);
+      const shellChanged = tools.isWindows && tools.powerShellEnabled;
+      if (shellChanged) {
+        const saved = await fetch("/api/tools/settings", {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: false }),
+        });
+        tools = await saved.json() as ToolSettingsResponse & { error?: string };
+        if (!saved.ok || tools.error) throw new Error(tools.error ?? `HTTP ${saved.status}`);
+      }
+      setShellSettings(tools);
+      setShellError(null);
+      resetFontPreference("ui");
+      resetFontPreference("mono");
+      setFontSize(CHAT_CONTENT_FONT_SIZE_DEFAULT);
+      setChatContentWidth(CHAT_CONTENT_WIDTH_DEFAULT);
+      setThinkingExpandedByDefault(false);
+      setThinkingExpanded(false);
+      onQuoteSelectionChange(false);
+      setEnterSendMode(ENTER_SEND_MODE_DEFAULT);
+      setLocale(DEFAULT_LOCALE);
+      setThemePreference("light");
+      setResetConfirm(false);
+      if (shellChanged && sessionId) {
+        try {
+          await sendAgentCommand(sessionId, { type: "reload" });
+          onSessionReloaded();
+        } catch {
+          setResetStatus("reload");
+          return;
+        }
+      }
+      setResetStatus("done");
+    } catch (cause) {
+      setResetStatus("failed");
+      setResetError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setResetting(false);
+    }
+  };
+
   return (
     <div className="settings-general">
+      <fieldset className="settings-general-preferences" disabled={resetting}>
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.appearance")}</h3>
         <div role="radiogroup" aria-label={t("settings.appearance")} className="settings-theme-options">
@@ -317,73 +379,96 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         </div>
       </section>
 
-      <section className="settings-general-section"><h3 className="settings-general-heading">{t("settings.sidebar")}</h3><p className="settings-general-description">项目菜单中的“文件”入口切换左侧目录，文件内容在右侧查看。</p></section>
-
       {shellSettings?.isWindows && (
         <section className="settings-general-section">
           <h3 className="settings-general-heading">{t("settings.shellTool")}</h3>
-          <p className="settings-general-description">{t("settings.shellToolDescription")}</p>
           <div className="settings-shell-option">
             <span>{t("settings.usePowerShell")}</span>
             <ConfigSwitch
               checked={shellSettings.powerShellEnabled}
               loading={shellSaving}
               label={t("settings.usePowerShell")}
+              describedBy="settings-shell-description"
               onChange={(enabled) => void togglePowerShell(enabled)}
             />
           </div>
+          <p id="settings-shell-description" className="settings-general-description settings-row-note">{t("settings.shellToolDescription")}</p>
           {shellError && <p role="alert" className="settings-general-error">{shellError}</p>}
         </section>
       )}
 
       <section className="settings-general-section">
-        <h3 className="settings-general-heading">{t("settings.pushPermission")}</h3>
-        <p className="settings-general-description">{t("settings.pushPermissionDescription")}</p>
-        <div className="settings-shell-option">
-          <span>{t("settings.pushPermission")}</span>
-          <button
-            type="button"
-            className="config-button config-button-small config-button-secondary"
-            disabled={pushRegistering}
-            onClick={() => void registerPush()}
-          >
-            {pushRegistering ? t("settings.pushRegisterLoading") : t("settings.pushRegister")}
-          </button>
-        </div>
-        {pushStatus && (
-          <p
-            role="status"
-            className="settings-general-error"
-            style={pushStatus.kind === "ok" ? { color: "var(--accent)" } : undefined}
-          >
-            {pushStatus.message}
-          </p>
-        )}
+        <details className="settings-push-details">
+          <summary>{t("settings.pushPermission")}</summary>
+          <div className="settings-push-content">
+            <p id="settings-push-description" className="settings-general-description">{t("settings.pushPermissionDescription")}</p>
+            <button
+              type="button"
+              className="config-button config-button-small config-button-secondary"
+              disabled={pushRegistering}
+              aria-describedby="settings-push-description"
+              onClick={() => void registerPush()}
+            >
+              {pushRegistering ? t("settings.pushRegisterLoading") : t("settings.pushRegister")}
+            </button>
+            {pushStatus && (
+              <p
+                role="status"
+                className="settings-general-error"
+                style={pushStatus.kind === "ok" ? { color: "var(--accent)" } : undefined}
+              >
+                {pushStatus.message}
+              </p>
+            )}
+          </div>
+        </details>
       </section>
 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("common.language")}</h3>
         <div role="radiogroup" aria-label={t("common.language")} className="settings-language-options">
-          {supportedLocales.map((plugin) => {
-            const selected = locale === plugin.id;
+          {supportedLocales.map((language) => {
+            const selected = locale === language.id;
             return (
               <button
-                key={plugin.id}
+                key={language.id}
                 type="button"
                 role="radio"
                 aria-checked={selected}
-                onClick={() => setLocale(plugin.id as typeof locale)}
+                onClick={() => setLocale(language.id as typeof locale)}
                 className="settings-language-option"
               >
                 <span className="settings-language-radio">
                   {selected && <span className="settings-language-radio-dot" />}
                 </span>
-                <span className="settings-language-label">{plugin.label}</span>
-                <span className="settings-language-code">{plugin.id}</span>
+                <span className="settings-language-label">{language.label}</span>
+                <span className="settings-language-code">{language.id}</span>
               </button>
             );
           })}
         </div>
+      </section>
+
+      </fieldset>
+
+      <section className="settings-general-section settings-reset-section">
+        <div className="settings-reset-heading">
+          <div>
+            <h3 className="settings-general-heading">{t("settings.restoreDefaults")}</h3>
+            <p id="settings-reset-scope" className="settings-general-description">{t("settings.restoreDefaultsScope")}</p>
+          </div>
+          {!resetConfirm && <ConfigButton variant="secondary" size="small" disabled={resetting || shellSaving} aria-describedby="settings-reset-scope" onClick={() => { setResetConfirm(true); setResetStatus(null); }}>{t("settings.restoreDefaultsAction")}</ConfigButton>}
+        </div>
+        {resetConfirm && <div className="settings-reset-confirm" role="group" aria-label={t("settings.restoreDefaults")}>
+          <p>{t("settings.restoreDefaultsConfirm")}</p>
+          <div>
+            <ConfigButton variant="secondary" size="small" disabled={resetting} onClick={() => setResetConfirm(false)}>{t("i18n.cancel")}</ConfigButton>
+            <ConfigButton size="small" disabled={resetting || shellSaving} onClick={() => void restoreDefaults()}>{t(resetting ? "settings.restoringDefaults" : "settings.confirmRestoreDefaults")}</ConfigButton>
+          </div>
+        </div>}
+        {resetStatus && <p role={resetStatus === "failed" ? "alert" : "status"} className={`settings-reset-status${resetStatus === "failed" ? " is-error" : ""}`}>
+          {t(resetStatus === "done" ? "settings.defaultsRestored" : resetStatus === "reload" ? "settings.defaultsReloadFailed" : "settings.defaultsRestoreFailed")}{resetError && ` ${resetError}`}
+        </p>}
       </section>
 
       {webAuthEnabled && (
@@ -405,10 +490,15 @@ export function SettingsPanel({
   open = true,
   embedded = false,
   sidebarOffset = 0,
+  workspaceSidebarWidth = SIDEBAR_DEFAULT_WIDTH,
+  workspaceLayoutRef,
+  sidebarSeparatorProps,
+  sidebarResizing = false,
   cwd,
   sessionId,
   initialSection,
   onClose,
+  onHome,
   onSessionReloaded,
   quoteSelectionEnabled,
   onQuoteSelectionChange,
@@ -427,12 +517,11 @@ export function SettingsPanel({
     { id: "models", label: t("common.models") },
     { id: "skills", label: t("common.skills") },
     { id: "agents", label: t("common.agents") },
-    { id: "plugins", label: t("common.plugins") },
     { id: "mcp", label: t("settings.mcp") },
   ] as const).map((item) => ({ ...item, requiresProject: settingsSectionRequiresProject(item.id) }));
   const sectionRequiresProject = settingsSectionRequiresProject(section);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
     setSection(initialSection);
     setMountedSections(current => new Set(current).add(initialSection));
@@ -449,9 +538,10 @@ export function SettingsPanel({
   // composer first and stop a running agent, which also kept Settings open. A layout
   // effect, so the opener is read before a section focuses its own search box.
   const dialogRef = useRef<HTMLDivElement>(null);
+  const pluginsPage = embedded && (open ? initialSection === "plugins" : section === "plugins");
   useLayoutEffect(() => open ? focusModalPanel(document, dialogRef.current, {
     restoreTextEntry: !window.matchMedia?.("(pointer: coarse)").matches,
-  }) : undefined, [open]);
+  }) : undefined, [open, pluginsPage]);
 
   useEffect(() => {
     if (cwd || !sectionRequiresProject) return;
@@ -471,6 +561,7 @@ export function SettingsPanel({
       key={id}
       hidden={section !== id}
       className="settings-section-host"
+      data-settings-section={id}
     >
       {content}
     </div>
@@ -501,26 +592,33 @@ export function SettingsPanel({
 
   return (
     <div
-      ref={dialogRef}
+      ref={(node) => { dialogRef.current = node; if (workspaceLayoutRef) workspaceLayoutRef.current = node; }}
       role={embedded ? "region" : "dialog"}
       aria-modal={embedded ? undefined : true}
-      aria-label={t("settings.title")}
+      aria-label={t(pluginsPage ? "common.plugins" : "settings.title")}
       tabIndex={-1}
       onClick={(event) => { if (!embedded && event.target === event.currentTarget) onClose(); }}
-      className={embedded ? "settings-workspace-page" : "settings-dialog-backdrop"}
+      className={embedded ? `settings-workspace-page${pluginsPage ? " plugins-workspace-page" : ""}` : "settings-dialog-backdrop"}
       hidden={!open}
       inert={!open}
-      style={embedded ? { left: sidebarOffset } : undefined}
+      style={embedded ? { left: sidebarOffset, "--workspace-sidebar-width": `${workspaceSidebarWidth}px` } as React.CSSProperties : undefined}
     >
       <div className="settings-dialog-surface">
+        {embedded && sidebarSeparatorProps && <div
+          {...sidebarSeparatorProps}
+          className={`settings-sidebar-resizer${sidebarResizing ? " is-resizing" : ""}`}
+          data-testid="settings-sidebar-resizer"
+        />}
         <div className="settings-dialog-header">
-          {embedded && <button type="button" className="workspace-back" onClick={onClose}>← 返回工作区</button>}
-          <strong className="settings-dialog-title">{t("settings.title")}</strong>
+          {pluginsPage && <button type="button" className="plugins-mobile-home" onClick={onHome ?? onClose} aria-label={t("plugins.home")} title={t("plugins.home")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m3 10 9-7 9 7v10H14v-7h-4v7H3Z" /></svg></button>}
+          {embedded && !pluginsPage && <button type="button" className="settings-mobile-home" onClick={onHome ?? onClose} aria-label={t("plugins.home")} title={t("plugins.home")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m3 10 9-7 9 7v10H14v-7h-4v7H3Z" /></svg></button>}
+          <strong className="settings-dialog-title">{t(pluginsPage ? "common.plugins" : "settings.title")}</strong>
           <select
             aria-label={t("settings.title")}
             value={section}
             onChange={(event) => activateSection(event.target.value as SettingsSection)}
             className="settings-mobile-section-picker"
+            hidden={pluginsPage}
           >
             {sections.map((item) => (
               <option key={item.id} value={item.id} disabled={item.requiresProject && !cwd}>
@@ -529,11 +627,11 @@ export function SettingsPanel({
             ))}
           </select>
           {!embedded && sectionNavigation}
-          <button type="button" onClick={onClose} title={t("i18n.close")} aria-label={t("i18n.close")} className="config-close-button settings-dialog-close">×</button>
+          {!embedded && <button type="button" onClick={onClose} title={t("i18n.close")} aria-label={t("i18n.close")} className="config-close-button settings-dialog-close">×</button>}
         </div>
 
-        <div className={embedded ? "workspace-settings-body" : undefined}>
-          {embedded && sectionNavigation}
+        <div className={embedded ? `workspace-settings-body${pluginsPage ? " is-plugins" : ""}` : undefined}>
+          {embedded && !pluginsPage && sectionNavigation}
         <main className="settings-dialog-main">
           {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
           {sectionHost("models", <ModelsConfig embedded cwd={cwd} onClose={onClose} />)}
@@ -541,7 +639,7 @@ export function SettingsPanel({
               status and load again in place when trusting from Settings › MCP changes it. */}
           {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} trust={projectTrust} onClose={onClose} />)}
           {cwd && sectionHost("agents", <AgentsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
-          {cwd && sectionHost("plugins", <PluginsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
+          {sectionHost("plugins", <PluginsConfig embedded workspace active={open && section === "plugins"} key={cwd ?? "global"} cwd={cwd} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
           {/* No project needed: the global mcp.json is listed alone, and a project adds its group. */}
           {sectionHost("mcp", <McpConfig embedded key={cwd ?? ""} cwd={cwd} trust={projectTrust} onTrustProject={onOpenTrustDialog} onProjectTrustChanged={onProjectTrustChanged} onClose={onClose} />)}
         </main>

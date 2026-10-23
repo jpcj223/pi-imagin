@@ -587,12 +587,12 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
   useEffect(() => {
     const controller = new AbortController();
     void fetch("/api/default-cwd", { signal: controller.signal }).then(res => res.ok ? res.json() : null).then(data => {
-      if (typeof data?.parent !== "string") throw new Error("默认目录信息加载失败，请刷新后重试");
+      if (typeof data?.parent !== "string") throw new Error(t("sidebar.defaultDirectoryFailed"));
       setDefaultCwdParent(data.parent);
       setDefaultCwdLoaded(true);
     }).catch(error => { if (!controller.signal.aborted) setError(String(error)); });
     return () => controller.abort();
-  }, []);
+  }, [t]);
   // A row the main tree should scroll to (a fork's new row); see
   // SessionTreeReveal. Held until the tree says it is done with it.
   const [treeReveal, setTreeReveal] = useState<SessionTreeReveal | null>(null);
@@ -1328,7 +1328,7 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
     startPreferredNewSession: () => preferredNewSessionRef.current(),
     openProjectEditorForNewSession: (projectId, opener) => {
       const project = projectId ? managedProjectsRef.current.find(item => item.id === projectId) : undefined;
-      if (projectId && !project) { showToast("项目已更新，请重新选择。"); return; }
+      if (projectId && !project) { showToast(t("sidebar.projectUpdated")); return; }
       projectEditorComposerRef.current = { token: workspaceSelectionToken.current, opener };
       setProjectEditor(project ? { project } : {});
     },
@@ -1351,7 +1351,7 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
     },
     refreshWorktrees,
     createWorktree,
-  }), [createWorktree, refreshWorktrees, showToast]);
+  }), [createWorktree, refreshWorktrees, showToast, t]);
   const managedProjectsRef = useRef(managed.state.projects);
   managedProjectsRef.current = managed.state.projects;
 
@@ -1936,13 +1936,13 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
     try {
       // The server deletes the family's subagent sessions with it.
       const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
-      if (!response.ok) { showToast("删除未完成，请刷新归档列表后重试。"); return; }
+      if (!response.ok) { showToast(t("sidebar.deleteIncomplete")); return; }
       onSessionDeleted?.(session.id);
       void loadSessions();
     } catch {
       // The row stays; the next refresh shows what happened.
     }
-  }, [loadSessions, onSessionDeleted, familyByRootId, uiState, runningSessionIds, showToast]);
+  }, [loadSessions, onSessionDeleted, familyByRootId, uiState, runningSessionIds, showToast, t]);
 
   // Only Shift skips the confirmation (Shift+click, Shift+Enter or Shift+D in the menu).
   const requestDelete = useCallback((family: SessionFamily, shiftKey: boolean) => {
@@ -2297,8 +2297,8 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
     const archivedCount = archiveIndex.countByProject.get(project.key) ?? 0;
     const workspace = managed.state.projects.find(p => `managed:${p.id}` === project.key);
     return [
-      { type: "item", id: "edit-project", label: workspace ? "编辑项目" : "管理项目与关联文件夹", icon: <PencilIcon />, onSelect: () => setProjectEditor(workspace ? { project: workspace } : { initialPath: project.root, initialName: project.name }) },
-      ...(workspace ? [{ type: "item" as const, id: "new-project-session", label: "在项目中新建会话", icon: <PlusIcon />, onSelect: () => setProjectEditor({ project: workspace, mode: "start" }) }] : [{ type: "item" as const, id: "rename-project", label: t("sidebar.renameProject"), icon: <PencilIcon />, onSelect: () => startProjectRename(project) }]),
+      { type: "item", id: "edit-project", label: workspace ? t("project.edit") : t("sidebar.manageProjects"), icon: <PencilIcon />, onSelect: () => setProjectEditor(workspace ? { project: workspace } : { initialPath: project.root, initialName: project.name }) },
+      ...(workspace ? [{ type: "item" as const, id: "new-project-session", label: t("project.startSession"), icon: <PlusIcon />, onSelect: () => setProjectEditor({ project: workspace, mode: "start" }) }] : [{ type: "item" as const, id: "rename-project", label: t("sidebar.renameProject"), icon: <PencilIcon />, onSelect: () => startProjectRename(project) }]),
       { type: "item", id: "open-in-files", label: t("sidebar.openInFilesTab"), icon: <FolderIcon />, onSelect: () => openProjectInFiles(project) },
       {
         type: "item",
@@ -2317,10 +2317,10 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
         onSelect: openArchiveView,
       },
       { type: "separator", id: "separator-delete" },
-      { type: "item", id: "remove-project", label: "从侧栏移除项目", icon: <TrashIcon />, danger: true, onSelect: () => {
+      { type: "item", id: "remove-project", label: t("sidebar.removeProject"), icon: <TrashIcon />, danger: true, onSelect: () => {
         if (workspace) { setProjectEditor({ project: workspace }); return; }
         void applyUiState({ action: "remove-project", projectKey: project.key }).then(ok => {
-          if (ok) showToast("项目已移除，文件和会话均保留，可通过添加项目恢复。");
+          if (ok) showToast(t("sidebar.projectRemoved"));
         });
       } },
     ];
@@ -2454,7 +2454,7 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
     <ToolbarIconButton
       onClick={() => { if (fileActionDirectory) onOpenTerminal?.(fileActionDirectory); }}
       disabled={!explorerCwd || !fileActionDirectory || !onOpenTerminal}
-      title={fileActionDirectory ? `${t("terminal.open")} · ${fileActionDirectory}` : "请先选择目标文件夹，再打开终端"}
+      title={fileActionDirectory ? `${t("terminal.open")} · ${fileActionDirectory}` : t("sidebar.chooseTerminalDirectory")}
     >
       <TerminalIcon size={keyIconSize} />
     </ToolbarIconButton>
@@ -2605,19 +2605,19 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
           className="sidebar-new-button"
           onClick={handleNewSession}
           disabled={!managed.loaded}
-          title="新建会话 · 优先当前或上次项目"
+          title={t("sidebar.newSessionHint")}
         >
           <PlusIcon size={12} />
-          <span className="sidebar-new-label">新建会话</span><kbd className="workspace-new-shortcut">Ctrl N</kbd>
+          <span className="sidebar-new-label">{t("i18n.newSession")}</span><kbd className="workspace-new-shortcut">Ctrl N</kbd>
         </button>
-        {isMobile && <button ref={searchButtonRef} type="button" className="sidebar-search-toggle" aria-label="搜索会话" onClick={() => setSessionSearchOpen(true)}><SearchIcon size={16} /></button>}
+        {isMobile && <button ref={searchButtonRef} type="button" className="sidebar-search-toggle" aria-label={t("search.title")} onClick={() => setSessionSearchOpen(true)}><SearchIcon size={16} /></button>}
       </div>
 
       {sessionSearchOpen && <SessionSearchDialog query={sessionSearchQuery} onQueryChange={setSessionSearchQuery} onClose={() => setSessionSearchOpen(false)} selectedSessionId={selectedSessionId} onSelectSession={handleSelectSessionFromList} archivedSessionIds={archiveIndex.ids} />}
 
-      <div className="workspace-project-heading" hidden={sidebarTab === "files"}><span>项目</span><button type="button" onClick={() => setProjectEditor({})} aria-label="添加项目" title="添加项目"><PlusIcon size={15} /></button></div>
-      {managed.error && <div className="project-editor-load-error" role="alert">项目读取失败，原有会话仍可使用。<button type="button" onClick={() => void managed.refresh()}>重试</button></div>}
-      <button type="button" className="workspace-files-back" hidden={sidebarTab !== "files"} onClick={() => switchTab("sessions")}>← 返回项目会话</button>
+      <div className="workspace-project-heading" hidden={sidebarTab === "files"}><span>{t("sidebar.projects")}</span><button type="button" onClick={() => setProjectEditor({})} aria-label={t("project.add")} title={t("project.add")}><PlusIcon size={15} /></button></div>
+      {managed.error && <div className="project-editor-load-error" role="alert">{t("sidebar.projectLoadFailed")}<button type="button" onClick={() => void managed.refresh()}>{t("common.retry")}</button></div>}
+      <button type="button" className="workspace-files-back" hidden={sidebarTab !== "files"} onClick={() => switchTab("sessions")}>← {t("sidebar.backToSessions")}</button>
 
       {/* Sessions: every project's sessions, or the archive. A tab's panel,
           or the top section, always shown, filling what the files leave. */}
@@ -2639,14 +2639,14 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
               reveal={treeReveal && !model.defaultRows.some(row => row.key === treeReveal.rowKey) ? treeReveal : null}
               onRevealHandled={handleRevealHandled} />}
             defaultSessions={model.defaultRows.length > 0 ? <>
-              <div className="workspace-default-heading">默认</div>
-              <SessionTree {...treeProps} rows={model.defaultRows} emptyLabel="还没有会话"
+              <div className="workspace-default-heading">{t("sidebar.defaultGroup")}</div>
+              <SessionTree {...treeProps} rows={model.defaultRows} emptyLabel={t("sidebar.emptySessions")}
                 reveal={treeReveal && model.defaultRows.some(row => row.key === treeReveal.rowKey) ? treeReveal : null}
                 onRevealHandled={handleRevealHandled} />
             </> : undefined}
             archive={archivedCount > 0 ? <>
               <button ref={archiveBackRef} type="button" className="workspace-archive-toggle" aria-expanded={archiveView} aria-controls="workspace-archive-list" onClick={() => setArchiveView(!archiveView)}>
-                <ArchiveIcon size={13} /><span>已归档</span><span className="workspace-archive-count">{archivedCount}</span><ChevronIcon size={12} />
+                <ArchiveIcon size={13} /><span>{t("sidebar.archived")}</span><span className="workspace-archive-count">{archivedCount}</span><ChevronIcon size={12} />
               </button>
               {archiveView && <div id="workspace-archive-list" className="workspace-archive-list"><SessionTree {...treeProps} onMoveSession={undefined} rows={archiveRows} emptyLabel={t("sidebar.noArchived")} /></div>}
             </> : undefined}

@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 export async function checkFontPreferences(page) {
   const ui = page.getByRole("textbox", { name: "Interface font", exact: true });
   const mono = page.getByRole("textbox", { name: "Monospace font", exact: true });
-  const uiWeight = page.getByRole("slider", { name: "Interface font weight", exact: true });
-  const monoWeight = page.getByRole("slider", { name: "Monospace font weight", exact: true });
+  const uiWeight = page.getByRole("combobox", { name: "Interface font weight", exact: true });
+  const monoWeight = page.getByRole("combobox", { name: "Monospace font weight", exact: true });
   const weight = (selector) => page.locator(selector).first().evaluate((el) => getComputedStyle(el).fontWeight);
   const resetUi = page.getByRole("button", { name: "Reset interface font", exact: true });
   const resetMono = page.getByRole("button", { name: "Reset monospace font", exact: true });
@@ -13,7 +13,7 @@ export async function checkFontPreferences(page) {
   const openSettings = async () => {
     const sidebar = page.getByRole("button", { name: "Show sidebar", exact: true });
     if (await sidebar.isVisible()) await sidebar.click();
-    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await page.locator(".workspace-rail-settings").click();
   };
   assert.equal(await ui.inputValue(), "");
   assert.equal(await mono.inputValue(), "");
@@ -21,8 +21,8 @@ export async function checkFontPreferences(page) {
   assert.equal(await monoWeight.inputValue(), "400");
   assert.equal(await weight(".markdown-user-message"), "400", "Regular, not Light, is the default");
   assert.equal(await weight(".markdown-code-block code"), "400");
-  await uiWeight.fill("500");
-  await monoWeight.fill("600");
+  await uiWeight.selectOption("500");
+  await monoWeight.selectOption("600");
   for (const selector of ["body", ".chat-input-textarea", ".markdown-user-message", "#settings-font-ui"]) {
     assert.equal(await weight(selector), "500", selector);
   }
@@ -57,7 +57,7 @@ export async function checkFontPreferences(page) {
     await other.goto(page.url(), { waitUntil: "networkidle" });
     await ui.fill("serif");
     await other.waitForFunction(() => getComputedStyle(document.body).fontFamily.startsWith("serif,"));
-    await uiWeight.fill("300");
+    await uiWeight.selectOption("300");
     await other.waitForFunction(() => getComputedStyle(document.body).fontWeight === "300");
     await resetUi.click();
     await other.waitForFunction(() => !document.documentElement.style.getPropertyValue("--font-ui") && getComputedStyle(document.body).fontWeight === "400");
@@ -68,13 +68,13 @@ export async function checkFontPreferences(page) {
   assert.equal(await uiWeight.inputValue(), "400");
   assert.equal(await monoWeight.inputValue(), "600");
   await ui.fill("serif");
-  await uiWeight.fill("500");
+  await uiWeight.selectOption("500");
   await resetMono.click();
   assert.equal(await ui.inputValue(), "serif", "Resetting the code font must preserve the UI font");
   assert.equal(await uiWeight.inputValue(), "500");
   assert.equal(await monoWeight.inputValue(), "400");
   await resetUi.click();
-  await uiWeight.fill("600");
+  await uiWeight.selectOption("600");
   assert.equal(await resetUi.isDisabled(), false, "Weight alone must enable Reset");
   await resetUi.click();
 

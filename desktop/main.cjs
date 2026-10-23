@@ -8,6 +8,7 @@ const { choosePort, isExternalUrl, isOwnedUrl, pathsFor, stopServer, waitForServ
 const { installBackground } = require("./background.cjs");
 const { createStartupView } = require("./startup-view.cjs");
 const { installWorkspaceNavigation, pruneStartupHistory } = require("./workspace-navigation.cjs");
+const { titlebarOptions } = require("./titlebar.cjs");
 
 const launchStarted = Date.now();
 
@@ -157,7 +158,7 @@ else {
       width: 1440, height: 900, minWidth: 900, minHeight: 600,
       title: development ? "Pi Imagin · 开发" : "Pi Imagin", icon: fs.existsSync(icon) ? icon : undefined,
       titleBarStyle: "hidden",
-      titleBarOverlay: { color: "#f7f8f9", symbolColor: "#77818c", height: 43 },
+      titleBarOverlay: { color: "#f7f8f9", symbolColor: "#77818c", height: 36 },
       autoHideMenuBar: true,
       backgroundColor: "#f6f8fa", show: false,
       webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false },
@@ -210,6 +211,11 @@ else {
         void history.loadURL(url);
       } else if (isExternalUrl(url)) void shell.openExternal(url);
       return { action: "deny" };
+    });
+    ipcMain.on("pi-imagin:titlebar", (event, value) => {
+      if (!trustedSender(event) || event.senderFrame !== mainWindow.webContents.mainFrame || !["win32", "linux"].includes(process.platform)) return;
+      const options = titlebarOptions(value, mainWindow.webContents.getZoomFactor());
+      if (options) mainWindow.setTitleBarOverlay(options);
     });
     ipcMain.handle("pi-imagin:choose-directory", async event => {
       if (!trustedSender(event)) throw new Error("请求来源无效");

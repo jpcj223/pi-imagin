@@ -1,4 +1,5 @@
 "use client";
+import { useI18n } from "@/hooks/useI18n";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { DEFAULT_SECTION_SHARE, loadSidebarSections, saveSidebarSections, sidebarSectionLayout, type SidebarSectionPreferences } from "@/lib/sidebar-sections";
@@ -9,6 +10,7 @@ interface Drag { target: HTMLDivElement; id: number; section: Section; y: number
 
 /** 分区只管理显示尺寸，列表、会话选择和排序仍由原侧栏持有。 */
 export function SidebarSessionSections({ projects, defaultSessions, archive, archiveOpen, isMobile }: Props) {
+  const { t } = useI18n();
   const root = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   const [prefs, setPrefs] = useState<SidebarSectionPreferences>({ defaultShare: DEFAULT_SECTION_SHARE, archiveShare: DEFAULT_SECTION_SHARE, archiveOpen: false });
@@ -62,7 +64,7 @@ export function SidebarSessionSections({ projects, defaultSessions, archive, arc
     prefsRef.current = next; setPrefs(next); saveSidebarSections({ [`${section}Share`]: DEFAULT_SECTION_SHARE });
   };
   const separator = (section: Section, active: boolean) => {
-    const label = section === "default" ? "调整默认会话区域高度" : "调整已归档区域高度";
+    const label = section === "default" ? t("sidebar.resizeDefault") : t("sidebar.resizeArchive");
     const min = section === "default" ? layout.defaultMin : layout.archiveMin;
     const max = section === "default" ? layout.defaultMax : layout.archiveMax;
     const value = layout[section];
@@ -73,7 +75,7 @@ export function SidebarSessionSections({ projects, defaultSessions, archive, arc
       aria-controls={interactive ? `workspace-${section}-section` : undefined}
       aria-valuemin={interactive ? Math.round(min) : undefined} aria-valuemax={interactive ? Math.round(max) : undefined}
       aria-valuenow={interactive ? Math.round(value) : undefined} tabIndex={interactive ? 0 : undefined}
-      title={interactive ? `${label}；上下方向键调整，双击或 Enter 恢复` : undefined}
+      title={interactive ? t("sidebar.resizeSectionHint", { label }) : undefined}
       onDoubleClick={interactive ? () => reset(section) : undefined}
       onKeyDown={interactive ? (event: KeyboardEvent<HTMLDivElement>) => {
         if (["ArrowUp", "ArrowDown", "Home", "End", "Enter"].includes(event.key)) {
@@ -107,7 +109,7 @@ export function SidebarSessionSections({ projects, defaultSessions, archive, arc
 
   return <div ref={root} className={`sidebar-sessions-view workspace-session-sections${isMobile ? " is-mobile" : ""}`}>
     <div className="workspace-project-tree" style={height ? { height: layout.project, flex: "0 0 auto" } : undefined}>{projects}</div>
-    {hasDefault && <>{separator("default", true)}<section id="workspace-default-section" className="workspace-default-sessions" aria-label="默认" style={height ? { height: layout.default } : undefined}>{defaultSessions}</section></>}
-    {hasArchive && <>{separator("archive", archiveOpen)}<section id="workspace-archive-section" className={`workspace-archive-section${archiveOpen ? " is-open" : ""}`} aria-label="已归档会话" style={height ? { height: layout.archive } : undefined}>{archive}</section></>}
+    {hasDefault && <>{separator("default", true)}<section id="workspace-default-section" className="workspace-default-sessions" aria-label={t("sidebar.defaultGroup")} style={height ? { height: layout.default } : undefined}>{defaultSessions}</section></>}
+    {hasArchive && <>{separator("archive", archiveOpen)}<section id="workspace-archive-section" className={`workspace-archive-section${archiveOpen ? " is-open" : ""}`} aria-label={t("sidebar.archivedSessions")} style={height ? { height: layout.archive } : undefined}>{archive}</section></>}
   </div>;
 }

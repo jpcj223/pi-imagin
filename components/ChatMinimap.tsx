@@ -635,15 +635,15 @@ export const ChatMinimap = memo(function ChatMinimap({
   }, [allNodes, minimapHovered, nearestNodeIndex]);
 
   if (docked) return (
-    <nav ref={containerRef} className={styles.docked} aria-label="会话目录">
+    <nav ref={containerRef} className={styles.docked} aria-label={t("workspace.outline")}>
       {turnsBefore > 0 && <button className={styles.earlier} onClick={() => scrollContainer.current?.scrollTo({ top: 0, behavior: "smooth" })}>{t("chatMinimap.earlierTurns", { count: turnsBefore })}</button>}
-      {allNodes.length === 0 && <p className={styles.empty}>发送消息后，会话目录会显示在这里。</p>}
+      {allNodes.length === 0 && <p className={styles.empty}>{t("workspace.outlineEmpty")}</p>}
       {allNodes.map((node) => (
         <div key={node.index} className={styles.turn} data-located={activeIndex === node.index ? "true" : undefined}>
           <span className={styles.number}>{String(turnsBefore + node.index + 1).padStart(2, "0")}</span>
           <div className={styles.content}>
             <div className="workspace-outline-user"><button className={styles.user} onClick={() => scrollToNode(node, "smooth")}><span className={styles.userText}>{getUserPreview(node.targetTurn.userMessage)}</span></button>
-            {onCreateBranch && node.targetTurn.userMessage.role === "user" && <button type="button" className="workspace-outline-branch" title="从这条消息创建会话分支" aria-label={`从第 ${turnsBefore + node.index + 1} 条消息创建分支`} onClick={() => onCreateBranch(node.targetTurn.userMessage as UserMessage)}>⑂</button>}</div>
+            {onCreateBranch && node.targetTurn.userMessage.role === "user" && <button type="button" className="workspace-outline-branch" title={t("workspace.createBranch")} aria-label={t("workspace.createBranchFromTurn", { count: turnsBefore + node.index + 1 })} onClick={() => onCreateBranch(node.targetTurn.userMessage as UserMessage)}>⑂</button>}</div>
             {node.targetTurn.assistantPreviews.map((assistant, index) => (
               <div key={index} className={styles.assistant}>
                 <button className={styles.assistantJump} aria-label={t("chatMinimap.locateAssistant")} onClick={() => scrollToAssistant(node, index)}>A</button>

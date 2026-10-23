@@ -396,7 +396,7 @@ export function TreeNode({
         >
           {node.name}
         </span>
-        {!pendingLinkTarget && <button type="button" className="workspace-file-actions-trigger" aria-label={`${node.name}的操作`} onClick={event => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); openFileActionMenu({ cwd, path: node.fullPath, name: node.name, isDir: node.isDir, projectRoot: node.projectRoot, x: rect.left, y: rect.bottom }); }}>···</button>}
+        {!pendingLinkTarget && <button type="button" className="workspace-file-actions-trigger" aria-label={t("fileEdit.actions", { name: node.name })} onClick={event => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); openFileActionMenu({ cwd, path: node.fullPath, name: node.name, isDir: node.isDir, projectRoot: node.projectRoot, x: rect.left, y: rect.bottom }); }}>···</button>}
         {!hovered && pendingLinkTarget && (
           <span
             title={t("files.outsideLink", { target: pendingLinkTarget })}
@@ -941,9 +941,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     if (!hasFiles(event.dataTransfer)) return;
     event.preventDefault();event.stopPropagation();setDropDirectory(null);
     const directory = targetDirectory(event.target);
-    if (!directory) { setUploadError("请将文件拖到目标文件夹，空白区域没有确定的上传目录。");return; }
+    if (!directory) { setUploadError(t("fileEdit.dropTargetRequired"));return; }
     const items = readDroppedItems(event.dataTransfer);
-    if (items.some(item => item.kind === "folder")) { setUploadError("暂不支持上传文件夹，请拖入文件。");return; }
+    if (items.some(item => item.kind === "folder")) { setUploadError(t("fileEdit.noFolderUpload"));return; }
     void prepareUpload(directory, items.flatMap(item => item.kind === "file" ? [item.file] : []));
   }
 
@@ -1037,12 +1037,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         event.preventDefault();openFileActionMenu({ cwd: directory, path: directory, name: getFileName(directory), isDir: true, projectRoot: true, x: event.clientX, y: event.clientY });
       }}
       onClickCapture={event => { if (!event.currentTarget.contains(event.target as Node)) return;const directory = targetDirectory(event.target);if (directory) onDirectoryChange?.(directory); }}>
-      {dropDirectory && <div className="file-explorer-drop-hint" role="status" title={dropDirectory}>上传到「{directoryName(dropDirectory)}」</div>}
+      {dropDirectory && <div className="file-explorer-drop-hint" role="status" title={dropDirectory}>{t("fileEdit.uploadTo", { name: directoryName(dropDirectory) })}</div>}
       {browseFolders.map(folder => <FileActionMenu key={folder.path} cwd={folder.path} onUpload={openUploadPicker} onOpenTerminal={onOpenTerminal} onChanged={() => setTreeRefreshKey(key => key + 1)} />)}
       <input ref={uploadInputRef} type="file" multiple hidden onChange={handleUploadInput} />
       {showUploadFeedback && (
         <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
-        <div className="file-explorer-upload-target" title={uploadDirectory}>上传位置：{directoryName(uploadDirectory)}</div>
+        <div className="file-explorer-upload-target" title={uploadDirectory}>{t("fileEdit.uploadTarget", { name: directoryName(uploadDirectory) })}</div>
         {uploadBusy && (
           <div role="status" aria-live="polite" aria-label={uploadPhase === "checking" ? t("files.checking") : t("files.uploading", { progress: uploadProgress })}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minHeight: 14, color: "var(--text-muted)" }}>

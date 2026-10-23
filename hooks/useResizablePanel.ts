@@ -39,6 +39,8 @@ interface UseResizablePanelOptions {
   persistClamp?: boolean;
   storageKey: string;
   widthRef: MutableRefObject<number>;
+  /** 同一宽度在其他常驻页面的实时投影，不创建独立偏好。 */
+  onLiveWidth?: (width: number) => void;
 }
 
 interface CommitOptions {
@@ -79,6 +81,7 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
     persistClamp = true,
     storageKey,
     widthRef,
+    onLiveWidth,
   } = options;
   const panelRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -103,7 +106,8 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
   const applyLiveWidth = useCallback((nextWidth: number) => {
     widthRef.current = nextWidth;
     panelRef.current?.style.setProperty(cssVariable, `${nextWidth}px`);
-  }, [cssVariable, widthRef]);
+    onLiveWidth?.(nextWidth);
+  }, [cssVariable, onLiveWidth, widthRef]);
 
   const commitWidth = useCallback((candidate: number, commitOptions: CommitOptions = {}) => {
     const { forcePersist = false, persist = true } = commitOptions;

@@ -19,6 +19,7 @@ import { splitForkSuffix } from "@/lib/session-fork-name";
 import { MAX_PROJECT_NAME_LENGTH, type ProjectMovePosition } from "@/lib/session-ui-state-shared";
 import {
   PINNED_MORE_KEY,
+  DEFAULT_SESSIONS_KEY,
   getRowOffsets,
   sessionDragBlocks,
   sessionDropAt,
@@ -1086,11 +1087,11 @@ const PlainRowView = memo(function PlainRowView({
         </div>
       );
     case "time-group":
-      return <div className="session-tree-row session-tree-time-group" style={style} data-row-key={row.key}><button type="button" aria-expanded={row.expanded !== false} onClick={() => handlers.current.onToggleSection?.(row.key)}><ChevronIcon size={10} className={`session-tree-chevron${row.expanded === false ? "" : " is-open"}`} /><span>{row.label}</span><span className="session-tree-section-count">{row.count}</span></button></div>;
+      return <div className="session-tree-row session-tree-time-group" style={style} data-row-key={row.key}><button type="button" aria-expanded={row.expanded !== false} onClick={() => handlers.current.onToggleSection?.(row.key)}><ChevronIcon size={10} className={`session-tree-chevron${row.expanded === false ? "" : " is-open"}`} /><span>{({ "今日": t("sidebar.today"), "最近3日": t("sidebar.recentDays"), "以往": t("sidebar.earlier") } as Record<string, string>)[row.label] ?? row.label}</span><span className="session-tree-section-count">{row.count}</span></button></div>;
     case "archive-group":
       return (
         <div className="session-tree-row session-tree-archive-group" style={style} data-row-key={row.key} title={row.project.root}>
-          <button type="button" aria-expanded={row.expanded !== false} onClick={() => handlers.current.onToggleSection?.(row.key)}><ChevronIcon size={11} className={`session-tree-chevron${row.expanded === false ? "" : " is-open"}`} /><span className="session-tree-archive-group-name">{row.project.name}</span><span className="session-tree-section-count">{row.count}</span></button>
+          <button type="button" aria-expanded={row.expanded !== false} onClick={() => handlers.current.onToggleSection?.(row.key)}><ChevronIcon size={11} className={`session-tree-chevron${row.expanded === false ? "" : " is-open"}`} /><span className="session-tree-archive-group-name">{row.project.key === DEFAULT_SESSIONS_KEY ? t("sidebar.defaultGroup") : row.project.name}</span><span className="session-tree-section-count">{row.count}</span></button>
         </div>
       );
   }

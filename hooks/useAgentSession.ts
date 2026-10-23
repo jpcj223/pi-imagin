@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer } from "react";
+import { observeChatViewport } from "@/lib/chat-viewport-resize";
 import type {
   AgentMessage,
   BlockingExtensionUiRequest,
@@ -2675,7 +2676,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!container) return;
     previousScrollTopRef.current = container.scrollTop;
     container.addEventListener("scroll", handleScrollPositionChange, { passive: true });
+    const stopResize = observeChatViewport(container, handleScrollPositionChange);
     return () => {
+      stopResize();
       container.removeEventListener("scroll", handleScrollPositionChange);
     };
   }, [messages.length, loading, handleScrollPositionChange]);

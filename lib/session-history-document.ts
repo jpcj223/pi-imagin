@@ -1,6 +1,23 @@
+import { getLocalePlugin } from "./i18n/registry";
+import type { Locale } from "./i18n/types";
+
+/** 仅包含历史查看器的控件文案，不翻译会话或 SDK 消息正文。 */
+function historyUi(locale: Locale) {
+  const messages = getLocalePlugin(locale)!.messages;
+  const t = (key: string) => messages[key];
+  return {
+    search: t("history.search"), closeNavigation: t("history.closeNavigation"),
+    collapseList: t("history.collapseList"), expandList: t("history.expandList"),
+    filters: { default: [t("history.default"), t("history.hideSettings")], "no-tools": [t("history.noTools"), t("history.noToolsHint")], "user-only": [t("history.user"), t("history.userHint")], "labeled-only": [t("history.labeled"), t("history.labeledHint")], all: [t("history.all"), t("history.allHint")] },
+    actions: { "toggle-thinking": [t("history.thinking"), t("history.toggleThinking")], "toggle-tools": [t("history.toolOutput"), t("history.toggleToolOutput")], "toggle-hidden-messages": [t("history.hiddenMessages"), t("history.toggleHiddenMessages")] },
+    download: t("history.download"), overview: t("history.overview"),
+    names: { "Date:": t("history.date"), "Models:": t("common.models"), "Messages:": t("session.messages"), "Tool Calls:": t("session.toolCalls"), "Tokens:": t("session.tokens"), "Cost:": t("session.cost") },
+  };
+}
+
 /** 在隔离的历史视图中适配 SDK 导出样式；记录、搜索、筛选及导出脚本保持原样。 */
-export function sessionHistoryDocument(html: string, dark: boolean, baseUrl?: string): string {
-  if (!/<\/head>/i.test(html)) throw new Error("历史页面格式不完整");
+export function sessionHistoryDocument(html: string, dark: boolean, baseUrl?: string, locale: Locale = "zh-CN"): string {
+  if (!/<\/head>/i.test(html)) throw new Error(getLocalePlugin(locale)!.messages["history.invalidDocument"]);
   const bg = dark ? "#171b20" : "#ffffff";
   const panel = dark ? "#20262d" : "#f7f8f9";
   const text = dark ? "#dce3e9" : "#25323b";
@@ -42,8 +59,14 @@ export function sessionHistoryDocument(html: string, dark: boolean, baseUrl?: st
     @media(max-width:399px){.sidebar-header{padding:8px 10px;gap:8px;}.sidebar-controls{gap:6px;}#content{padding:16px 12px 28px;}.header{padding:12px;}}
     ::-webkit-scrollbar{width:5px;height:5px;}::-webkit-scrollbar-thumb{background:${border};border-radius:5px;}
   </style>`;
+  // 通过安全序列化传递三种界面文案，语言切换只更新控件，不重载沙盒及阅读位置。
+  const uiJson = JSON.stringify(Object.fromEntries((["en", "zh-CN", "zh-TW"] as const).map(id => [id, historyUi(id)]))).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
   const presentation = `<script>
     (() => {
+      const translations = ${uiJson};
+      let ui = translations[${JSON.stringify(locale)}];
+      let updateNavigation = () => {};
+      document.documentElement.lang = ${JSON.stringify(locale)};
       const app = document.querySelector('#app');
       const content = document.querySelector('#content');
       // 只保存当前文档中的可见记录及偏移，宽度变化时恢复同一阅读位置。
@@ -91,12 +114,13 @@ export function sessionHistoryDocument(html: string, dark: boolean, baseUrl?: st
         toggle.className = 'workspace-history-nav-toggle';
         toggle.setAttribute('aria-controls', 'tree-container');
         toggle.innerHTML = '<svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M13 9h5m-5 4h5"/></svg>';
-        const backdrop = document.createElement('button'); backdrop.type = 'button'; backdrop.className = 'workspace-history-nav-backdrop'; backdrop.setAttribute('aria-label', '关闭历史导航'); backdrop.tabIndex = -1; app.append(backdrop);
+        const backdrop = document.createElement('button'); backdrop.type = 'button'; backdrop.className = 'workspace-history-nav-backdrop'; backdrop.setAttribute('aria-label', ui.closeNavigation); backdrop.tabIndex = -1; app.append(backdrop);
         const update = () => {
-          const open = !sidebar.classList.contains('is-collapsed'); const label = open ? '收起列表' : '展开列表';
-          toggle.setAttribute('aria-label', label); toggle.title = label; toggle.setAttribute('aria-expanded', String(open));
+          const open = !sidebar.classList.contains('is-collapsed'); const label = open ? ui.collapseList : ui.expandList;
+          backdrop.setAttribute('aria-label', ui.closeNavigation); toggle.setAttribute('aria-label', label); toggle.title = label; toggle.setAttribute('aria-expanded', String(open));
           app.classList.toggle('workspace-history-list-collapsed', !open); backdrop.hidden = !open || innerWidth >= 900;
         };
+        updateNavigation = update;
         const setOpen = open => { if (innerWidth >= 900) { remember(); restore(); } sidebar.classList.toggle('is-collapsed', !open); update(); };
         let manuallyChanged = false;
         const fit = () => { if (!manuallyChanged) sidebar.classList.toggle('is-collapsed', innerWidth < 900); update(); };
@@ -113,22 +137,28 @@ export function sessionHistoryDocument(html: string, dark: boolean, baseUrl?: st
       }
       const localize = () => {
         const search = document.querySelector('#tree-search');
-        if (search) search.placeholder = '搜索完整历史…';
-        const labels = {default:['默认','隐藏设置记录'],'no-tools':['隐藏工具','默认记录中隐藏工具结果'],'user-only':['用户','只显示用户消息'],'labeled-only':['标记','只显示已标记记录'],all:['全部','显示全部记录']};
+        if (search) { search.placeholder = ui.search; search.setAttribute('aria-label', ui.search); }
+        const labels = ui.filters;
         document.querySelectorAll('[data-filter]').forEach(button => { const label = labels[button.dataset.filter]; if (label) { if (button.textContent !== label[0]) button.textContent = label[0]; button.title = label[1]; } });
-        const actions = {'toggle-thinking':'思考','toggle-tools':'工具输出','toggle-hidden-messages':'隐藏消息'};
-        document.querySelectorAll('[data-action]').forEach(button => { const label = actions[button.dataset.action]; if (label) { if (button.textContent !== label) button.textContent = label; button.title = '切换' + label; } });
-        const download = document.querySelector('.download-json-btn'); if (download) download.title = '下载完整 JSONL 记录';
-        const names = {'Date:':'时间','Models:':'模型','Messages:':'消息','Tool Calls:':'工具调用','Tokens:':'Token','Cost:':'费用'};
-        document.querySelectorAll('.info-label').forEach(label => { const name = names[label.textContent.trim()]; if (name) label.textContent = name; });
+        const actions = ui.actions;
+        document.querySelectorAll('[data-action]').forEach(button => { const label = actions[button.dataset.action]; if (label) { if (button.textContent !== label[0]) button.textContent = label[0]; button.title = label[1]; } });
+        const download = document.querySelector('.download-json-btn'); if (download) download.title = ui.download;
+        const names = ui.names;
+        document.querySelectorAll('.info-label').forEach(label => { const source = label.dataset.historyLabel || label.textContent.trim(); label.dataset.historyLabel = source; const name = names[source]; if (name && label.textContent !== name) label.textContent = name; });
         const overview = document.querySelector('.header-info');
         if (overview && !overview.closest('.workspace-history-overview')) {
           const details = document.createElement('details'); details.className = 'workspace-history-overview';
-          const summary = document.createElement('summary'); summary.textContent = '记录概览';
+          const summary = document.createElement('summary'); summary.textContent = ui.overview;
           const heading = overview.closest('.header')?.querySelector('h1');
           overview.before(details); details.append(summary); if (heading) details.append(heading); details.append(overview);
         }
+        document.querySelectorAll('.workspace-history-overview > summary').forEach(summary => { if (summary.textContent !== ui.overview) summary.textContent = ui.overview; });
+        updateNavigation();
       };
+      addEventListener('message', event => {
+        if (event.source !== parent || event.data?.type !== 'pi-imagin-history-locale' || !Object.hasOwn(translations, event.data.locale)) return;
+        ui = translations[event.data.locale]; document.documentElement.lang = event.data.locale; localize();
+      });
       localize(); document.addEventListener('click', localize);
       // SDK 切换筛选可能重新生成概览，适配仅补充展示，不替换原事件。
       const header = document.querySelector('#header-container');

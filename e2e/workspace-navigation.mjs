@@ -7,13 +7,13 @@ export async function checkWorkspaceNavigation(page, label, artifacts) {
   await page.reload();await page.locator('.workspace-shell[data-startup-ready="true"]').waitFor();
   const input=page.locator(".chat-input-textarea"),settings=page.getByRole("region",{name:"设置",exact:true});
   const rail=page.getByRole("navigation",{name:"全局导航",exact:true});
-  const openSettings=async()=>{await rail.getByRole("button",{name:"设置",exact:true}).click();await settings.waitFor();};
+  const openSettings=async()=>{await page.locator(".workspace-rail-settings").click();await settings.waitFor();};
   await input.fill("返回工作区应保留草稿");
   await openSettings();await settings.locator(".settings-section-tabs").getByRole("button",{name:"模型",exact:true}).click();
   await settings.getByRole("button",{name:"添加 Provider",exact:true}).click();
   await page.getByRole("button",{name:/OpenAI \/ Anthropic compatible/}).click();
   const provider=settings.getByPlaceholder("provider-name");await provider.fill("尚未保存的配置");
-  await rail.getByRole("button",{name:"主页",exact:true}).click();await settings.waitFor({state:"hidden"});
+  await page.locator('.workspace-rail [data-rail-item="home"]').click();await settings.waitFor({state:"hidden"});
   assert.equal(await input.inputValue(),"返回工作区应保留草稿");
   await openSettings();assert.equal(await provider.inputValue(),"尚未保存的配置");
   await rail.getByRole("button",{name:"搜索会话",exact:true}).click();await settings.waitFor({state:"hidden"});
@@ -36,7 +36,7 @@ export async function checkWorkspaceNavigation(page, label, artifacts) {
   await notice.getByText("技术信息",{exact:true}).click();await notice.getByText(/C:\\internal/).waitFor();
   await notice.getByRole("button",{name:"前往模型设置",exact:true}).click();await settings.waitFor();
   assert.equal(await provider.inputValue(),"尚未保存的配置");
-  await rail.getByRole("button",{name:"主页",exact:true}).click();await settings.waitFor({state:"hidden"});
+  await page.locator('.workspace-rail [data-rail-item="home"]').click();await settings.waitFor({state:"hidden"});
   await page.screenshot({path:join(artifacts,`navigation-${label}-notice.png`)});
   await page.unroute("**/api/agent/new");
   return {client:label,menuWidth:box.width,rowHeight:row.height,passed:true};

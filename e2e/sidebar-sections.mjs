@@ -17,8 +17,8 @@ export async function checkSidebarSections(page, client, artifacts, { origin, de
   await page.locator('.workspace-shell[data-startup-ready="true"]').waitFor();
   await page.evaluate(key => localStorage.removeItem(key), key); await page.reload();
   const normal = page.locator('#workspace-default-section'), archive = page.locator('#workspace-archive-section');
-  const defaultHandle = page.getByRole('separator', { name: '调整默认会话区域高度', exact: true });
-  const archiveHandle = page.getByRole('separator', { name: '调整已归档区域高度', exact: true });
+  const defaultHandle = page.getByRole('separator', { name: /^(Resize default sessions area|调整默认会话区域高度|調整預設工作階段區域高度)$/, exact: true });
+  const archiveHandle = page.getByRole('separator', { name: /^(Resize archived sessions area|调整已归档区域高度|調整封存區域高度)$/, exact: true });
   await defaultHandle.waitFor(); await archive.waitFor();
   assert.ok(Math.abs(await size(archive) - 36) < 1); assert.equal(await archiveHandle.count(), 0);
   const initial = await size(normal), url = page.url();
@@ -36,7 +36,7 @@ export async function checkSidebarSections(page, client, artifacts, { origin, de
   assert.ok(Math.abs(await size(normal) - beforeKey + 12) < 1);
   await defaultHandle.dblclick(); assert.ok(Math.abs(await size(normal) - initial) < 1);
   pass('方向键调整与双击恢复');
-  const toggle = archive.getByRole('button', { name: /已归档/ });
+  const toggle = archive.getByRole('button', { name: /Archived|已归档|已封存/ });
   await toggle.click(); await archiveHandle.waitFor(); const archiveInitial = await size(archive);
   await drag(archiveHandle, -50); assert.ok(await size(archive) > archiveInitial + 40);
   const expanded = await size(archive);

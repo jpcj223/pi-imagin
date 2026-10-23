@@ -1,4 +1,5 @@
 "use client";
+import { useI18n } from "@/hooks/useI18n";
 
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -16,6 +17,7 @@ export function SessionSearchDialog({ query, onQueryChange, onClose, onSelectSes
   selectedSessionId: string | null;
   archivedSessionIds: ReadonlySet<string>;
 }) {
+  const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -33,10 +35,10 @@ export function SessionSearchDialog({ query, onQueryChange, onClose, onSelectSes
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }}>
-      <header><h2 id="workspace-search-title">搜索会话</h2><button type="button" aria-label="关闭搜索" onClick={onClose}>×</button></header>
-      <label className="workspace-search-field"><SearchIcon size={18} /><input ref={inputRef} type="search" maxLength={200} value={query} onChange={event => onQueryChange(event.target.value)} placeholder="搜索会话标题与内容…" aria-label="搜索会话标题与内容" /><kbd>Esc</kbd></label>
+      <header><h2 id="workspace-search-title">{t("search.title")}</h2><button type="button" aria-label={t("search.close")} onClick={onClose}>×</button></header>
+      <label className="workspace-search-field"><SearchIcon size={18} /><input ref={inputRef} type="search" maxLength={200} value={query} onChange={event => onQueryChange(event.target.value)} placeholder={t("search.placeholder")} aria-label={t("search.inputLabel")} /><kbd>Esc</kbd></label>
       <SessionSearch open query={query} selectedSessionId={selectedSessionId} archivedSessionIds={archivedSessionIds} onSelectSession={(...args) => { onSelectSession(...args); onClose(); }}>
-        <div className="workspace-search-empty">输入关键词查找会话，选择结果即可定位到对应消息。</div>
+        <div className="workspace-search-empty">{t("search.empty")}</div>
       </SessionSearch>
     </div>
   </div>, document.body);

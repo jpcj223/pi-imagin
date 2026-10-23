@@ -15,6 +15,8 @@ import { checkChatAppearance } from "./chat-appearance.mjs";
 import { checkCodeBackground } from "./code-background.mjs";
 import { checkModelDiscovery } from "./model-discovery.mjs";
 import { checkModelIdSuggestions } from "./model-id-suggestions.mjs";
+import { checkPluginsWorkspace } from "./plugins-workspace.mjs";
+import { checkSettingsWorkspace } from "./settings-workspace.mjs";
 import { checkFilesPlacement, showSidebarSessions } from "./sidebar.mjs";
 import { checkSessionNavigation } from "./session-navigation.mjs";
 import { checkProjects } from "./projects.mjs";
@@ -457,7 +459,7 @@ try {
         const pendingHistory = page.waitForRequest((request) => request.url().includes(`/api/sessions/${LONG}/context?`) && new URL(request.url()).searchParams.has("before"));
         await clickSessionRow(text(0));
         await pendingHistory;
-        await page.getByRole("button", { name: "会话分支", exact: true }).click();
+        await page.locator(".workspace-branch-trigger").click();
         await page.getByText("E2E alternate history branch", { exact: true }).click();
         await page.locator("[data-entry-id='alternate']:not([data-message-role])").waitFor({ state: "visible" });
         await page.screenshot({ path: join(artifacts, "scroll-restore-branch.png") });
@@ -492,6 +494,8 @@ try {
       console.log("PASS: project file navigation preserves the mounted tree and search");
       await checkModelDiscovery(page);
       await checkModelIdSuggestions(page);
+      await checkPluginsWorkspace(page);
+      await checkSettingsWorkspace(page);
     }
     await page.goto(`${base}/?session=${CODE_BACKGROUND}`, { waitUntil: "domcontentloaded" });
     await page.locator(".markdown-code-block pre").waitFor();

@@ -10,11 +10,7 @@ const FONT_FIELDS = [
   { kind: "mono", label: "settings.monoFontFamily", placeholder: "settings.monoFontPlaceholder", reset: "settings.resetMonoFont", weightLabel: "settings.monoFontWeight" },
 ] as const;
 
-/**
- * Rows for the Fonts & layout section, shaped like the size and width rows below:
- * label, name field, weight value and reset in the header line, the weight slider under it.
- * The name field is drawn in the font it names, so it doubles as the preview.
- */
+/** 名称、字重和重置放在同一行，输入内容同时预览所选字体。 */
 export function FontSettings() {
   const { t } = useI18n();
   const fonts = useFontPreferences();
@@ -22,7 +18,6 @@ export function FontSettings() {
   // One grid for both rows, so the name fields start at the same x whatever the labels' widths.
   return <div className="settings-font-rows">{FONT_FIELDS.map(({ kind, label, placeholder, reset, weightLabel }) => {
     const weight = fonts[`${kind}Weight`];
-    const weightIndex = FONT_WEIGHT_OPTIONS.findIndex((option) => option.value === weight);
     return (
       <div key={kind} className="settings-chat-option settings-chat-range-option settings-font-row">
         <div className="settings-chat-range-header settings-font-header">
@@ -41,7 +36,15 @@ export function FontSettings() {
             spellCheck={false}
             onChange={(event) => fonts.setFontPreference(kind, event.target.value)}
           />
-          <output htmlFor={`settings-font-${kind}-weight`}>{weight}</output>
+          <select
+            id={`settings-font-${kind}-weight`}
+            className="settings-font-weight"
+            value={weight}
+            aria-label={t(weightLabel)}
+            onChange={(event) => fonts.setFontWeight(kind, Number(event.target.value))}
+          >
+            {FONT_WEIGHT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{t(option.label)} · {option.value}</option>)}
+          </select>
           <ConfigButton
             variant="ghost"
             size="small"
@@ -56,17 +59,6 @@ export function FontSettings() {
             </svg>
           </ConfigButton>
         </div>
-        <input
-          id={`settings-font-${kind}-weight`}
-          type="range"
-          min={FONT_WEIGHT_OPTIONS[0].value}
-          max={FONT_WEIGHT_OPTIONS[FONT_WEIGHT_OPTIONS.length - 1].value}
-          step={100}
-          value={weight}
-          aria-label={t(weightLabel)}
-          aria-valuetext={`${weight} ${t(FONT_WEIGHT_OPTIONS[weightIndex].label)}`}
-          onChange={(event) => fonts.setFontWeight(kind, Number(event.target.value))}
-        />
       </div>
     );
   })}</div>;

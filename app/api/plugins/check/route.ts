@@ -12,10 +12,10 @@ export async function POST(req: Request) {
       source?: unknown;
       scope?: unknown;
     };
-    const cwd = typeof body.cwd === "string" ? body.cwd : "";
-    if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
+    const cwd = typeof body.cwd === "string" && body.cwd.trim() ? body.cwd : null;
+    if (body.cwd != null && !cwd) return NextResponse.json({ error: "Invalid cwd" }, { status: 400 });
     const allowedRoots = await getAllowedFileRoots();
-    if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
+    if (cwd && !isExistingFilePathAllowed(cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 

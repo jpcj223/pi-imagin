@@ -43,7 +43,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
     <div
       ref={strip}
       role="tablist"
-      aria-label="打开的文件与面板"
+      aria-label={t("workspace.openTabs")}
       className="workspace-file-tab-strip"
     >
       {tabs.map((tab) => {
@@ -141,7 +141,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
                 flexShrink: 0,
                 transition: "background 0.1s, color 0.1s",
               }}
-               title={dirty ? "未保存修改" : t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")}
+               title={dirty ? t("workspace.unsavedChanges") : t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")}
                aria-label={`${t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")} ${tab.label}`}
             >
               <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">

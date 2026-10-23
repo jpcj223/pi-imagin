@@ -1,4 +1,5 @@
 "use client";
+import { useI18n } from "@/hooks/useI18n";
 
 import { useImperativeHandle, useRef, useState, type Ref } from "react";
 import type { NewSessionContext, NewSessionTarget } from "@/lib/new-session-context";
@@ -17,6 +18,7 @@ export function NewSessionProjectPicker({ context, mobile, handleRef, onPick, on
   onPick: (target: NewSessionTarget, control: NewSessionProjectControl) => void;
   onClear: () => void; onAdd: (opener: HTMLElement) => void;
 }) {
+  const { t } = useI18n();
   const projectButton = useRef<HTMLButtonElement>(null), directoryButton = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState<{ kind: NewSessionProjectControl; opener: HTMLElement } | null>(null);
   useImperativeHandle(handleRef, () => ({ button: control => control === "project" ? projectButton.current : directoryButton.current }), []);
@@ -28,10 +30,10 @@ export function NewSessionProjectPicker({ context, mobile, handleRef, onPick, on
   const executionFolders = managed ? projectExecutionFolders(managed) : [];
   const currentFolder = executionFolders.find(folder => folder.path === context.cwd);
   const showDirectory = managed && (executionFolders.length > 1 || !currentFolder);
-  const directoryName = currentFolder?.name ?? projectNameOf(context.cwd);
+  const directoryName = currentFolder?.id === managed?.workspace?.id && currentFolder ? t("project.workspace") : currentFolder?.name ?? projectNameOf(context.cwd);
   const pick = (target: NewSessionTarget, control: NewSessionProjectControl) => { setMenu(null); onPick(target, control); };
   const projectItems: SidebarMenuItem[] = options.map(option => ({
-    type: "item", id: option.key, label: option.name, note: option.note,
+    type: "item", id: option.key, label: option.name, note: option.key.startsWith("managed:") ? (() => { const count = context.managedProjects?.find(project => `managed:${project.id}` === option.key)?.folders.length ?? 0; return t(count ? "project.folderCount" : "project.noLinkedFolders", { count }); })() : option.note,
     checked: associated && option.key === selectedKey,
     title: option.target.cwd,
     onSelect: () => {
@@ -40,31 +42,31 @@ export function NewSessionProjectPicker({ context, mobile, handleRef, onPick, on
     },
   }));
   if (projectItems.length) projectItems.push({ type: "separator", id: "actions" });
-  projectItems.push({ type: "item", id: "add-project", label: "添加项目", icon: <PlusIcon size={13} />,
+  projectItems.push({ type: "item", id: "add-project", label: t("project.add"), icon: <PlusIcon size={13} />,
     onSelect: () => { if (menu) onAdd(menu.opener); } });
   const directoryItems: SidebarMenuItem[] = executionFolders.map(folder => ({
-    type: "item", id: folder.id, label: folder.name, note: folder.id === managed?.defaultFolderId ? "默认" : undefined,
+    type: "item", id: folder.id, label: folder.id === managed?.workspace?.id ? t("project.workspace") : folder.name, note: folder.id === managed?.defaultFolderId ? t("i18n.default") : undefined,
     checked: folder.path === context.cwd, title: folder.path,
     onSelect: () => { if (managed && folder.path !== context.cwd) pick({ cwd: folder.path, managedProjectId: managed.id }, "directory"); },
   }));
-  if (managed && !currentFolder) directoryItems.unshift({ type: "item", id: "current-directory", label: directoryName, note: "当前目录", checked: true, title: context.cwd, onSelect: () => {} });
+  if (managed && !currentFolder) directoryItems.unshift({ type: "item", id: "current-directory", label: directoryName, note: t("project.currentDirectory"), checked: true, title: context.cwd, onSelect: () => {} });
   const open = (kind: NewSessionProjectControl, opener: HTMLButtonElement) => setMenu(previous => previous?.kind === kind ? null : { kind, opener });
   return <div className="new-session-project-picker">
     <div className={associated ? "project-picker-association" : "project-picker-selection"}>
-      {associated && <button type="button" className="project-picker-clear" aria-label="取消项目关联" title="取消项目关联" onClick={onClear}>×</button>}
-      <button ref={projectButton} type="button" className="project-picker-button is-project new-session-project-selector" aria-label={associated ? `选择项目：${selectedName}` : "选择项目"} title={associated ? selectedName : "选择项目"}
+      {associated && <button type="button" className="project-picker-clear" aria-label={t("project.clear")} title={t("project.clear")} onClick={onClear}>×</button>}
+      <button ref={projectButton} type="button" className="project-picker-button is-project new-session-project-selector" aria-label={associated ? t("project.selectNamed", { name: selectedName }) : t("project.select")} title={associated ? selectedName : t("project.select")}
         aria-haspopup="menu" aria-expanded={menu?.kind === "project"} onClick={event => open("project", event.currentTarget)}>
-        <FolderIcon size={12} /><span className="project-picker-leaf">{associated ? selectedName : "选择项目…"}</span><ChevronIcon size={9} className="sidebar-icon-down" />
+        <FolderIcon size={12} /><span className="project-picker-leaf">{associated ? selectedName : t("sidebar.selectProject")}</span><ChevronIcon size={9} className="sidebar-icon-down" />
       </button>
     </div>
-    {showDirectory && <button ref={directoryButton} type="button" className="project-picker-button new-session-directory-selector" aria-label={`执行目录：${directoryName}`} title={context.cwd}
+    {showDirectory && <button ref={directoryButton} type="button" className="project-picker-button new-session-directory-selector" aria-label={t("project.executionDirectoryNamed", { name: directoryName })} title={context.cwd}
       aria-haspopup="menu" aria-expanded={menu?.kind === "directory"} onClick={event => open("directory", event.currentTarget)}>
-      <span className="new-session-directory-label">执行目录</span><span className="project-picker-leaf">{directoryName}</span><ChevronIcon size={9} className="sidebar-icon-down" />
+      <span className="new-session-directory-label">{t("project.executionDirectory")}</span><span className="project-picker-leaf">{directoryName}</span><ChevronIcon size={9} className="sidebar-icon-down" />
     </button>}
     <SidebarMenu open={menu !== null} anchor={menu ? { kind: "rect", rect: menu.opener.getBoundingClientRect(), align: "start" } : null}
-      sheet={mobile} ariaLabel={menu?.kind === "directory" ? "选择执行目录" : "选择项目"} title={menu?.kind === "directory" ? "选择执行目录" : "选择项目"}
+      sheet={mobile} ariaLabel={menu?.kind === "directory" ? t("project.selectDirectory") : t("project.select")} title={menu?.kind === "directory" ? t("project.selectDirectory") : t("project.select")}
       items={menu?.kind === "directory" ? directoryItems : projectItems}
-      filter={{ placeholder: menu?.kind === "directory" ? "搜索执行目录" : "搜索项目", emptyLabel: "没有匹配项" }}
-      onClose={() => setMenu(null)} returnFocusTo={menu?.opener ?? null} width={240} compact cancelLabel="取消" />
+      filter={{ placeholder: menu?.kind === "directory" ? t("project.searchDirectories") : t("project.search"), emptyLabel: t("project.noMatches") }}
+      onClose={() => setMenu(null)} returnFocusTo={menu?.opener ?? null} width={240} compact cancelLabel={t("sidebar.cancel")} />
   </div>;
 }

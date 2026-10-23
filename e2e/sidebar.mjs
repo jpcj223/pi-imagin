@@ -50,7 +50,7 @@ export async function checkFilesPlacement(page) {
   const tree = await files.locator(".sidebar-files-scroll > *").first().elementHandle();
   await showSidebarSessions(page);
   assert.equal(await files.isVisible(), false);
-  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.locator(".workspace-rail-settings").click();
   const settings = page.getByRole("region", { name: "Settings", exact: true });
   await settings.waitFor();
   assert.equal(await page.getByRole("dialog", { name: "Settings", exact: true }).count(), 0);

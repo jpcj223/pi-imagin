@@ -25,7 +25,7 @@ export async function checkChatAppearanceReset(page) {
   await page.reload({ waitUntil: "networkidle" });
   const showSidebar = page.getByRole("button", { name: "Show sidebar", exact: true });
   if (await showSidebar.isVisible()) await showSidebar.click();
-  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.locator(".workspace-rail-settings").click();
   assert.equal(await width.inputValue(), "820");
   assert.equal(await fontSize.inputValue(), "14");
   assert.equal(await resetWidth.isDisabled(), true);
@@ -35,7 +35,7 @@ export async function checkChatAppearanceReset(page) {
 export async function checkChatAppearance(page) {
   await page.setViewportSize({ width: 2560, height: 1100 });
   const textarea = page.locator(".chat-input-textarea");
-  const openSettings = () => page.getByRole("button", { name: "设置", exact: true }).click();
+  const openSettings = () => page.locator(".workspace-rail-settings").click();
   const closeSettings = () => page.keyboard.press("Escape");
   const width = page.getByRole("slider", { name: "Chat content width", exact: true });
   const fontSize = page.getByRole("slider", { name: "Chat font size", exact: true });
@@ -102,7 +102,7 @@ export async function checkChatAppearance(page) {
   await checkFontPreferences(page);
   for (const viewport of [{ width: 1280, height: 600 }, { width: 320, height: 568 }]) {
     await page.setViewportSize(viewport);
-    await page.locator(".settings-general").evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await page.locator(".settings-language-options button:last-child").scrollIntoViewIfNeeded();
     assert.equal(await page.locator(".settings-language-options button:last-child").evaluate((el) => {
       const rect = el.getBoundingClientRect();
       return el.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));

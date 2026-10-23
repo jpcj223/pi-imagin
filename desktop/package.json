@@ -26,6 +26,7 @@
     "files": [
       "main.cjs",
       "preload.cjs",
+      "titlebar.cjs",
       "loading.html",
       "startup-logo.png",
       "startup-view.cjs",

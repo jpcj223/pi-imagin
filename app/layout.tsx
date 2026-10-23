@@ -9,6 +9,7 @@ import { WORKSPACE_LAYOUT_INIT_SCRIPT } from "@/lib/workspace-layout-bootstrap";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 import "./settings.css";
+import "./plugins.css";
 import "./sidebar.css";
 import "./sidebar-menu.css";
 

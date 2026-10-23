@@ -262,11 +262,11 @@ export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTarg
   const quotePopoverRef = useRef<HTMLDivElement | null>(null);
   const beginBranch = useCallback((message: import("@/lib/types").UserMessage, entryId: string) => {
     if (!handleEditContent(message, entryId)) {
-      addNotice({ type: "info", message: "输入框中已有草稿或附件，请先处理后再创建分支。" });
+      addNotice({ type: "info", message: t("workspace.branchDraftConflict") });
       return;
     }
     requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>(".chat-input-shell textarea")?.focus());
-  }, [handleEditContent, addNotice]);
+  }, [handleEditContent, addNotice, t]);
   const quoteChatInputRef = useRef<ChatInputHandle | null>(null);
   const closeQuotedSelection = useCallback(() => {
     setQuotedSelection(null);
@@ -966,7 +966,7 @@ export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTarg
 
   if (loading) {
     return (
-      <><ConversationPlaceholder />{outlineHost && createPortal(<div className="workspace-outline-loading" role="status" aria-label="正在恢复会话目录"><i /><i /><i /></div>, outlineHost)}</>
+      <><ConversationPlaceholder />{outlineHost && createPortal(<div className="workspace-outline-loading" role="status" aria-label={t("workspace.outlineLoading")}><i /><i /><i /></div>, outlineHost)}</>
     );
   }
 
@@ -1421,7 +1421,7 @@ export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTarg
             </button>
           </div>
         )}
-        {editEntryId && <div className="workspace-branch-editing" role="status"><span>正在创建分支 · 修改消息并发送，原记录保留</span><button type="button" onClick={cancelEdit}>取消创建分支</button></div>}
+        {editEntryId && <div className="workspace-branch-editing" role="status"><span>{t("workspace.branchEditing")}</span><button type="button" onClick={cancelEdit}>{t("workspace.cancelBranch")}</button></div>}
         {chatInputElement}
         {isEmptyNew && newSessionContextBar && <div className="workspace-new-project">{newSessionContextBar}</div>}
         <ExtensionStatusBar

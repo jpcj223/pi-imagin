@@ -52,7 +52,7 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
           : response.results.length === 0 ? t("sidebar.sessionSearchEmpty")
           : t("sidebar.sessionSearchCount", { count: response.results.length })}
       </div>
-      {failed && <button type="button" className="workspace-search-retry" onClick={() => setRetry(value => value + 1)}>重新搜索</button>}
+      {failed && <button type="button" className="workspace-search-retry" onClick={() => setRetry(value => value + 1)}>{t("search.retry")}</button>}
       {response?.truncated && (
         <div role="status" className="px-3 pb-2 text-xs text-text-muted">{t("sidebar.sessionSearchPartial")}</div>
       )}

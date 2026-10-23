@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { existsSync, readFileSync, statSync } from "fs";
 import { basename, dirname, extname, join, relative, sep } from "node:path";
 import {
-  DefaultPackageManager,
-  getAgentDir,
   SettingsManager,
   type PackageSource,
   type ResolvedPaths,
@@ -11,7 +9,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
-import { getProjectTrustStatus } from "@/lib/project-trust";
+import { pluginContext } from "@/lib/plugin-context";
+import {pluginLogoUrl} from "@/lib/plugin-presentation";
 import { isPluginSourceCheckable } from "@/lib/plugin-updates";
 import type {
   PluginDiagnostic,
@@ -245,7 +244,7 @@ function getConfiguredVersion(source: string): string | undefined {
   return undefined;
 }
 
-function readPackageMetadata(installedPath?: string): { packageName?: string; version?: string; description?: string } {
+function readPackageMetadata(installedPath?: string): { packageName?: string; version?: string; description?: string; logo?: string } {
   if (!installedPath) return {};
   try {
     const stats = statSync(installedPath);
@@ -257,11 +256,13 @@ function readPackageMetadata(installedPath?: string): { packageName?: string; ve
       name?: unknown;
       version?: unknown;
       description?: unknown;
+      pi?: {image?:unknown};
     };
     return {
       packageName: typeof parsed.name === "string" ? parsed.name : undefined,
       version: typeof parsed.version === "string" ? parsed.version : undefined,
-      description: typeof parsed.description === "string" ? parsed.description : undefined,
+      description: typeof parsed.description === "string" ? parsed.description.slice(0,2000) : undefined,
+      logo: pluginLogoUrl(parsed.pi?.image),
     };
   } catch {
     return {};
@@ -320,17 +321,8 @@ function collectResources(paths: ResolvedPaths): {
   return { countsByPackage, resourcesByPackage, standaloneExtensions, totals };
 }
 
-async function readPlugins(cwd: string): Promise<PluginsResponse> {
-  const agentDir = getAgentDir();
-  const projectTrust = getProjectTrustStatus(cwd, agentDir);
-  const settingsManager = SettingsManager.create(cwd, agentDir, {
-    projectTrusted: projectTrust.trusted,
-  });
-  const packageManager = new DefaultPackageManager({
-    cwd,
-    agentDir,
-    settingsManager,
-  });
+async function readPlugins(cwd: string | null): Promise<PluginsResponse> {
+  const { trusted, settingsManager, packageManager } = pluginContext(cwd);
 
   const diagnostics: PluginDiagnostic[] = [];
   let countsByPackage = new Map<string, PluginResourceCounts>();
@@ -382,6 +374,7 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
       version: packageMetadata.version,
       configuredVersion: getConfiguredVersion(pkg.source),
       description: packageMetadata.description,
+      logo: packageMetadata.logo,
       counts,
       resources,
       status: disabled ? "disabled" : resourceCount > 0 ? "loaded" : pkg.installedPath ? "installed" : "missing",
@@ -393,7 +386,7 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
     standaloneExtensions,
     totals,
     diagnostics,
-    projectResourcesLoaded: projectTrust.trusted,
+    projectResourcesLoaded: trusted,
   };
 }
 
@@ -404,11 +397,10 @@ function readScope(scope: unknown): PluginScope {
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const cwd = searchParams.get("cwd");
-  if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
 
   try {
     const allowedRoots = await getAllowedFileRoots();
-    if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
+    if (cwd && !isExistingFilePathAllowed(cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
     return NextResponse.json(await readPlugins(cwd));
@@ -436,18 +428,14 @@ export async function POST(req: Request) {
       packages?: unknown;
       cwd?: string;
     };
-    if (!body.cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
+    if (body.cwd != null && (typeof body.cwd !== "string" || !body.cwd.trim())) return NextResponse.json({ error: "Invalid cwd" }, { status: 400 });
     if (!body.action) return NextResponse.json({ error: "action required" }, { status: 400 });
     const allowedRoots = await getAllowedFileRoots();
-    if (!isExistingFilePathAllowed(body.cwd, allowedRoots)) {
+    if (body.cwd && !isExistingFilePathAllowed(body.cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
-    const agentDir = getAgentDir();
-    const projectTrust = getProjectTrustStatus(body.cwd, agentDir);
-    const settingsManager = SettingsManager.create(body.cwd, agentDir, {
-      projectTrusted: projectTrust.trusted,
-    });
+    const { trusted, settingsManager, packageManager } = pluginContext(body.cwd);
 
     if (body.packages !== undefined) {
       if (body.action !== "enable" && body.action !== "disable") {
@@ -461,23 +449,18 @@ export async function POST(req: Request) {
         settingsManager,
         packages,
         body.action === "disable",
-        projectTrust.trusted,
+        trusted,
       );
-      return NextResponse.json({ ...(await readPlugins(body.cwd)), results } satisfies PluginsBulkResponse);
+      return NextResponse.json({ ...(await readPlugins(body.cwd ?? null)), results } satisfies PluginsBulkResponse);
     }
 
     const scope = readScope(body.scope);
-    if (scope === "project" && !projectTrust.trusted) {
+    if (scope === "project" && !trusted) {
       return NextResponse.json(
         { error: "Project resources must be trusted before modifying project plugins" },
         { status: 403 },
       );
     }
-    const packageManager = new DefaultPackageManager({
-      cwd: body.cwd,
-      agentDir,
-      settingsManager,
-    });
     const source = body.source?.trim();
     const local = scope === "project";
 
@@ -488,7 +471,7 @@ export async function POST(req: Request) {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
       await packageManager.removeAndPersist(source, { local });
     } else if (body.action === "update") {
-      if (!source && !projectTrust.trusted && packageManager.listConfiguredPackages().some((pkg) => pkg.scope === "project")) {
+      if (!source && !trusted && packageManager.listConfiguredPackages().some((pkg) => pkg.scope === "project")) {
         return NextResponse.json(
           { error: "Project resources must be trusted before updating project plugins" },
           { status: 403 },
@@ -507,7 +490,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Unsupported action: ${body.action}` }, { status: 400 });
     }
 
-    return NextResponse.json(await readPlugins(body.cwd));
+    // SDK 包管理器排队保存设置，列表刷新前必须等到写入完成。
+    await settingsManager.flush();
+    const writeErrors = settingsManager.drainErrors();
+    if (writeErrors.length) throw new Error(writeErrors.map(item => item.error.message).join("; "));
+    return NextResponse.json(await readPlugins(body.cwd ?? null));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }

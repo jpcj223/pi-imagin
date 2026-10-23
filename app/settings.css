@@ -1557,6 +1557,95 @@
   overflow-y: auto;
 }
 
+/* 独立设置页与插件页共用工作区边界；宽度与排版只作用于此页面。 */
+.settings-workspace-page:not(.plugins-workspace-page) .settings-dialog-header {height:36px;min-height:36px;padding:6px 18px;gap:10px;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-dialog-title {font-size:13px;line-height:1.4;}
+.settings-mobile-home {display:none;}
+.settings-workspace-page:not(.plugins-workspace-page) .workspace-settings-body {grid-template-columns:var(--workspace-sidebar-width,220px) minmax(0,1fr);gap:0;padding:0;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-section-tabs {padding:20px 12px;border-right:1px solid var(--border);background:var(--bg-panel);gap:6px;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-section-tab {min-height:38px;padding:9px 12px;font-size:13px;gap:8px;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-section-tab:focus-visible {outline:2px solid var(--accent);outline-offset:-2px;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-dialog-main {overflow:hidden;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-general {padding:28px clamp(24px,3vw,48px) 48px;overscroll-behavior:contain;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-general>* {max-width:900px;margin-inline:auto;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-chat-options {max-width:none;gap:8px;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-theme-options {max-width:none;gap:8px;padding:0;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-general-description {font-size:12px;line-height:1.7;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-general-heading {font-size:14px;margin-bottom:10px;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-section-host:not([data-settings-section="general"]) {padding:24px clamp(16px,2.5vw,36px) 20px;}
+.settings-workspace-page:not(.plugins-workspace-page) .config-panel-surface {max-width:1360px;margin-inline:auto;}
+.settings-workspace-page:not(.plugins-workspace-page) .config-sidebar {width:clamp(172px,17vw,220px);}
+/* 同一个工作区侧栏偏好，拖动过程中直接更新变量，避免整页逐帧重绘。 */
+.settings-sidebar-resizer {position:absolute;z-index:5;top:36px;bottom:0;left:calc(var(--workspace-sidebar-width,220px) - 4px);width:8px;cursor:col-resize;touch-action:none;outline:none;}
+.settings-sidebar-resizer::after {content:"";position:absolute;top:0;bottom:0;left:3px;width:2px;background:transparent;}
+.settings-sidebar-resizer:is(:hover,:focus-visible,.is-resizing)::after {background:var(--accent);}
+.plugins-workspace-page .settings-sidebar-resizer {bottom:36px;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-general {container-type:inline-size;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-general-section + .settings-general-section {margin-top:20px;padding-top:20px;border-top:1px solid var(--border);}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-theme-option {min-height:40px;border:1px solid var(--border);border-radius:7px;background:var(--bg);}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-theme-option:has(input:checked) {border-color:var(--accent);background:var(--bg-selected);}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-theme-option:not(:has(input:checked)):hover {background:var(--bg-hover);}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-font-rows {display:flex;flex-direction:column;gap:10px;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-font-row {display:block;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-font-header {grid-template-columns:200px minmax(0,360px) 120px 28px;gap:12px;}
+.settings-font-weight {min-width:0;max-width:100%;height:32px;padding:0 6px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font:inherit;}
+.settings-font-weight:focus-visible {outline:2px solid var(--accent);outline-offset:1px;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-font-input {height:32px;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-chat-range-option:not(.settings-font-row) {display:grid;grid-template-columns:200px minmax(0,1fr) 52px 28px;gap:12px;align-items:center;min-height:38px;max-width:600px;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-chat-range-option:not(.settings-font-row) .settings-chat-range-header {display:contents;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-chat-range-header output {grid-column:3;grid-row:1;text-align:right;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-chat-range-header .settings-chat-reset {grid-column:4;grid-row:1;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-chat-range-option>input[type="range"] {grid-column:2;grid-row:1;width:100%;min-width:0;margin:0;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-language-options {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;max-width:none;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-language-option {display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 10px;height:auto;min-height:62px;padding:10px 12px;border:1px solid var(--border);border-radius:7px;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-language-option[aria-checked="true"] {border-color:var(--accent);}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-language-option:focus-visible {outline:2px solid var(--accent);outline-offset:2px;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-language-radio {grid-row:1 / 3;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-language-label {min-width:0;overflow-wrap:anywhere;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-language-code {grid-column:2;}
+.settings-workspace-page:not(.plugins-workspace-page) :is(.settings-chat-switch-option,.settings-shell-option) {display:grid;grid-template-columns:200px minmax(0,1fr);gap:12px;min-height:38px;align-items:center;}
+.settings-workspace-page:not(.plugins-workspace-page) :is(.settings-chat-switch-option,.settings-shell-option)>:last-child {justify-self:start;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-shell-option {width:100%;max-width:none;padding:0;background:none;}
+.settings-workspace-page:not(.plugins-workspace-page) .settings-row-note {margin:4px 0 0;}
+.settings-push-details {font-size:12px;color:var(--text-muted);}
+.settings-push-details>summary {display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px;cursor:pointer;list-style:none;}
+.settings-push-details>summary::-webkit-details-marker {display:none;}
+.settings-push-details>summary::after {content:"";width:6px;height:6px;margin-right:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);flex:none;}
+.settings-push-details[open]>summary::after {transform:rotate(45deg);}
+.settings-push-details>summary:focus-visible {outline:2px solid var(--accent);outline-offset:3px;border-radius:3px;}
+.settings-push-content {padding-top:10px;}
+@container (max-width:560px) {
+  .settings-workspace-page:not(.plugins-workspace-page) :is(.settings-chat-switch-option,.settings-shell-option) {grid-template-columns:minmax(0,1fr) auto;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-font-header {grid-template-columns:minmax(0,1fr) 126px 28px;gap:8px;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-font-header label {grid-column:1 / -1;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-font-header .settings-chat-reset {grid-column:3;grid-row:2;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-chat-range-option:not(.settings-font-row) {grid-template-columns:minmax(0,1fr) 62px 28px;row-gap:8px;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-chat-range-header output {grid-column:2;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-chat-range-header .settings-chat-reset {grid-column:3;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-chat-range-option>input[type="range"] {grid-column:1 / -1;grid-row:2;margin-bottom:8px;}
+}
+@container (max-width:400px) {
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-language-options {gap:6px;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-language-option {padding:9px 6px;column-gap:6px;}
+}
+@media(max-width:760px) {.plugins-workspace-page .settings-sidebar-resizer {display:none;}}
+@media (min-width:641px) and (max-width:1000px) {
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-section-tabs {padding:18px 10px;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-general {padding:24px;}
+}
+@media (max-width:640px) {
+  .settings-sidebar-resizer {display:none;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-dialog-header {padding:6px 14px;}
+  .settings-workspace-page .settings-mobile-home {display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;background:none;color:var(--text-muted);cursor:pointer;}
+  .settings-workspace-page:not(.plugins-workspace-page) .workspace-settings-body {gap:0;padding:0;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-section-tabs {flex-direction:row;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding:8px 12px;border-right:0;border-bottom:1px solid var(--border);gap:4px;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-section-tab {flex:0 0 auto;width:auto;min-height:34px;padding:7px 9px;font-size:12px;gap:5px;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-general {padding:22px 16px 36px;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-section-host:not([data-settings-section="general"]) {padding:12px 10px;}
+  .settings-workspace-page:not(.plugins-workspace-page) .config-sidebar {width:100%;}
+  .settings-workspace-page:not(.plugins-workspace-page) .settings-chat-switch-option {flex-wrap:wrap;}
+}
+
 .settings-general > * {
   max-width: 600px;
 }
@@ -1568,6 +1657,19 @@
 .settings-general-section:first-of-type {
   margin-top: 0;
 }
+
+.settings-general-preferences {width:100%;min-width:0;margin:0;padding:0;border:0;}
+.settings-general>.settings-reset-section {margin-top:24px;padding-top:20px;border-top:1px solid var(--border);}
+.settings-reset-heading {display:flex;align-items:center;justify-content:space-between;gap:20px;}
+.settings-reset-heading>div {min-width:0;}
+.settings-reset-heading>.config-button {flex:none;}
+.settings-reset-heading .settings-general-description {margin-bottom:0;}
+.settings-reset-confirm {margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:7px;background:var(--bg-panel);font-size:12px;}
+.settings-reset-confirm>p {margin:0 0 12px;color:var(--text);}
+.settings-reset-confirm>div {display:flex;justify-content:flex-end;gap:8px;}
+.settings-reset-status {margin:12px 0 0;color:var(--text-muted);font-size:12px;line-height:1.6;overflow-wrap:anywhere;}
+.settings-reset-status.is-error {color:#b04c4c;}
+@media(max-width:640px) {.settings-reset-heading {flex-wrap:wrap;gap:12px;}.settings-reset-confirm>div {flex-wrap:wrap;}}
 
 .settings-general-heading {
   margin: 0 0 5px;

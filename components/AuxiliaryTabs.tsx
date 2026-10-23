@@ -1,9 +1,10 @@
 "use client";
+import { useI18n } from "@/hooks/useI18n";
 
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AUXILIARY_TAB_ORDER_KEY, moveAuxiliaryTab, normalizeAuxiliaryTabOrder, type AuxiliaryTab } from "@/lib/auxiliary-tabs";
 
-const labels: Record<AuxiliaryTab, string> = { outline: "会话目录", files: "文件", history: "完整历史", system: "系统", tools: "工具", session: "会话信息" };
+const labelKeys: Record<AuxiliaryTab, string> = { outline: "workspace.outline", files: "sidebar.tabFiles", history: "history.full", system: "system.label", tools: "tools.label", session: "session.info" };
 const changedEvent = "pi-web:auxiliary-tabs-changed";
 function subscribe(callback: () => void) {
   window.addEventListener("storage", callback);
@@ -19,6 +20,7 @@ export function AuxiliaryTabs({ active, historyAvailable, onSelect, children }: 
   onSelect: (tab: AuxiliaryTab) => void;
   children?: React.ReactNode;
 }) {
+  const { t } = useI18n();
   const raw = useSyncExternalStore(subscribe, snapshot, () => "");
   const order = useMemo(() => { try { return normalizeAuxiliaryTabOrder(JSON.parse(raw)); } catch { return normalizeAuxiliaryTabOrder(null); } }, [raw]);
   const [expanded, setExpanded] = useState(false);
@@ -31,9 +33,9 @@ export function AuxiliaryTabs({ active, historyAvailable, onSelect, children }: 
   const move = (from: AuxiliaryTab, to: AuxiliaryTab) => {
     try { localStorage.setItem(AUXILIARY_TAB_ORDER_KEY, JSON.stringify(moveAuxiliaryTab(order, from, to))); window.dispatchEvent(new Event(changedEvent)); } catch { /* 存储不可用时不影响标签选择。 */ }
   };
-  return <nav className={`workspace-aux-tabs workspace-aux-switcher${expanded ? " is-expanded" : ""}`} aria-label="辅助面板" onPointerEnter={event => { if (event.pointerType === "mouse") { hovering.current = true; setExpanded(true); } }} onPointerLeave={event => { if (event.pointerType === "mouse") { hovering.current = false; if (!dragging.current) setExpanded(false); } }} onBlur={event => { if (!hovering.current && !event.currentTarget.contains(event.relatedTarget)) setExpanded(false); }}>
-    <div className="workspace-aux-tab-list" role="tablist" aria-label="面板标签">
-      {order.map((tab, index) => <button key={tab} type="button" role="tab" draggable={false} aria-selected={active === tab} data-active={active === tab} data-aux-tab={tab} disabled={tab === "history" && !historyAvailable} title={`${labels[tab]} · 拖动排序，Alt + 方向键调整顺序`} onFocus={() => setExpanded(true)} onClick={event => {
+  return <nav className={`workspace-aux-tabs workspace-aux-switcher${expanded ? " is-expanded" : ""}`} aria-label={t("workspace.auxiliary")} onPointerEnter={event => { if (event.pointerType === "mouse") { hovering.current = true; setExpanded(true); } }} onPointerLeave={event => { if (event.pointerType === "mouse") { hovering.current = false; if (!dragging.current) setExpanded(false); } }} onBlur={event => { if (!hovering.current && !event.currentTarget.contains(event.relatedTarget)) setExpanded(false); }}>
+    <div className="workspace-aux-tab-list" role="tablist" aria-label={t("workspace.auxiliaryTabs")}>
+      {order.map((tab, index) => <button key={tab} type="button" role="tab" draggable={false} aria-selected={active === tab} data-active={active === tab} data-aux-tab={tab} disabled={tab === "history" && !historyAvailable} title={t("workspace.tabReorderHint", { label: t(labelKeys[tab]) })} onFocus={() => setExpanded(true)} onClick={event => {
         if (skipClick.current) { skipClick.current = false; return; }
         if (openOnClick.current) { openOnClick.current = false; setExpanded(true); return; }
         if (tab === active && !expanded) setExpanded(true); else { onSelect(tab); setExpanded(hovering.current || event.detail === 0); }
@@ -66,7 +68,7 @@ export function AuxiliaryTabs({ active, historyAvailable, onSelect, children }: 
         } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
           event.preventDefault(); const target = order[(index + (event.key === "ArrowLeft" ? order.length - 1 : 1)) % order.length]; event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[data-aux-tab="${target}"]`)?.focus();
         } else if (event.key === "Escape") { event.stopPropagation(); setExpanded(false); }
-      }}>{labels[tab]}</button>)}
+      }}>{t(labelKeys[tab])}</button>)}
     </div>
     {children}
   </nav>;

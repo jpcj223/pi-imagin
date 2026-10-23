@@ -7,7 +7,7 @@ export async function checkWorkspaceHome(page, label, artifacts, { origin, cwd, 
   await page.goto(`${origin}/?session=home-return-test`);
   await page.locator('.workspace-shell[data-startup-ready="true"]').waitFor();
   await page.locator('.chat-content').getByText('主页返回验证', { exact: true }).waitFor();
-  const home = page.getByRole('navigation', { name: '全局导航', exact: true }).getByRole('button', { name: '主页', exact: true });
+  const home = page.getByRole('navigation', { name: /^(Global navigation|全局导航|全域導覽)$/, exact: true }).getByRole('button', { name: '主页', exact: true });
   const input = page.locator('.chat-input-textarea');
   await input.fill('保留当前会话未发送草稿');
   const originalInput = await input.elementHandle();
@@ -23,11 +23,11 @@ export async function checkWorkspaceHome(page, label, artifacts, { origin, cwd, 
     assert.ok(Math.abs(await scroll.evaluate(element => element.scrollTop) - before) < 5);
   };
   if (!resume) {
-  const aux = page.getByRole('navigation', { name: '辅助面板', exact: true });
-  await aux.hover(); await aux.getByRole('tab', { name: '完整历史', exact: true }).click();
+  const aux = page.getByRole('navigation', { name: /^(Auxiliary panel|辅助面板|輔助面板)$/, exact: true });
+  await aux.hover(); await aux.getByRole('tab', { name: /^(Full history|完整历史|完整歷史)$/, exact: true }).click();
   await page.getByTitle('完整历史记录', { exact: true }).waitFor();
   const history = await page.getByTitle('完整历史记录', { exact: true }).elementHandle();
-  await page.getByRole('button', { name: '全宽阅读', exact: true }).click();
+  await page.getByRole('button', { name: /^(Read at full width|全宽阅读|全寬閱讀)$/, exact: true }).click();
   await page.locator('.right-panel-full-width').waitFor(); await home.click();
   await checkPreserved(); assert.ok(await history.evaluate(element => element.isConnected));
   assert.equal(await page.locator('.right-panel-full-width').count(), 0);
@@ -44,8 +44,8 @@ export async function checkWorkspaceHome(page, label, artifacts, { origin, cwd, 
   assert.equal(await page.locator('.right-panel-full-width').count(), 0);
   await home.click(); await checkPreserved();
 
-  const rail = page.getByRole('navigation', { name: '全局导航', exact: true });
-  await rail.getByRole('button', { name: '设置', exact: true }).click();
+  const rail = page.getByRole('navigation', { name: /^(Global navigation|全局导航|全域導覽)$/, exact: true });
+  await page.locator(".workspace-rail-settings").click();
   await page.getByRole('region', { name: '设置', exact: true }).waitFor();
   await home.click(); await checkPreserved();
   await rail.getByRole('button', { name: '搜索会话', exact: true }).click();

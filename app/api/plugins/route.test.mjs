@@ -42,6 +42,20 @@ test("lists auto-discovered top-level extensions", async () => {
   assert.equal(body.totals.extensions, 1);
 });
 
+test("未选择项目可以查看全局扩展，但不能修改项目插件", async () => {
+  const response = await GET(new Request("http://localhost/api/plugins"));
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.projectResourcesLoaded, false);
+  assert.ok(data.standaloneExtensions.every(extension => extension.scope === "global"));
+  assert.ok(data.packages.every(pkg => pkg.scope === "global"));
+  const rejected = await POST(new Request("http://localhost/api/plugins", {
+    method:"POST", headers:{host:"localhost","content-type":"application/json"},
+    body:JSON.stringify({action:"install",scope:"project",source:"npm:not-installed"}),
+  }));
+  assert.equal(rejected.status, 403);
+});
+
 test("reports the package description from package.json", async () => {
   const packageDir = join(root, "pkg-with-description");
   await mkdir(join(packageDir, "extensions"), { recursive: true });
@@ -49,6 +63,7 @@ test("reports the package description from package.json", async () => {
     name: "pkg-with-description",
     version: "1.2.3",
     description: "Adds descriptions to the Plugins panel.",
+    pi: { image: "https://cdn.example/plugin-logo.png" },
   }));
   await writeFile(join(packageDir, "extensions", "index.ts"), "export default () => {};\n");
   await writeFile(join(agentDir, "settings.json"), JSON.stringify({ packages: [packageDir] }));
@@ -60,6 +75,7 @@ test("reports the package description from package.json", async () => {
   const installed = body.packages.find((pkg) => pkg.source === packageDir);
   assert.ok(installed, "configured package is listed");
   assert.equal(installed.description, "Adds descriptions to the Plugins panel.");
+  assert.equal(installed.logo, "https://cdn.example/plugin-logo.png");
 });
 
 async function makePackage(name) {
@@ -72,6 +88,28 @@ async function makePackage(name) {
 
 const off = { extensions: [], skills: [], prompts: [], themes: [] };
 const settingsPath = join(agentDir, "settings.json");
+
+test("无项目的全局安装、禁用、启用及移除沿用 SDK，不加载隐含项目设置", async () => {
+  const local = await makePackage("global-local-only");
+  await mkdir(join(agentDir, ".pi"), {recursive:true});
+  await writeFile(join(agentDir, ".pi", "settings.json"), JSON.stringify({packages:["npm:must-not-load"]}));
+  const action = (body) => POST(new Request("http://localhost/api/plugins", {
+    method:"POST",headers:{host:"localhost","content-type":"application/json"},body:JSON.stringify(body),
+  }));
+  const installed = await action({action:"install",source:local,scope:"global"});
+  assert.equal(installed.status,200);
+  const state = await installed.json();
+  const configured = state.packages.find(pkg=>pkg.installedPath === local && pkg.scope === "global");
+  assert.ok(configured, JSON.stringify(state));
+  assert.ok(state.packages.every(pkg=>pkg.source !== "npm:must-not-load"));
+  for (const [command, disabled] of [["disable",true],["enable",false]]) {
+    const response = await action({action:command,source:configured.source,scope:"global"});
+    assert.equal(response.status,200);
+    assert.equal((await response.json()).packages.find(pkg=>pkg.source===configured.source).disabled,disabled);
+  }
+  assert.equal((await action({action:"remove",source:local,scope:"global"})).status,200);
+  assert.ok(!(await (await GET(new Request("http://localhost/api/plugins"))).json()).packages.some(pkg=>pkg.installedPath===local));
+});
 
 async function readPackages() {
   return JSON.parse(await readFile(settingsPath, "utf8")).packages;

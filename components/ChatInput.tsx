@@ -1662,7 +1662,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const thinkingDisplayLabel = (() => {
     const lvl = resolvedThinkingLevel ?? "auto";
     if (locale.startsWith("zh")) {
-      if (lvl === "auto") return "自动推理";
+      if (lvl === "auto") return t("chat.autoReasoning");
       const labels: Record<string,string> = { off:t("chat.thinkingOff"), minimal:t("chat.thinkingMinimal"), low:t("chat.thinkingLow"), medium:t("chat.thinkingMedium"), high:t("chat.thinkingHigh"), xhigh:t("chat.thinkingXhigh"), max:t("chat.thinkingMax") };
       return labels[lvl] || lvl;
     }
@@ -1671,7 +1671,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   })();
   const rawToolPresetLabel = Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "configured"))?.[0] ?? "configured";
   const toolPresetLabel = locale.startsWith("zh")
-    ? ({ configured:"跟随配置", "chat-only":t("chat.chatOnly"), "read-only":"只读工具", default:"默认工具", full:"全部工具" })[rawToolPresetLabel]
+    ? ({ configured:t("chat.presetConfigured"), "chat-only":t("chat.chatOnly"), "read-only":t("chat.presetReadOnly"), default:t("chat.presetDefault"), full:t("chat.presetFull") })[rawToolPresetLabel]
     : rawToolPresetLabel === "chat-only" ? t("chat.chatOnly") : rawToolPresetLabel;
 
   // Close dropdowns on outside click
@@ -1747,8 +1747,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               <ModelSelector
                 options={modelOptions}
                 value={model}
-                emptyLabel={locale.startsWith("zh") ? "未选择模型" : "Select model"}
-                selectedLabel={model?.modelId === "unknown" ? (locale.startsWith("zh") ? "未选择模型" : "Select model") : undefined}
+                emptyLabel={t("chat.selectModel")}
+                selectedLabel={model?.modelId === "unknown" ? (t("chat.selectModel")) : undefined}
                 onChange={onModelChange}
                 disabled={isStreaming}
                 busy={modelSwitching}

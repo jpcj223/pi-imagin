@@ -2,16 +2,11 @@ import { execFile } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { promisify } from "util";
-import {
-  DefaultPackageManager,
-  getAgentDir,
-  SettingsManager,
-} from "@earendil-works/pi-coding-agent";
 import { gt, maxSatisfying, rcompare, valid, validRange } from "semver";
 import type { PluginScope, PluginUpdateResult } from "@/lib/api-types";
 import { nodeCliInvocation } from "./node-cli";
 import { parseNpmSource } from "./npm-source";
-import { getProjectTrustStatus } from "./project-trust";
+import { pluginContext } from "./plugin-context";
 
 const execFileAsync = promisify(execFile);
 
@@ -168,19 +163,15 @@ function isOffline(): boolean {
 }
 
 export async function checkPluginUpdates(
-  cwd: string,
+  cwd: string | null,
   filter?: { source?: string; scope?: PluginScope },
   options: CheckOptions = {},
 ): Promise<PluginUpdateResult[]> {
   let packages = options.packages;
   let npmCommand = options.npmCommand;
   if (!packages) {
-    const agentDir = getAgentDir();
-    const projectTrust = getProjectTrustStatus(cwd, agentDir);
-    const settingsManager = SettingsManager.create(cwd, agentDir, {
-      projectTrusted: projectTrust.trusted,
-    });
-    packages = new DefaultPackageManager({ cwd, agentDir, settingsManager }).listConfiguredPackages();
+    const {settingsManager, packageManager} = pluginContext(cwd);
+    packages = packageManager.listConfiguredPackages();
     npmCommand ??= settingsManager.getNpmCommand();
   }
 
@@ -199,7 +190,7 @@ export async function checkPluginUpdates(
     }
     try {
       return parseNpmSource(pkg.source)
-        ? await checkNpmPackage(pkg, cwd, npmCommand, runner)
+        ? await checkNpmPackage(pkg, cwd ?? pluginContext(null).cwd, npmCommand, runner)
         : await checkGitPackage(pkg, runner);
     } catch (error) {
       return result(pkg, "error", error instanceof Error ? error.message : String(error));
