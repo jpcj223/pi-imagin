@@ -504,3 +504,18 @@ test("the hook's sources stay within the platform rules", () => {
   assert.doesNotMatch(source, /\(\?<[=!]/, "no RegExp lookbehind (Safari 16.2)");
   assert.equal(LONG_PRESS_MS, 350);
 });
+
+test("抓取模式跨越第一、第二项目边界时连续跟随，正反方向不为插入线跳位", () => {
+  const tree = setup();
+  tree.hook.rerender({ ...tree.props, anchorGhostToPointer: true });
+  tree.press("/a");
+  let previous = null;
+  for (const y of [...Array.from({ length: 70 }, (_, i) => tree.at(14 + i)), ...Array.from({ length: 70 }, (_, i) => tree.at(83 - i))]) {
+    tree.move(y);
+    const top = Number.parseFloat(tree.ghost.style.top);
+    assert.equal(top, y - 10 - TREE_TOP, "固定按下时的 10px 抓取点");
+    if (previous) assert.ok(Math.abs(top - previous.top) <= Math.abs(y - previous.y) + .01, "跨越落点不能突然换边");
+    previous = { y, top };
+  }
+  tree.release(tree.at(14));
+});

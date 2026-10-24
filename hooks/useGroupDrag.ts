@@ -74,7 +74,7 @@ interface DragState {
   /** The list's scrollTop as the drag left it: any other value means the browser scrolled it. */
   expectedScrollTop: number;
   drop: GroupDrop | null;
-  ghost: { left: number } | null;
+  ghost: { left: number; grabOffsetY: number } | null;
 }
 
 export interface GroupDragView {
@@ -100,6 +100,8 @@ export interface GroupDragOptions {
   dropAt?: (blocks: GroupBlock[], id: string, y: number) => GroupDrop | null;
   offsets: number[];
   layout: SidebarLayout;
+  /** 保持抓取点跟随鼠标，不为避让插入线而上下跳动。 */
+  anchorGhostToPointer?: boolean;
   /** False while loading or without onMove: a drag under way is cancelled. */
   enabled: boolean;
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -162,7 +164,7 @@ export function useGroupDrag(options: GroupDragOptions): GroupDragApi {
     };
 
     // The ghost follows the pointer through its style, not through React
-    // state: just above it, moved only as far as keeping clear of the
+    // state: anchored at the grab point when requested, otherwise keeping clear of the
     // pointer and the drop line and inside the list's box takes
     // (ghostTopFor). Its left edge stays at the rows' inset, not under the
     // pointer.
@@ -176,7 +178,9 @@ export function useGroupDrag(options: GroupDragOptions): GroupDragApi {
       const treeTop = tree.getBoundingClientRect().top;
       const box = scroll.getBoundingClientRect();
       const height = ghost.offsetHeight;
-      const top = ghostTopFor({
+      const top = optionsRef.current.anchorGhostToPointer
+        ? Math.max(box.top, Math.min(Math.max(box.top, box.bottom - height), drag.clientY - Math.min(height, drag.ghost.grabOffsetY)))
+        : ghostTopFor({
         pointerY: drag.clientY,
         lineY: drag.drop && inner ? inner.getBoundingClientRect().top + drag.drop.lineY : null,
         ghostHeight: height,
@@ -291,7 +295,8 @@ export function useGroupDrag(options: GroupDragOptions): GroupDragApi {
           // The window listeners still see the pointer.
         }
       }
-      drag.ghost = { left: drag.element.getBoundingClientRect().left - tree.getBoundingClientRect().left + GHOST_INDENT_PX };
+      const header = drag.element.getBoundingClientRect();
+      drag.ghost = { left: header.left - tree.getBoundingClientRect().left + GHOST_INDENT_PX, grabOffsetY: Math.max(0, drag.startY - header.top) };
       drag.expectedScrollTop = scroll.scrollTop;
       scroll.addEventListener("scroll", onScroll, { passive: true });
       drag.frame = requestAnimationFrame(autoScroll);

@@ -45,6 +45,7 @@ import {
   ArchiveIcon,
   BranchIcon,
   ChevronIcon,
+  FolderIcon,
   FolderPlusIcon,
   MoreIcon,
   RestoreIcon,
@@ -276,6 +277,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     innerRef,
     treeRef,
     ghostRef,
+    anchorGhostToPointer: true,
     onMove: (projectKey, anchorKey, position) => handlersRef.current.onMoveGroup?.(projectKey, anchorKey, position),
   });
   const sessionBlocks = useMemo(() => sessionDragBlocks(rows, offsets), [rows, offsets]);
@@ -283,7 +285,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     rows, offsets, layout, blocks: sessionBlocks,
     dropAt: (blocks, id, y) => sessionDropAt(blocks as SessionDragBlock[], id, y),
     enabled: Boolean(props.onMoveSession) && !loading,
-    scrollRef, innerRef, treeRef, ghostRef,
+    scrollRef, innerRef, treeRef, ghostRef, anchorGhostToPointer: true,
     onMove: (id, anchorId, position) => handlersRef.current.onMoveSession?.(id, anchorId, position),
   });
   const dragView = groupDrag.view ?? sessionDrag.view;
@@ -403,8 +405,8 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
   const hasTreeRows = rows.some((row) => row.kind === "session" || row.kind === "group" || row.kind === "time-group" || row.kind === "archive-group");
   const showEmpty = !loading && !error && emptyLabel !== null && !hasTreeRows;
   // While dragging: the group's block is dimmed in place (groups never fold
-  // up under the pointer), a line marks the drop, and a pill with the
-  // project's name follows the pointer, clear of it and of the line
+  // up under the pointer), a line marks the drop, and the preview keeps
+  // the original grab offset while following the pointer
   // (useGroupDrag places it), outside the scroll box, where it cannot make
   // room to scroll into.
   const dragSource = dragView?.source ?? null;
@@ -491,6 +493,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
       </div>
       {ghostLabel && (
         <div ref={ghostRef} className="session-tree-drag-ghost" aria-hidden="true">
+          {ghostProject ? <FolderIcon size={15} /> : <BranchIcon size={14} />}
           <span className="session-tree-group-name">{ghostLabel}</span>
         </div>
       )}
@@ -544,7 +547,7 @@ const SessionRowView = memo(function SessionRowView({
   const nowDate = new Date(now);
   const className = [
     "session-tree-row session-tree-session",
-    dragPhase === "armed" ? "is-drag-armed" : "",
+    dragPhase === "armed" ? "is-drag-armed" : dragPhase === "dragging" ? "is-dragging" : "",
     status.selected ? "is-selected" : "",
     status.running ? "is-running" : "",
     context === "archive" ? "is-archived" : "",
@@ -905,7 +908,7 @@ const GroupRowView = memo(function GroupRowView({
     "session-tree-row session-tree-group",
     project.current ? "is-current" : "",
     menuOpen ? "is-active" : "",
-    dragPhase === "armed" ? "is-drag-armed" : "",
+    dragPhase === "armed" ? "is-drag-armed" : dragPhase === "dragging" ? "is-dragging" : "",
   ].filter(Boolean).join(" ");
 
   // Once a long-press has picked the group up, the finger's moves must not

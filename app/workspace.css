@@ -451,3 +451,27 @@ html.dark .workspace-terminal {--terminal-error:#f1a2ad;}
 .project-trust-badge:hover {background:color-mix(in srgb,#d97706 9%,transparent);}
 .project-trust-badge:focus-visible {outline:2px solid var(--accent);outline-offset:2px;}
 @media(max-width:600px) {.project-trust-badge {gap:4px;margin-inline:4px;padding-inline:4px;font-size:10px;}}
+
+/* 主页拖动：预览遮住原文字，原行保留尺寸，避免半透明胶囊与项目名叠在一起。 */
+.workspace-shell .session-tree-drag-ghost {
+  width:calc(100% - 24px);
+  max-width:calc(100% - 24px);
+  height:34px;
+  gap:8px;
+  padding:0 10px;
+  border-color:var(--accent);
+  border-radius:7px;
+  background:var(--bg);
+  box-shadow:0 4px 14px rgb(0 0 0 / 14%);
+  opacity:1;
+  z-index:5;
+  overflow:hidden;
+}
+.workspace-shell .session-tree-drag-ghost>svg {flex:none;color:var(--text-muted);}
+.workspace-shell .session-tree-drag-ghost>.session-tree-group-name {flex:1;line-height:20px;}
+.workspace-shell .session-tree-row.is-dragging {background:var(--bg-hover);outline:1px dashed var(--border);outline-offset:-1px;}
+.workspace-shell .session-tree-row.is-dragging>* {visibility:hidden;}
+.workspace-shell .session-tree.is-group-dragging {user-select:none;-webkit-user-select:none;}
+
+/* 插入线独立标记落点，不再挪动拖动预览来避让。 */
+.workspace-shell .session-tree-drop-line {z-index:6;}
