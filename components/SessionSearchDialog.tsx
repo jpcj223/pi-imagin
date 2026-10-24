@@ -1,12 +1,14 @@
 "use client";
 import { useI18n } from "@/hooks/useI18n";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { openStackedDialog } from "@/lib/stacked-dialog";
 import type { SessionInfo } from "@/lib/types";
 import { SessionSearch } from "./SessionSearch";
 import { SearchIcon } from "./SidebarIcons";
+import { FindOptions } from "./FindOptions";
+import type { TerminalSearchOptions } from "@/lib/terminal-search";
 
 /** 复用现有搜索接口和结果定位，仅将搜索承载在独立弹窗中。 */
 export function SessionSearchDialog({ query, onQueryChange, onClose, onSelectSession, selectedSessionId, archivedSessionIds }: {
@@ -18,6 +20,9 @@ export function SessionSearchDialog({ query, onQueryChange, onClose, onSelectSes
   archivedSessionIds: ReadonlySet<string>;
 }) {
   const { t } = useI18n();
+  const [options, setOptions] = useState<TerminalSearchOptions>({});
+  let invalid = false;
+  try { if (options.regex) new RegExp(query, options.caseSensitive ? "gu" : "giu"); } catch { invalid = true; }
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -36,8 +41,9 @@ export function SessionSearchDialog({ query, onQueryChange, onClose, onSelectSes
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }}>
       <header><h2 id="workspace-search-title">{t("search.title")}</h2><button type="button" aria-label={t("search.close")} onClick={onClose}>×</button></header>
-      <label className="workspace-search-field"><SearchIcon size={18} /><input ref={inputRef} type="search" maxLength={200} value={query} onChange={event => onQueryChange(event.target.value)} placeholder={t("search.placeholder")} aria-label={t("search.inputLabel")} /><kbd>Esc</kbd></label>
-      <SessionSearch open query={query} selectedSessionId={selectedSessionId} archivedSessionIds={archivedSessionIds} onSelectSession={(...args) => { onSelectSession(...args); onClose(); }}>
+      <div className="workspace-search-field"><SearchIcon size={18} /><input ref={inputRef} type="search" maxLength={200} value={query} onChange={event => onQueryChange(event.target.value)} placeholder={t("search.placeholder")} aria-label={t("search.inputLabel")} aria-invalid={invalid} /><FindOptions value={options} onChange={setOptions} /><kbd>Esc</kbd></div>
+      {invalid && <p className="find-error" role="status">{t("terminal.invalidRegex")}</p>}
+      <SessionSearch open={!invalid} query={query} options={options} selectedSessionId={selectedSessionId} archivedSessionIds={archivedSessionIds} onSelectSession={(...args) => { onSelectSession(...args); onClose(); }}>
         <div className="workspace-search-empty">{t("search.empty")}</div>
       </SessionSearch>
     </div>

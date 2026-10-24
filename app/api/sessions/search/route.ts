@@ -5,7 +5,9 @@ import { searchSessionContents } from "@/lib/session-search";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const query = (new URL(request.url).searchParams.get("q") ?? "").trim();
+  const params = new URL(request.url).searchParams;
+  const query = (params.get("q") ?? "").trim();
+  const options = { caseSensitive: params.get("caseSensitive") === "1", wholeWord: params.get("wholeWord") === "1", regex: params.get("regex") === "1" };
   const headers = { "Cache-Control": "no-store" };
   if (query.length > 200) {
     return NextResponse.json({ error: "Search query exceeds 200 characters" }, { status: 400, headers });
@@ -18,9 +20,10 @@ export async function GET(request: Request) {
     // session. The trade-off is that a session created in the last couple of
     // seconds is not searched yet; the stale read schedules the rebuild, so the
     // next search sees it.
+    if (options.regex) new RegExp(query, options.caseSensitive ? "gu" : "giu");
     const sessions = query && !request.signal.aborted ? await listAllSessions({ allowStale: true }) : [];
-    return NextResponse.json(await searchSessionContents(sessions, query, request.signal), { headers });
+    return NextResponse.json(await searchSessionContents(sessions, query, request.signal, options), { headers });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500, headers });
+    return NextResponse.json({ error: String(error) }, { status: error instanceof SyntaxError ? 400 : String(error).includes("Search timed out") ? 422 : 500, headers });
   }
 }

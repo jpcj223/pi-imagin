@@ -1,6 +1,8 @@
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import type { SessionInfo } from "./types";
+import { createSearchMatcher } from "./search-regex-worker";
+import type { TerminalSearchOptions } from "./terminal-search";
 
 const MAX_FILES = 500;
 const MAX_RESULTS = 30;
@@ -27,21 +29,22 @@ export async function searchSessionContents(
   sessions: readonly SessionInfo[],
   query: string,
   requestSignal?: AbortSignal,
+  options: TerminalSearchOptions = {},
 ): Promise<SessionSearchResponse> {
   const response: SessionSearchResponse = { results: [], truncated: false };
   const needle = query.trim();
   if (!needle) return response;
   if (needle.length > 200) throw new RangeError("Search query exceeds 200 characters");
-  // Escape every operator: this is literal search, with offsets in the original text.
-  const matcher = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
   const deadline = Date.now() + TIME_BUDGET_MS;
   const timeout = AbortSignal.timeout(TIME_BUDGET_MS);
   const signal = requestSignal ? AbortSignal.any([requestSignal, timeout]) : timeout;
+  const matcher = createSearchMatcher(needle, options, signal);
+  let matcherError: unknown;
   const candidates = sessions
     .filter((session) => !session.transient && session.path)
     .sort((a, b) => b.modified.localeCompare(a.modified));
 
-  for (const [index, session] of candidates.entries()) {
+  try { for (const [index, session] of candidates.entries()) {
     if (index >= MAX_FILES || response.results.length >= MAX_RESULTS || signal.aborted || Date.now() >= deadline) {
       response.truncated = true;
       break;
@@ -66,10 +69,13 @@ export async function searchSessionContents(
         const blocks = typeof content === "string" ? [{ type: "text", text: content }] : Array.isArray(content) ? content : [];
         const textBlocks = blocks.flatMap((block, blockIndex) => block?.type === "text" && typeof block.text === "string" ? [{ text: block.text as string, blockIndex }] : []);
         const text = textBlocks.map((block) => block.text).join("\n");
-        const match = matcher.exec(text);
-        if (!match) continue;
-        const start = match.index;
-        const end = start + match[0].length;
+        let ranges;
+        try { ranges = await matcher.match(text, 1); }
+        catch (error) { matcherError = error; throw error; }
+        if (!ranges.length) continue;
+        const range = ranges[0];
+        const start = range.index;
+        const end = start + range.length;
         let blockOffset = 0;
         const matchedBlock = textBlocks.find((block) => {
           const blockEnd = blockOffset + block.text.length;
@@ -81,13 +87,14 @@ export async function searchSessionContents(
           ...(typeof entry.id === "string" ? { entryId: entry.id } : {}),
           blockIndex: matchedBlock!.blockIndex,
           before: (start > 80 ? "..." : "") + text.slice(Math.max(0, start - 80), start).replace(/\s+/g, " ").trimStart(),
-          match: match[0].replace(/\s+/g, " "),
+          match: text.slice(start, end).replace(/\s+/g, " "),
           after: text.slice(end, end + 80).replace(/\s+/g, " ").trimEnd() + (end + 80 < text.length ? "..." : ""),
         });
         found = true;
         break;
       }
     } catch {
+      if (matcherError) throw matcherError;
       // Missing/unreadable files and interrupted reads must not hide other results.
       response.truncated = true;
     } finally {
@@ -95,6 +102,11 @@ export async function searchSessionContents(
       stream.destroy();
     }
     if (!found && stream.bytesRead >= MAX_FILE_BYTES) response.truncated = true;
-  }
+    if (!found) {
+      const title = session.name || session.firstMessage || "";
+      const [range] = await matcher.match(title, 1);
+      if (range) response.results.push({ session, blockIndex: 0, before: title.slice(Math.max(0, range.index - 80), range.index), match: title.slice(range.index, range.index + range.length), after: title.slice(range.index + range.length, range.index + range.length + 80) });
+    }
+  } } finally { matcher.close(); }
   return response;
 }
