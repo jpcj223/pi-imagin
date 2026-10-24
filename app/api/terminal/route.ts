@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET() {
-  return NextResponse.json({ shells: listTerminalShells(), defaultShell: getDefaultTerminalShellId() });
+  try { return NextResponse.json({ shells: listTerminalShells(), defaultShell: getDefaultTerminalShellId() }); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 }); }
 }
 
 export async function POST(req: Request) {

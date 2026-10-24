@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { homedir } from "os";
-import { existsSync, statSync } from "fs";
-import { delimiter, join, basename, dirname } from "path";
+import { basename } from "path";
+import { readShellProfilesSync } from "./shell-profiles";
 import type { IPty } from "node-pty";
 import { samePath } from "./paths";
 import { readTerminalDirectory } from "./terminal-directory";
@@ -80,26 +80,7 @@ function dimension(value: number, fallback: number): number {
 
 // 只提供已安装的固定 Shell，客户端不能指定任意可执行路径或启动参数。
 function terminalShells() {
-  const installed = (path: string | undefined) => {
-    try { return path && existsSync(path) && statSync(path).isFile() ? path : undefined; } catch { return undefined; }
-  };
-  const find = (name: string) => (process.env.PATH ?? process.env.Path ?? "").split(delimiter).map(dir => join(dir.replace(/^"|"$/g, ""), name)).find(path => {
-    try { return existsSync(path) && statSync(path).isFile(); } catch { return false; }
-  });
-  const windows = process.platform === "win32";
-  const profiles = windows
-    ? [{ id: "cmd", label: "CMD", path: process.env.ComSpec ?? find("cmd.exe") }, { id: "powershell", label: "Windows PowerShell", path: find("powershell.exe") }, { id: "pwsh", label: "PowerShell", path: find("pwsh.exe") ?? installed(join(process.env.ProgramFiles ?? "C:\\Program Files", "PowerShell", "7", "pwsh.exe")) }]
-    : [{ id: "bash", label: "Bash", path: find("bash") }, { id: "zsh", label: "Zsh", path: find("zsh") }];
-  if (windows) {
-    // Git 自带的 Bash 与 WSL 使用各自固定参数，不套用 PowerShell 初始化命令。
-    const gitExe = find("git.exe");
-    const gitRoots = [process.env.ProgramFiles && join(process.env.ProgramFiles, "Git"), process.env["ProgramFiles(x86)"] && join(process.env["ProgramFiles(x86)"], "Git"), process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, "Programs", "Git"), gitExe && dirname(dirname(gitExe))].filter((root): root is string => Boolean(root));
-    const gitBash = gitRoots.map(root => installed(join(root, "bin", "bash.exe"))).find(Boolean);
-    profiles.push({ id: "gitbash", label: "Git Bash", path: gitBash }, { id: "wsl", label: "WSL", path: find("wsl.exe") ?? installed(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "wsl.exe")) });
-  }
-  const system = windows ? process.env.ComSpec ?? find("cmd.exe") : process.env.SHELL || "/bin/sh";
-  if (system && !profiles.some(item => item.path && samePath(item.path, system))) profiles.push({ id: "system", label: basename(system), path: system });
-  return profiles.filter((item): item is typeof item & { path: string } => Boolean(item.path));
+  return readShellProfilesSync().profiles.filter(item => item.available);
 }
 
 export function listTerminalShells() {
@@ -107,8 +88,7 @@ export function listTerminalShells() {
 }
 
 export function getDefaultTerminalShellId(): string | undefined {
-  const system = process.platform === "win32" ? process.env.ComSpec ?? "cmd.exe" : process.env.SHELL || "/bin/sh";
-  return terminalShells().find(item => samePath(item.path, system) || basename(item.path).toLowerCase() === basename(system).toLowerCase())?.id;
+  return terminalShells()[0]?.id;
 }
 
 export function createTerminal(cwd: string, cols: number, rows: number, id: string = randomUUID(), shellId?: string): string {
@@ -139,8 +119,8 @@ export function createTerminal(cwd: string, cols: number, rows: number, id: stri
     : process.env.SHELL || "/bin/sh");
   const shellLabel = profile?.label ?? (process.platform === "win32" ? "CMD" : basename(shell));
   // 仅在提示符处通知真实目录，不向正在运行的程序注入查询命令；PowerShell 保留原提示符。
-  const args = profile?.id === "gitbash" ? ["--login", "-i"] : profile?.id === "wsl" ? ["--cd", cwd || homedir()]
-    : process.platform !== "win32" ? ["-l"] : shellLabel === "CMD" ? ["/K", "chcp 65001>nul & prompt $E]9;9;$P$E\\$P$G"]
+  const args = profile?.kind === "wsl" ? ["--cd", cwd || homedir()]
+    : profile?.kind === "bash" ? ["--login", "-i"] : profile?.kind === "sh" || profile?.kind === "zsh" ? ["-l"] : profile?.kind === "cmd" ? ["/K", "chcp 65001>nul & prompt $E]9;9;$P$E\\$P$G"]
     : ["-NoLogo", "-NoExit", "-Command", "$OutputEncoding = [Console]::InputEncoding = [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding; $global:__piImaginOriginalPrompt = $function:prompt; function global:prompt { try { [Console]::Write(([char]27) + ']7;' + ([uri]$executioncontext.SessionState.Path.CurrentFileSystemLocation.Path).AbsoluteUri + [char]7) } catch {}; if ($global:__piImaginOriginalPrompt) { & $global:__piImaginOriginalPrompt } else { 'PS ' + (Get-Location) + '> ' } }"];
   const pty = spawn(shell, args, {
     name: "xterm-256color",

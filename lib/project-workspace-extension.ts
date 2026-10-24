@@ -10,6 +10,8 @@ import { readSessionToolSelection } from "./session-tool-selection";
 import { resolveShellTools } from "./powershell-settings";
 import type { SessionEntry } from "./types";
 import { copyProjectFile } from "./project-file-copy";
+import { resolveEnvironmentTools, selectedShellProfile } from "./shell-profiles";
+import { createEnvironmentOperations } from "./shell-profile-operations";
 
 const FILE_TOOLS = new Set(["read", "write", "edit", "ls", "find", "grep"]);
 const OUTPUT_TOOLS = new Set(["bash", "powershell", "project_command"]);
@@ -31,7 +33,7 @@ function isCommandOutput(path: string, entries: SessionEntry[]): boolean {
   } catch { return false; }
 }
 
-type ShellSettings = { getShellCommandPrefix(): string | undefined; getShellPath(): string | undefined };
+type ShellSettings = { getShellCommandPrefix(): string | undefined; getShellPath(): string | undefined; getGlobalSettings?(): unknown };
 const parameters = Type.Object({
   cwd: Type.String({ description: "Absolute working directory within one of this session's project folders." }),
   command: Type.String(),
@@ -49,13 +51,15 @@ export function createProjectWorkspaceExtension(snapshot: ProjectSessionScope, d
     name: "pi-imagin-project-workspace",
     hidden: true,
     factory(pi) {
+      const commandEnvironment = shellSettings?.getGlobalSettings ? selectedShellProfile(shellSettings.getGlobalSettings() as Record<string, unknown>) : undefined;
+      const environmentOperations = commandEnvironment ? createEnvironmentOperations(commandEnvironment) : undefined;
       pi.registerTool({
         name: "project_copy_file", label: "原样复制项目文件",
         description: "Copy one regular file byte-for-byte between this session's project folders, preserving whitespace, newlines and binary bytes. Use for exact file copies instead of reconstructing content with write. Requires read and write in the current preset. Maximum 16 MiB; existing files require explicit overwrite=true. Does not run a shell.",
         parameters: Type.Object({ source: Type.String({ description: "Absolute source file path in this session's project folders." }), destination: Type.String({ description: "Absolute destination file path in this session's project folders." }), overwrite: Type.Optional(Type.Boolean()) }),
         async execute(_id, args, signal, _onUpdate, context) {
           const selection = readSessionToolSelection(context.sessionManager.getEntries() as unknown as SessionEntry[]);
-          const available = selection ? resolveShellTools(selection, defaultTools()) : pi.getActiveTools();
+          const available = selection ? shellSettings?.getGlobalSettings ? resolveEnvironmentTools(selection, { getGlobalSettings: () => shellSettings.getGlobalSettings!() }) : resolveShellTools(selection, defaultTools()) : pi.getActiveTools();
           if (!available.includes("read") || !available.includes("write")) throw new Error("当前工具预设需要同时允许 read 和 write，才能复制文件。");
           const result = await copyProjectFile(scope, args.source, args.destination, args.overwrite, signal);
           return { content: [{ type: "text" as const, text: `文件已按字节复制：${JSON.stringify(result)}` }], details: result };
@@ -70,18 +74,20 @@ export function createProjectWorkspaceExtension(snapshot: ProjectSessionScope, d
           catch (error) { throw new Error(`${error instanceof Error ? error.message : "无效的工作目录。"}\n${folderGuide}`); }
           if (!statSync(cwd).isDirectory()) throw new Error("命令工作目录必须是有效文件夹。");
           const selection = readSessionToolSelection(context.sessionManager.getEntries() as unknown as SessionEntry[]);
-          const available = selection ? resolveShellTools(selection, defaultTools()) : pi.getActiveTools();
+          const environmentSettings = shellSettings?.getGlobalSettings ? { getGlobalSettings: () => shellSettings.getGlobalSettings!() } : undefined;
+          const available = selection ? environmentSettings ? resolveEnvironmentTools(selection, environmentSettings) : resolveShellTools(selection, defaultTools()) : pi.getActiveTools();
           const shell = args.shell ?? (available.includes("powershell") ? "powershell" : "bash");
           if (!available.includes(shell)) throw new Error(`当前工具预设未允许 ${shell}，不能执行项目命令。`);
+          if (commandEnvironment && (shell === "powershell") !== (commandEnvironment.kind === "powershell")) throw new Error("执行环境已变化，请重载会话后再运行命令。");
           const definition = shell === "powershell"
-            ? createPowerShellToolDefinition(cwd, { operations: createProjectCommandBashOperations({ localOperations: createUtf8PowerShellOperations() }) })
+            ? createPowerShellToolDefinition(cwd, { operations: createProjectCommandBashOperations({ localOperations: environmentOperations ?? createUtf8PowerShellOperations() }) })
             : createBashToolDefinition(cwd, {
-              commandPrefix: shellSettings?.getShellCommandPrefix(),
-              operations: createProjectCommandBashOperations({ shellPath: shellSettings?.getShellPath() }),
+              commandPrefix: commandEnvironment?.kind === "cmd" ? undefined : shellSettings?.getShellCommandPrefix(),
+              operations: createProjectCommandBashOperations({ shellPath: shellSettings?.getShellPath(), ...(environmentOperations ? { localOperations: environmentOperations } : {}) }),
             });
           // SDK 优先使用 ctx.cwd；只更换工厂参数会让命令错误地仍在主目录运行。
           const result = await definition.execute(id, { command: args.command, timeout: args.timeout }, signal, onUpdate, { ...context, cwd });
-          return { ...result, content: [{ type: "text" as const, text: `工作目录：${cwd}\n` }, ...result.content] };
+          return { ...result, content: [{ type: "text" as const, text: `工作目录：${cwd}${commandEnvironment ? `\n执行环境：${commandEnvironment.label}` : ""}\n` }, ...result.content] };
         },
       });
       pi.on("before_agent_start", event => {

@@ -222,6 +222,11 @@ else {
       const choice = await dialog.showOpenDialog(mainWindow, { title: "选择项目文件夹", properties: ["openDirectory", "createDirectory"] });
       return choice.canceled ? null : choice.filePaths[0] ?? null;
     });
+    ipcMain.handle("pi-imagin:choose-executable", async event => {
+      if (!trustedSender(event) || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error("请求来源无效");
+      const choice = await dialog.showOpenDialog(mainWindow, { title: "选择终端程序 / Select shell executable", properties: ["openFile"], ...(process.platform === "win32" ? { filters: [{ name: "Executable", extensions: ["exe"] }] } : {}) });
+      return choice.canceled ? null : choice.filePaths[0] ?? null;
+    });
     ipcMain.handle("pi-imagin:retry-startup", event => {
       if ((!trustedSender(event) && !startupView.isSender(event)) || event.senderFrame.url !== startupPage) throw new Error("请求来源无效");
       void startWorkspace();

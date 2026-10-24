@@ -32,13 +32,13 @@ export function createUtf8PowerShellOperations(
   };
 }
 
-export function createPowerShellOutputExtension(cwd: string): InlineExtension {
+export function createPowerShellOutputExtension(cwd: string, operations?: BashOperations | (() => BashOperations)): InlineExtension {
   return {
     name: EXTENSION_NAME,
     hidden: true,
     factory(pi) {
       const definition = createPowerShellToolDefinition(cwd, {
-        operations: createProjectCommandBashOperations({ localOperations: createUtf8PowerShellOperations() }),
+        operations: createProjectCommandBashOperations({ localOperations: typeof operations === "function" ? operations() : operations ?? createUtf8PowerShellOperations() }),
       });
       pi.registerTool({
         ...definition,

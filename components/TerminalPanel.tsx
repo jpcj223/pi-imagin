@@ -204,6 +204,7 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError, 
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") return true;
       const key = event.key.toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && key === "f") { event.preventDefault(); setSearchOpen(true); return false; }
       if ((event.ctrlKey || event.metaKey) && key === "v") return false;
       if ((event.ctrlKey || event.metaKey) && key === "c" && terminal.hasSelection()) return false;
       return true;
@@ -363,7 +364,7 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError, 
         <div className={`terminal-search-field${regexInvalid ? " is-invalid" : ""}`}>
           <input ref={searchRef} aria-label={t("terminal.search")} placeholder={t("terminal.search")} value={query} maxLength={1024} aria-invalid={regexInvalid} onChange={event => setQuery(event.target.value)} onKeyDown={event => {
             if (event.nativeEvent.isComposing) return;
-            if (event.key === "Enter") { event.preventDefault(); event.stopPropagation(); navigateSearch(event.shiftKey); }
+            if (["Enter", "ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); event.stopPropagation(); navigateSearch(event.shiftKey || event.key === "ArrowUp"); }
             if (event.key === "Escape") { event.stopPropagation(); closeSearch(); }
           }} />
           {([['caseSensitive', 'Aa', 'caseSensitive'], ['wholeWord', 'ab', 'wholeWord'], ['regex', '.*', 'regex']] as const).map(([key, label, text]) => <button type="button" key={key} className={`terminal-search-option is-${key}`} aria-label={t(`terminal.${text}`)} title={t(`terminal.${text}`)} aria-pressed={Boolean(searchOptions[key])} onClick={() => setSearchOptions(options => ({ ...options, [key]: !options[key] }))}>{label}</button>)}

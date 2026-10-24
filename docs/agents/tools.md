@@ -45,3 +45,9 @@ Windows 内置 PowerShell 与 `project_command` 共用 UTF-8 操作适配：SDK 
 Code mode 的“始终开启”向全局 `defaultTools` 写入 `+codemode`；“自动”不写该项。修改由 `/api/tools/settings` 经全局设置文件锁执行，只更新相关条目和 `codemode.mode`、`codemode.inlineBudget`。
 
 `defaultTools` 支持 `+name`、`-name` 等修饰符，必须通过 SDK 解析；不要把纯修饰符列表当普通名称列表，也不要留下表示“禁用所有工具”的空数组。
+
+## 执行环境优先级
+
+应用使用 `shell-profiles.ts` 解析已保存的环境顺序，并通过 `resolveEnvironmentTools` 保留原工具权限后选择 PowerShell 或兼容的 Shell 工具标识。CMD、Bash、Zsh 和 sh 复用 SDK 的 Bash 工具协议，模型实际收到的描述与提示片段注明对应语法，不把 CMD 宣称为 Bash；PowerShell 使用对应工具描述。子智能体、恢复会话和 `project_command` 使用同一选择。
+
+环境适配通过同一 SDK 的 `createLocalShellOperations` 执行，保留取消、超时、进程树回收、退出状态和输出截断；契约由真实命令测试验证。PowerShell 命令先初始化 UTF-8 再动态解析，原文只通过单次子进程环境传递。环境在扩展加载时固定，重载工厂重新读取配置；运行中环境失效或工具语法不一致则报错，不用另一环境重试。用户同名扩展保持优先；仅聊天和只读工具选择不因环境排序而扩权。直接 ! / !! 通道保留 Bash 行为。

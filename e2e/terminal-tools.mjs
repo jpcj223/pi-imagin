@@ -23,33 +23,11 @@ export async function checkTerminalTools(page, { base, project, capture }) {
     assert.equal(await openedMenu().count(), 1);
   };
   await shellMenu().click(); assert.equal(await openedMenu().count(), 1);
-  const addItem = openedMenu().getByRole("menuitem", { name: "Add other terminals", exact: true });
-  const mainItems = await openedMenu().getByRole("menuitem").allTextContents();
-  assert.equal(mainItems.at(-1).trim(), "Add other terminals", "添加入口单独放在列表底部");
-  await addItem.click();
-  await captureMenu("terminal-add-shell");
-  await openedMenu().getByRole("menuitem", { name: "Refresh terminal list", exact: true }).click();
-  await openedMenu().getByRole("menuitem", { name: "Refresh terminal list", exact: true }).waitFor();
-  const availableShells = await (await page.request.get(`${base}/api/terminal`)).json();
-  if (availableShells.shells.some(shell => shell.id === "gitbash")) {
-    const createdBefore = await activeId();
-    await openedMenu().getByRole("menuitem", { name: "Git Bash", exact: true }).click();
-    assert.equal(await activeId(), createdBefore, "添加类型不立即新建进程");
-    assert.ok((await page.evaluate(() => JSON.parse(localStorage.getItem("pi-terminal-added-shells")))).includes("gitbash"));
-    await openedMenu().getByRole("menuitem", { name: "Git Bash", exact: true }).click();
-    await dock.locator(".is-ready").waitFor();
-    const gitId = await activeId(); assert.notEqual(gitId, createdBefore);
-    assert.equal((await metadata(gitId)).shellId, "gitbash");
-    await run("echo GIT_READY:$BASH_VERSION");
-    await page.waitForFunction(() => [...document.querySelectorAll(".terminal-panel")].filter(el => el.offsetHeight).some(el => /GIT_READY:\d+/.test(el.querySelector(".xterm-rows")?.textContent ?? "")));
-    await dock.locator('.workspace-file-tab[aria-selected="true"] .file-tab-close').click();
-    await page.waitForFunction(id => JSON.parse(sessionStorage.getItem("pi-web:terminal-tabs")).activeId === id, createdBefore);
-    await dock.locator(".is-ready").waitFor();
-    // 恢复原选择偏好，让后续复制与持久化回归仍基于当前 PowerShell。
-    await page.evaluate(() => { localStorage.setItem("pi-terminal-shell", "powershell"); window.dispatchEvent(new Event("storage")); });
-  } else {
-    await page.keyboard.press("Escape");
-  }
+  assert.equal(await openedMenu().getByRole("menuitem", { name: "Add other terminals", exact: true }).count(), 0);
+  const configured = await (await page.request.get(`${base}/api/terminal`)).json();
+  const labels = await openedMenu().getByRole("menuitem").allTextContents();
+  assert.deepEqual(labels.map((label, index) => label.startsWith(configured.shells[index]?.label)), configured.shells.map(() => true), "顺序与设置中的可用环境一致");
+  await page.keyboard.press("Escape");
   await shellMenu().click();
   await captureMenu("terminal-shell-menu");
   assert.equal(await openedMenu().getByText("Use preferred shell", { exact: true }).count(), 0);

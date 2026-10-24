@@ -1,0 +1,18 @@
+import { NextResponse } from "next/server";
+import { changeShellProfiles, readShellProfiles, ShellProfileError } from "@/lib/shell-profiles";
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+export async function GET() {
+  try { return NextResponse.json(await readShellProfiles()); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 }); }
+}
+export async function PUT(request: Request) {
+  if (!isApiRequestAllowed(request)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  if (!hasJsonContentType(request)) return NextResponse.json({ error: "Expected application/json" }, { status: 415 });
+  let body: unknown;
+  try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { return NextResponse.json(await changeShellProfiles(body)); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: error instanceof ShellProfileError ? 400 : 500 }); }
+}

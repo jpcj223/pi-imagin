@@ -7,6 +7,8 @@ import {
   type LoadExtensionsResult,
 } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
+import { selectedShellProfile } from "./shell-profiles";
+import { createEnvironmentOperations } from "./shell-profile-operations";
 
 const HOST_EXTENSION_NAME = "pi-imagin-project-command-environment";
 const HOST_EXTENSION_PATH = `<inline:${HOST_EXTENSION_NAME}>`;
@@ -144,19 +146,28 @@ export function createProjectCommandBashOperations(
 export function createProjectCommandBashExtension(options: {
   cwd: string;
   settings: ProjectShellSettings;
+  environmentSettings?: { getGlobalSettings(): unknown };
 }): InlineExtension {
   return {
     name: HOST_EXTENSION_NAME,
     hidden: true,
     factory: (pi) => {
       const displayDefinition = createBashToolDefinition(options.cwd);
+      const environment = options.environmentSettings ? selectedShellProfile(options.environmentSettings.getGlobalSettings() as Record<string, unknown>) : undefined;
+      const environmentOperations = environment ? createEnvironmentOperations(environment) : undefined;
       pi.registerTool({
         ...displayDefinition,
+        ...(environment && environment.kind !== "powershell" ? {
+          label: environment.label,
+          description: displayDefinition.description.replace("a bash command", `a ${environment.label} (${environment.kind}) command`),
+          promptSnippet: `Execute ${environment.label} commands using ${environment.kind} syntax.`,
+        } : {}),
         execute(toolCallId, params, signal, onUpdate, context) {
           const executionDefinition = createBashToolDefinition(options.cwd, {
-            commandPrefix: options.settings.getShellCommandPrefix(),
+            commandPrefix: environment?.kind === "cmd" ? undefined : options.settings.getShellCommandPrefix(),
             operations: createProjectCommandBashOperations({
               shellPath: options.settings.getShellPath(),
+              ...(environmentOperations ? { localOperations: environmentOperations } : {}),
             }),
           });
           return executionDefinition.execute(toolCallId, params, signal, onUpdate, context);
