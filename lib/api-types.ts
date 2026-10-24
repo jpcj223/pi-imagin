@@ -85,6 +85,7 @@ export interface SkillUpdateResult {
 }
 
 export interface SkillInfo {
+  installOrigin?: "app" | "external";
   name: string;
   description: string;
   filePath: string;
@@ -93,14 +94,17 @@ export interface SkillInfo {
   sourceInfo: {
     source?: string;
     scope?: string;
+    origin?: string;
   };
   install?: SkillInstallInfo;
+  canRemove?: boolean;
 }
 
 export interface SkillsResponse {
   skills: SkillInfo[];
   diagnostics: ResourceDiagnostic[];
   projectResourcesLoaded: boolean;
+  globalSkillsPath?: string;
 }
 
 export interface SkillContentResponse {
@@ -114,6 +118,8 @@ export interface SkillToggleResult {
 }
 
 export interface ProjectTrustStatus {
+  /** 应用默认工作区直接可用，插件和技能默认写入公共资源区。 */
+  defaultWorkspace?: boolean;
   requiresTrust: boolean;
   trusted: boolean;
   /**
@@ -858,6 +864,7 @@ export interface PluginUpdateResult {
 }
 
 export interface PluginPackageInfo {
+  installOrigin?: "app" | "external";
   source: string;
   scope: PluginScope;
   canCheckForUpdates: boolean;
@@ -875,6 +882,7 @@ export interface PluginPackageInfo {
 }
 
 export interface PluginsResponse {
+  globalInstallPath?: string;
   packages: PluginPackageInfo[];
   standaloneExtensions: PluginStandaloneExtensionInfo[];
   totals: PluginResourceCounts;

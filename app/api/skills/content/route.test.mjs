@@ -49,9 +49,17 @@ test("refuses a Markdown file that is not a loaded skill", async () => {
   assert.deepEqual(await response.json(), { error: "Skill not found" });
 });
 
-test("requires both the working directory and skill path", async () => {
+test("无项目时可读取已发现的全局技能，文件路径仍必填", async () => {
   const withoutCwd = await GET(new Request(`http://localhost/api/skills/content?filePath=${encodeURIComponent(skillPath)}`));
   const withoutFile = await GET(new Request(`http://localhost/api/skills/content?cwd=${encodeURIComponent(process.cwd())}`));
-  assert.equal(withoutCwd.status, 400);
+  assert.equal(withoutCwd.status, 200);
   assert.equal(withoutFile.status, 400);
+});
+
+test("无项目模式不能加载 agentDir 的项目技能或读取任意 Markdown", async () => {
+  const hidden = join(agentDir, ".pi", "skills", "hidden", "SKILL.md");
+  await mkdir(join(agentDir, ".pi", "skills", "hidden"), { recursive: true });
+  await writeFile(hidden, "---\nname: hidden\ndescription: Must not load\n---\nPRIVATE");
+  const response = await GET(new Request(`http://localhost/api/skills/content?filePath=${encodeURIComponent(hidden)}`));
+  assert.equal(response.status, 404);
 });

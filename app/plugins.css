@@ -1,8 +1,8 @@
 /* 插件独立页面；只限定本页，复用系统配置组件与主题变量。 */
 .plugins-manager {display:flex;width:100%;height:100%;min-width:0;min-height:0;}
-.plugins-workspace-page .workspace-settings-body {display:flex;flex:1;min-height:0;padding:0;gap:0;overflow:hidden;}
-.plugins-workspace-page .settings-dialog-main {height:100%;overflow:hidden;}
-.plugins-workspace-page .config-sidebar {width:var(--workspace-sidebar-width,220px);}
+.resource-workspace-page .workspace-settings-body {display:flex;flex:1;min-height:0;padding:0;gap:0;overflow:hidden;}
+.resource-workspace-page .settings-dialog-main {height:100%;overflow:hidden;}
+.resource-workspace-page .config-sidebar {width:var(--workspace-sidebar-width,220px);}
 .plugins-list-header {flex:none;padding:18px 16px 8px;}
 .plugins-list-header>div {display:flex;align-items:baseline;gap:6px;margin-bottom:10px;line-height:20px;}
 .plugins-list-header strong {font-size:13px;font-weight:600;}
@@ -30,8 +30,8 @@
 .plugins-search-input::placeholder {color:var(--text-muted);opacity:1;}
 .plugins-search-input:focus-visible {outline:2px solid var(--accent);outline-offset:2px;}
 /* 侧栏筛选比目录搜索更紧凑，与标题和说明保持同一排版节奏。 */
-.plugins-list-header>.plugins-search-input {height:34px;padding:6px 10px;border-color:var(--border);border-radius:6px;font-size:12px;line-height:20px;}
-.plugins-list-header>.plugins-search-input:hover {border-color:var(--text-dim);}
+.plugins-list-header>.plugins-search-input,.skills-installed-search .plugins-search-input {height:34px;padding:6px 10px;border-color:var(--border);border-radius:6px;font-size:12px;line-height:20px;}
+.plugins-list-header>.plugins-search-input:hover,.skills-installed-search .plugins-search-input:hover {border-color:var(--text-dim);}
 .plugins-search-help {padding:8px 7px;color:var(--text-muted);font-size:12px;line-height:1.7;}
 .plugins-search-help>strong {font-weight:500;color:var(--text);}
 .plugins-content {max-width:1100px;margin-inline:auto;}
@@ -69,7 +69,7 @@
 .plugins-action-error {color:var(--text);border-left:2px solid var(--accent);padding-left:10px;font-size:12px;line-height:1.7;overflow-wrap:anywhere;}
 .plugins-mobile-search {display:none;}
 @media(max-width:760px) {
-  .plugins-workspace-page .settings-dialog-header {gap:10px;padding:12px;}
+  .resource-workspace-page .settings-dialog-header {gap:10px;padding:12px;}
   .plugins-manager.is-workspace .config-split-view {flex-direction:row;}
   .plugins-manager.is-workspace .config-sidebar {width:100%;height:100%;border:0;}
   .plugins-manager.is-workspace:not(.is-detail) .config-detail {display:none;}
@@ -88,8 +88,8 @@
   .plugins-detail-toolbar {gap:8px;}
 }
 /* 已安装常驻侧栏，右侧目录及详情共享同一内容区。 */
-.plugins-workspace-page .settings-dialog-header {min-height:36px;height:36px;padding:6px 18px;gap:10px;flex-shrink:0;}
-.plugins-workspace-page .settings-dialog-title {font-size:13px;line-height:1.4;}
+.resource-workspace-page .settings-dialog-header {min-height:36px;height:36px;padding:6px 18px;gap:10px;flex-shrink:0;}
+.resource-workspace-page .settings-dialog-title {font-size:13px;line-height:1.4;}
 .plugins-manager .config-footer {min-height:36px;padding:4px 16px;gap:6px;}
 .plugins-manager .config-footer-actions .config-button-default {min-height:26px;height:26px;padding:3px 12px;}
 .plugins-manager .config-footer-status {font-size:11px;}
@@ -100,10 +100,10 @@
 .plugins-sidebar-empty>span {display:block;margin-top:4px;color:var(--text-muted);font-size:11px;line-height:1.65;}
 .plugins-sidebar-empty.is-error>p {color:var(--text);}
 .plugins-sidebar-browse,.plugins-mobile-home {display:none;}
-.plugins-catalog-heading {display:flex;align-items:center;justify-content:space-between;gap:24px;margin:0 0 22px;}
-.plugins-catalog-heading h2 {margin:0 0 6px;font-size:20px;line-height:1.4;font-weight:600;}
-.plugins-catalog-heading p {margin:0;color:var(--text-muted);font-size:13px;line-height:1.7;}
-.plugins-catalog-heading>.plugins-search-input {width:min(44%,400px);flex-shrink:0;}
+.resource-catalog-heading {display:flex;align-items:center;justify-content:space-between;gap:24px;margin:0 0 22px;}
+.resource-catalog-heading h2 {margin:0 0 6px;font-size:20px;line-height:1.4;font-weight:600;}
+.resource-catalog-heading p {margin:0;color:var(--text-muted);font-size:13px;line-height:1.7;}
+.resource-catalog-heading>.resource-catalog-search {width:min(44%,400px);flex-shrink:0;}
 .plugin-card {cursor:pointer;}
 .plugin-card-heading>h3>button {padding:0;border:0;background:none;color:inherit;text-align:left;font:inherit;line-height:inherit;cursor:pointer;overflow-wrap:anywhere;}
 .plugin-card-heading>h3>button:hover {color:var(--accent);}
@@ -133,16 +133,18 @@
 .plugin-readme :is(td,th) {padding:8px 12px;border:1px solid var(--border);text-align:left;}
 .plugin-readme blockquote {margin-inline:0;padding-left:16px;border-left:3px solid var(--border);color:var(--text-muted);}
 @media(max-width:760px) {
- .plugins-catalog-heading {display:block;}.plugins-catalog-heading>.plugins-search-input {width:100%;margin-top:18px;}
+ .resource-catalog-heading {display:block;}.resource-catalog-heading>.resource-catalog-search {width:100%;margin-top:18px;}
  .plugins-sidebar-browse {display:block;width:100%;padding:8px 0 0;border:0;background:none;color:var(--accent);font:inherit;font-size:12px;text-align:left;cursor:pointer;}
- .plugins-workspace-page .settings-dialog-header {height:36px;min-height:36px;padding:6px 14px;}
+ .resource-workspace-page .settings-dialog-header {height:36px;min-height:36px;padding:6px 14px;}
  .plugins-manager .config-footer {min-height:36px;padding:4px 12px;}
  .plugin-detail-heading {flex-wrap:wrap;}.plugin-detail-heading h2 {font-size:17px;}
  .plugin-detail-heading>.config-button {margin-left:auto;}
  .plugin-metadata {grid-template-columns:repeat(2,minmax(0,1fr));}
- .plugins-catalog-heading h2 {font-size:18px;}
+ .resource-catalog-heading h2 {font-size:18px;}
 }
 @media(max-width:640px) {
  .plugins-mobile-home {display:grid;place-items:center;border:0;background:none;color:var(--text-muted);padding:0;width:22px;height:22px;cursor:pointer;}
 }
 .plugin-card .config-button.is-installed:disabled {opacity:1;color:var(--text-muted);background:var(--bg-panel);border-color:var(--border);}
+
+.resource-install-error {margin:0; padding:10px 16px; color:var(--error,#c64a4a); font-size:12px; line-height:1.6; overflow-wrap:anywhere;}

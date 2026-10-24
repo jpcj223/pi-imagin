@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from "fs";
 import { basename, dirname, extname, join, relative, sep } from "node:path";
 import {
   SettingsManager,
+  getAgentDir,
   type PackageSource,
   type ResolvedPaths,
   type ResolvedResource,
@@ -10,6 +11,11 @@ import {
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { pluginContext } from "@/lib/plugin-context";
+import { publishResource } from "@/lib/resource-publish";
+import { preparePluginInstall } from "@/lib/plugin-install";
+import { installProjectResource } from "@/lib/project-resource-install";
+import { appPluginSources, recordAppPlugin } from "@/lib/plugin-install-origin";
+import { samePath } from "@/lib/paths";
 import {pluginLogoUrl} from "@/lib/plugin-presentation";
 import { isPluginSourceCheckable } from "@/lib/plugin-updates";
 import type {
@@ -39,6 +45,13 @@ function toPluginScope(scope: string): PluginScope {
 
 function keyFor(source: string, scope: PluginScope): string {
   return `${scope}\0${source}`;
+}
+
+/** SDK 会把本地来源转成设置文件相对路径，记录实际配置身份而非输入文本。 */
+function configuredSource(manager: ReturnType<typeof pluginContext>["packageManager"], source: string, scope: PluginScope): string {
+  const sdkScope = scope === "project" ? "project" : "user";
+  const installedPath = manager.getInstalledPath(source, sdkScope);
+  return manager.listConfiguredPackages().find(pkg => pkg.scope === sdkScope && (pkg.source === source || installedPath && pkg.installedPath && samePath(installedPath, pkg.installedPath)))?.source ?? source;
 }
 
 function getPackageSource(entry: PackageSource): string {
@@ -348,6 +361,7 @@ async function readPlugins(cwd: string | null): Promise<PluginsResponse> {
     });
   }
 
+  const origins = { global: appPluginSources(getAgentDir()), project: trusted ? appPluginSources(getAgentDir(), cwd) : new Set<string>() };
   const packages = packageManager.listConfiguredPackages().map((pkg) => {
     const scope = toPluginScope(pkg.scope);
     const key = keyFor(pkg.source, scope);
@@ -366,6 +380,7 @@ async function readPlugins(cwd: string | null): Promise<PluginsResponse> {
     return {
       source: pkg.source,
       scope,
+      installOrigin: origins[scope].has(pkg.source) ? "app" as const : "external" as const,
       canCheckForUpdates: isPluginSourceCheckable(pkg.source),
       filtered: pkg.filtered,
       disabled,
@@ -387,6 +402,7 @@ async function readPlugins(cwd: string | null): Promise<PluginsResponse> {
     totals,
     diagnostics,
     projectResourcesLoaded: trusted,
+    globalInstallPath: join(getAgentDir(), "npm"),
   };
 }
 
@@ -466,10 +482,29 @@ export async function POST(req: Request) {
 
     if (body.action === "install") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
-      await packageManager.installAndPersist(source, { local });
+      const install = async () => {
+        const preparedNpm = await preparePluginInstall(source);
+        if (!preparedNpm) await packageManager.install(source, { local });
+        await publishResource(`${scope}:${local ? body.cwd : "global"}`, async () => {
+          // 下载完成后重新读取设置，避免另一个安装任务已保存的包被旧快照覆盖。
+          const fresh = pluginContext(body.cwd);
+          // npm 的依赖缓存已经并行准备；共享前缀的 reify 不并发，防止 A/B
+          // 同时重建 node_modules 导致文件或依赖丢失。脚本只在实际安装时运行。
+          if (preparedNpm) await fresh.packageManager.install(source, { local });
+          fresh.packageManager.addSourceToSettings(source, { local });
+          await fresh.settingsManager.flush();
+          const errors = fresh.settingsManager.drainErrors();
+          if (errors.length) throw new Error(errors.map(item => item.error.message).join("; "));
+          await recordAppPlugin(getAgentDir(), local ? body.cwd! : null, configuredSource(fresh.packageManager, source, scope), true);
+        });
+      };
+      if (local) await installProjectResource(body.cwd!, getAgentDir(), install);
+      else await install();
     } else if (body.action === "remove") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
+      const storedSource = configuredSource(packageManager, source, scope);
       await packageManager.removeAndPersist(source, { local });
+      await recordAppPlugin(getAgentDir(), local ? body.cwd! : null, storedSource, false);
     } else if (body.action === "update") {
       if (!source && !trusted && packageManager.listConfiguredPackages().some((pkg) => pkg.scope === "project")) {
         return NextResponse.json(

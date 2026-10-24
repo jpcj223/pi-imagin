@@ -10,8 +10,10 @@ import "katex/dist/katex.min.css";
 import "./globals.css";
 import "./settings.css";
 import "./plugins.css";
+import "./skills.css";
 import "./sidebar.css";
 import "./sidebar-menu.css";
+import "./resource-ui.css";
 
 const notoSansMono = Noto_Sans_Mono({
   subsets: ["latin", "cyrillic"],

@@ -1,6 +1,8 @@
 "use client";
 
+import { isResourcePage } from "@/lib/settings-navigation";
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
+import { loadBrowserSkillPage } from "@/lib/skills-browser-cache";
 import { loadPluginPage } from "@/lib/plugin-browser-cache";
 import { discardFileDraft, fileDraftDirty, fileEditRevision, getFileEditDraft, installFileEditGuards, saveFileDraft, subscribeFileEdits } from "@/lib/file-edit-drafts";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -23,6 +25,7 @@ import { mutateFileWorkspace, openFileTab, saveFileViewerState, saveParkedFileVi
 import { FILE_MUTATION_EVENT, type FileMutation } from "@/lib/file-mutation";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
 import { PiImaginTitle } from "./PiImaginTitle";
+import { ProjectTrustBadge } from "./ProjectTrustBadge";
 import { ProjectTrustDialog, type ProjectTrustFailure } from "./ProjectTrustDialog";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
@@ -252,7 +255,7 @@ export function AppShell() {
     return () => window.removeEventListener("pi-imagin:file-saved", saved);
   }, []);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
-  const settingsReturnPage = useRef<"plugins" | null>(null);
+  const settingsReturnPage = useRef<"plugins" | "skills" | null>(null);
   const [settingsVisited, setSettingsVisited] = useState(false);
   useEffect(() => { if (settingsSection) setSettingsVisited(true); }, [settingsSection]);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
@@ -516,16 +519,16 @@ export function AppShell() {
   // The composer opens Settings too: a bare /mcp opens Settings › MCP (useAgentSession).
   const openSettingsSection = useCallback((section: SettingsSection) => {
     // 设置覆盖当前页面；在设置分区间切换不覆盖最初入口。
-    if (section === "plugins") settingsReturnPage.current = null;
-    else if (settingsSection === null || settingsSection === "plugins") settingsReturnPage.current = settingsSection;
+    if (isResourcePage(section)) settingsReturnPage.current = null;
+    else if (settingsSection === null || isResourcePage(settingsSection)) settingsReturnPage.current = settingsSection;
     setSettingsSection(section);
     setMobileToolbarMoreOpen(false);
     setWorkspaceMenuAnchor(null);
-    if (section === "plugins" && isMobile) setSidebarOpen(false);
+    if (isResourcePage(section) && isMobile) setSidebarOpen(false);
   }, [isMobile, settingsSection]);
 
   const closeSettings = useCallback(() => {
-    const target = settingsSection === "plugins" ? null : settingsReturnPage.current;
+    const target = isResourcePage(settingsSection) ? null : settingsReturnPage.current;
     settingsReturnPage.current = null;
     setSettingsSection(target);
     setModelsRefreshKey(key => key + 1);
@@ -1445,8 +1448,11 @@ export function AppShell() {
     const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
     if (connection?.saveData) return;
     const controller = new AbortController();
-    const warm = () => { if (document.visibilityState === "visible") void loadPluginPage("", 1, controller.signal).catch(() => {}); };
-    // 工作区完成启动后再预热公共目录，不读取项目插件或执行插件。
+    const warm = () => {
+      if (document.visibilityState !== "visible") return;
+      void Promise.allSettled([loadPluginPage("", 1, controller.signal), loadBrowserSkillPage("", 0, controller.signal)]);
+    };
+    // 工作区完成启动后再预热公共目录，不读取项目资源或执行安装命令。
     if ("requestIdleCallback" in window) {
       const id = window.requestIdleCallback(warm, { timeout: 4000 });
       return () => { window.cancelIdleCallback(id); controller.abort(); };
@@ -1569,10 +1575,11 @@ export function AppShell() {
         onSessionsChange={handleSessionsChange}
       />
       {isMobile && <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
+        <button type="button" className="workspace-mobile-skills workspace-mobile-plugins" onClick={() => openSettingsSection("skills")}><SettingsSectionIcon section="skills" size={14} /><span>{translate("common.skills")}</span></button>
         <button type="button" className="workspace-mobile-plugins" onClick={() => openSettingsSection("plugins")}><SettingsSectionIcon section="plugins" size={14} /><span>{translate("common.plugins")}</span></button>
         <button
           type="button"
-          onClick={() => settingsSection && settingsSection !== "plugins" ? closeSettings() : openSettingsSection(getLastSettingsSection(projectTrustCwd))}
+          onClick={() => settingsSection && !isResourcePage(settingsSection) ? closeSettings() : openSettingsSection(getLastSettingsSection(projectTrustCwd))}
           title={translate("common.settings")}
           aria-label={translate("common.settings")}
           style={{
@@ -1591,56 +1598,9 @@ export function AppShell() {
     </>
   );
 
-  const renderProjectTrustWarning = (mobileBanner: boolean) => {
-    if (!showChat || !projectTrust?.requiresTrust || projectTrust.trusted) return null;
-    return (
-      <button
-        type="button"
-        onClick={openProjectTrustDialog}
-        title={translate("trust.resourcesNotLoaded")}
-        aria-label={translate("trust.resourcesNotLoaded")}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: mobileBanner ? "flex-start" : "center",
-          gap: 6,
-          width: mobileBanner ? "100%" : undefined,
-          minHeight: mobileBanner ? 32 : undefined,
-          height: mobileBanner ? undefined : "100%",
-          padding: mobileBanner ? "6px 12px" : "0 12px",
-          background: mobileBanner ? "color-mix(in srgb, #d97706 8%, var(--bg-panel))" : "none",
-          border: "none",
-          borderRight: mobileBanner ? "none" : "1px solid var(--border)",
-          borderBottom: mobileBanner ? "1px solid var(--border)" : "none",
-          color: "#d97706",
-          cursor: "pointer",
-          flexShrink: 0,
-          fontSize: 11,
-          lineHeight: 1.35,
-          textAlign: "left",
-        }}
-        data-mobile-trust-banner={mobileBanner ? "true" : undefined}
-      >
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          style={{ flexShrink: 0 }}
-        >
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
-          <path d="M12 8v4" />
-          <path d="M12 16h.01" />
-        </svg>
-        <span>{translate("trust.resourcesNotLoaded")}</span>
-      </button>
-    );
-  };
+  const renderProjectTrustWarning = () => showChat && settingsSection === null
+    ? <ProjectTrustBadge status={projectTrust} onClick={openProjectTrustDialog} />
+    : null;
 
   const renderChatToolbarActions = (mobile: boolean) => (
     <button type="button" className={`workspace-info-trigger${mobile ? " is-mobile" : ""}`} aria-label={translate("workspace.sessionActions")} title={translate("workspace.sessionActions")}
@@ -2189,7 +2149,7 @@ export function AppShell() {
       overflow: "hidden",
       background: "var(--bg)",
     }}>
-      <WorkspaceRail onSearch={() => { if (settingsSection) leaveSettings(); sidebarControlRef.current?.openSearch(); }} settingsOpen={settingsSection !== null && settingsSection !== "plugins"} pluginsOpen={settingsSection === "plugins"} onPlugins={() => settingsSection === "plugins" ? closeSettings() : openSettingsSection("plugins")} onSettings={() => settingsSection && settingsSection !== "plugins" ? closeSettings() : openSettingsSection(getLastSettingsSection(projectTrustCwd))} onHome={handleHome} />
+      <WorkspaceRail onSearch={() => { if (settingsSection) leaveSettings(); sidebarControlRef.current?.openSearch(); }} settingsOpen={settingsSection !== null && !isResourcePage(settingsSection)} pluginsOpen={settingsSection === "plugins"} skillsOpen={settingsSection === "skills"} onSkills={() => settingsSection === "skills" ? closeSettings() : openSettingsSection("skills")} onPlugins={() => settingsSection === "plugins" ? closeSettings() : openSettingsSection("plugins")} onSettings={() => settingsSection && !isResourcePage(settingsSection) ? closeSettings() : openSettingsSection(getLastSettingsSection(projectTrustCwd))} onHome={handleHome} />
       {/* Mobile overlay backdrop */}
       <div
         className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
@@ -2312,6 +2272,7 @@ export function AppShell() {
                 </button>
               )}
               {!isNarrowMobile && renderChatToolbarActions(true)}
+              {renderProjectTrustWarning()}
               {renderSessionStatsButton(true)}
               {renderMainFileToggle(true)}
               {isNarrowMobile && mobileToolbarMoreOpen && (
@@ -2341,7 +2302,7 @@ export function AppShell() {
           )}
           {!isMobile && (
             <>
-              {renderProjectTrustWarning(false)}
+              {renderProjectTrustWarning()}
               {renderSessionStatsButton(false)}
             </>
           )}
@@ -2350,7 +2311,7 @@ export function AppShell() {
           {!dockTopPanel && topPanelView}
 
         </div>
-        {isMobile && renderProjectTrustWarning(true)}
+
         </div>
 
 
@@ -2608,6 +2569,7 @@ export function AppShell() {
         onClose={closeSettings}
         onHome={handleHome}
         onSessionReloaded={() => setSessionKey((key) => key + 1)}
+        projectContext={sidebarNewSessionContext}
         projectTrust={projectTrust}
         onOpenTrustDialog={openProjectTrustDialog}
         onProjectTrustChanged={handleProjectTrustChanged}

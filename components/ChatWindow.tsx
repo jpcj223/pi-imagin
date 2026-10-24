@@ -588,10 +588,18 @@ export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTarg
         loadingOlderRef.current = true;
         const container = scrollContainerRef.current;
         if (container) prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
-        // ponytail: one extra page of 200 entries; deeper or other-branch hits just open the session.
-        const context = await loadOlderPage(searchTarget.sessionId, history.historyCursor, { tail: 200, signal: controller.signal });
-        loadingOlderRef.current = false;
-        found = Boolean(context?.entryIds.includes(searchTarget.entryId));
+        // 查找按需逐页定位旧消息；切换命中或关闭会话时取消，不一次性载入全部历史。
+        let before: string | null = history.historyCursor;
+        try {
+          while (!found && before && !controller.signal.aborted) {
+            const context = await loadOlderPage(searchTarget.sessionId, before, { tail: 200, signal: controller.signal });
+            if (!context || controller.signal.aborted) break;
+            found = context.entryIds.includes(searchTarget.entryId);
+            const next = context.hasMore ? context.oldestEntryId : null;
+            if (next === before) break;
+            before = next;
+          }
+        } finally { loadingOlderRef.current = false; }
       }
       if (controller.signal.aborted) return;
       if (found) {
@@ -1422,6 +1430,7 @@ export function ChatWindow({ session, onStartupReady, searchTarget, onSearchTarg
           </div>
         )}
         {editEntryId && <div className="workspace-branch-editing" role="status"><span>{t("workspace.branchEditing")}</span><button type="button" onClick={cancelEdit}>{t("workspace.cancelBranch")}</button></div>}
+        {isEmptyNew && <p className="new-session-intro">{t("workspace.newSessionIntro")}</p>}
         {chatInputElement}
         {isEmptyNew && newSessionContextBar && <div className="workspace-new-project">{newSessionContextBar}</div>}
         <ExtensionStatusBar

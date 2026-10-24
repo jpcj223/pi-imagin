@@ -1,4 +1,4 @@
-export const RAIL_ITEMS = ["home", "search", "plugins"] as const;
+export const RAIL_ITEMS = ["home", "search", "plugins", "skills"] as const;
 export type RailItem = typeof RAIL_ITEMS[number];
 export const RAIL_ORDER_KEY = "pi-workspace-rail-order";
 export function normalizeRailOrder(value: unknown): RailItem[] {

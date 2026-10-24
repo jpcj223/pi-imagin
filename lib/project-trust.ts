@@ -10,6 +10,7 @@ import type { FreshFolderTrustBreadth, ProjectTrustStatus } from "./api-types";
 import { serializeByKey } from "./key-serializer";
 import { isPathWithinRoots } from "./path-security";
 import { samePath } from "./paths";
+import { isAppDefaultWorkspace } from "./default-workspace";
 
 /** The folder as `trust.json` keys it: resolved, then its real path when it exists. */
 function trustKeyPath(cwd: string): string {
@@ -45,6 +46,7 @@ function describeDecision(
  * must not, so that failure is reported in `decisionError` instead.
  */
 export function getProjectTrustStatus(cwd: string, agentDir: string): ProjectTrustStatus {
+  if (isAppDefaultWorkspace(cwd, agentDir)) return { requiresTrust: false, trusted: true, decision: null, inherited: false, defaultWorkspace: true };
   const requiresTrust = Boolean(cwd) && hasTrustRequiringProjectResources(cwd);
   const trustStore = new ProjectTrustStore(agentDir);
   if (!requiresTrust) {
@@ -96,6 +98,7 @@ const TRUST_READ_WARNINGS_MAX = 200;
  */
 export function mayReadProjectConfigNow(cwd: string, agentDir: string): boolean {
   try {
+    if (isAppDefaultWorkspace(cwd, agentDir)) return false;
     // Not getProjectTrustStatus(): that also reads trust.json for a folder that
     // requires no trust, which this answers false whatever its decision. Twice
     // per prompt, that would lock and read trust.json for nothing.
@@ -139,6 +142,10 @@ export function projectTrustReloadOptions(
   cwd: string,
   agentDir: string,
 ): { resolveProjectTrust: () => Promise<boolean> } | undefined {
+  // 默认日期目录只提供工作位置，资源使用全局配置；旧 .pi 副本不能遮蔽公共安装。
+  if (isAppDefaultWorkspace(cwd, agentDir)) return hasTrustRequiringProjectResources(cwd)
+    ? { resolveProjectTrust: async () => false }
+    : undefined;
   if (!cwd || !hasTrustRequiringProjectResources(cwd)) return undefined;
   const trustStore = new ProjectTrustStore(agentDir);
   return { resolveProjectTrust: async () => trustStore.get(cwd) === true };

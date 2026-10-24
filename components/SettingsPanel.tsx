@@ -17,8 +17,10 @@ import {
 } from "@/hooks/useChatAppearance";
 import { ENTER_SEND_MODE_DEFAULT, useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { sendAgentCommand } from "@/lib/agent-client";
-import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
+import type { ProjectTrustStatus } from "@/lib/api-types";
+import { ShellProfilesSettings } from "./ShellProfilesSettings";
 import {
+  isResourcePage,
   setLastSettingsSection,
   settingsSectionRequiresProject,
   type SettingsSection,
@@ -30,6 +32,11 @@ import {
 } from "@/lib/thinking-expansion-preference";
 import { ModelsConfig } from "./ModelsConfig";
 import { setupPushSubscription } from "@/lib/push-client";
+import type { NewSessionContext } from "@/lib/new-session-context";
+import { useResourceInstallTarget } from "@/hooks/useResourceInstallTarget";
+import { ResourceInstallTarget } from "./ResourceInstallTarget";
+import { ProjectTrustDialog, type ProjectTrustFailure } from "./ProjectTrustDialog";
+import { ProjectTrustBadge } from "./ProjectTrustBadge";
 import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
 import { PluginsConfig } from "./PluginsConfig";
@@ -56,6 +63,7 @@ interface Props {
   onQuoteSelectionChange: (enabled: boolean) => void;
   /** The page's trust status for `cwd`; Settings › MCP reloads when it changes, as after trusting. */
   projectTrust?: ProjectTrustStatus | null;
+  projectContext?: NewSessionContext | null;
   /** Opens the page's trust dialog for `cwd`, above Settings; Settings › MCP's trust notice offers it. */
   onOpenTrustDialog?: () => void;
   /** Settings › MCP added a project server, which changed `cwd`'s trust (and may have trusted a fresh folder). */
@@ -89,9 +97,8 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const enterSendMode = useEnterSendMode();
-  const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
-  const [shellError, setShellError] = useState<string | null>(null);
+  const [shellRevision, setShellRevision] = useState(0);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [pushRegistering, setPushRegistering] = useState(false);
   const [pushStatus, setPushStatus] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
@@ -125,43 +132,6 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     }
   };
 
-  useEffect(() => {
-    let cancelled = false;
-    void fetch("/api/tools/settings")
-      .then(async (response) => {
-        const data = await response.json() as ToolSettingsResponse & { error?: string };
-        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
-        if (!cancelled) setShellSettings(data);
-      })
-      .catch((cause) => {
-        if (!cancelled) setShellError(cause instanceof Error ? cause.message : String(cause));
-      });
-    return () => { cancelled = true; };
-  }, []);
-
-  const togglePowerShell = async (enabled: boolean) => {
-    setShellSaving(true);
-    setShellError(null);
-    try {
-      const response = await fetch("/api/tools/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled }),
-      });
-      const data = await response.json() as ToolSettingsResponse & { error?: string };
-      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
-      setShellSettings(data);
-      if (sessionId) {
-        await sendAgentCommand(sessionId, { type: "reload" });
-        onSessionReloaded();
-      }
-    } catch (cause) {
-      setShellError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setShellSaving(false);
-    }
-  };
-
   const registerPush = async () => {
     if (pushRegistering) return;
     setPushRegistering(true);
@@ -191,20 +161,13 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     setResetError("");
     try {
       // 先完成可能失败的共享 Shell 写入，再恢复本机偏好；只通过现有接口更新这一项。
-      const response = await fetch("/api/tools/settings");
-      let tools = await response.json() as ToolSettingsResponse & { error?: string };
+      const response = await fetch("/api/shell-profiles", {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reset" }),
+      });
+      const tools = await response.json() as { error?: string };
       if (!response.ok || tools.error) throw new Error(tools.error ?? `HTTP ${response.status}`);
-      const shellChanged = tools.isWindows && tools.powerShellEnabled;
-      if (shellChanged) {
-        const saved = await fetch("/api/tools/settings", {
-          method: "PUT", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled: false }),
-        });
-        tools = await saved.json() as ToolSettingsResponse & { error?: string };
-        if (!saved.ok || tools.error) throw new Error(tools.error ?? `HTTP ${saved.status}`);
-      }
-      setShellSettings(tools);
-      setShellError(null);
+      setShellRevision(value => value + 1);
+      window.dispatchEvent(new Event("pi-shell-profiles-changed"));
       resetFontPreference("ui");
       resetFontPreference("mono");
       setFontSize(CHAT_CONTENT_FONT_SIZE_DEFAULT);
@@ -216,7 +179,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       setLocale(DEFAULT_LOCALE);
       setThemePreference("light");
       setResetConfirm(false);
-      if (shellChanged && sessionId) {
+      if (sessionId) {
         try {
           await sendAgentCommand(sessionId, { type: "reload" });
           onSessionReloaded();
@@ -379,23 +342,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         </div>
       </section>
 
-      {shellSettings?.isWindows && (
-        <section className="settings-general-section">
-          <h3 className="settings-general-heading">{t("settings.shellTool")}</h3>
-          <div className="settings-shell-option">
-            <span>{t("settings.usePowerShell")}</span>
-            <ConfigSwitch
-              checked={shellSettings.powerShellEnabled}
-              loading={shellSaving}
-              label={t("settings.usePowerShell")}
-              describedBy="settings-shell-description"
-              onChange={(enabled) => void togglePowerShell(enabled)}
-            />
-          </div>
-          <p id="settings-shell-description" className="settings-general-description settings-row-note">{t("settings.shellToolDescription")}</p>
-          {shellError && <p role="alert" className="settings-general-error">{shellError}</p>}
-        </section>
-      )}
+      <ShellProfilesSettings disabled={resetting} revision={shellRevision} onBusy={setShellSaving} />
 
       <section className="settings-general-section">
         <details className="settings-push-details">
@@ -503,6 +450,7 @@ export function SettingsPanel({
   quoteSelectionEnabled,
   onQuoteSelectionChange,
   projectTrust,
+  projectContext,
   onOpenTrustDialog,
   onProjectTrustChanged,
 }: Props) {
@@ -515,7 +463,6 @@ export function SettingsPanel({
   const sections: { id: SettingsSection; label: string; requiresProject: boolean }[] = ([
     { id: "general", label: t("settings.general") },
     { id: "models", label: t("common.models") },
-    { id: "skills", label: t("common.skills") },
     { id: "agents", label: t("common.agents") },
     { id: "mcp", label: t("settings.mcp") },
   ] as const).map((item) => ({ ...item, requiresProject: settingsSectionRequiresProject(item.id) }));
@@ -538,10 +485,37 @@ export function SettingsPanel({
   // composer first and stop a running agent, which also kept Settings open. A layout
   // effect, so the opener is read before a section focuses its own search box.
   const dialogRef = useRef<HTMLDivElement>(null);
-  const pluginsPage = embedded && (open ? initialSection === "plugins" : section === "plugins");
+  const resourcePage = embedded && isResourcePage(open ? initialSection : section);
+  const pageTitle = resourcePage ? (open ? initialSection : section) === "skills" ? "common.skills" : "common.plugins" : "settings.title";
+  const skillsTarget = useResourceInstallTarget(cwd, projectTrust, projectContext, open && section === "skills");
+  const pluginsTarget = useResourceInstallTarget(cwd, projectTrust, projectContext, open && section === "plugins");
+  const resourceTarget = (open ? initialSection : section) === "skills" ? skillsTarget : pluginsTarget;
+  const [resourceTrustOpen, setResourceTrustOpen] = useState(false);
+  const [resourceTrustBusy, setResourceTrustBusy] = useState(false);
+  const [resourceTrustError, setResourceTrustError] = useState<ProjectTrustFailure | null>(null);
+  useEffect(() => { setResourceTrustOpen(false); setResourceTrustError(null); }, [resourceTarget.cwd, section]);
+  const acceptResourceTrust = (status: ProjectTrustStatus) => {
+    resourceTarget.acceptTrust(status);
+    if (resourceTarget.cwd) onProjectTrustChanged?.(resourceTarget.cwd, status);
+  };
+  const confirmResourceTrust = async () => {
+    if (!resourceTarget.cwd || resourceTrustBusy) return;
+    const targetCwd = resourceTarget.cwd;
+    setResourceTrustBusy(true); setResourceTrustError(null);
+    try {
+      const response = await fetch("/api/project-trust", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cwd: targetCwd }) });
+      const data = await response.json();
+      if (!response.ok || data.error) { setResourceTrustError({ error: data.error || `HTTP ${response.status}`, reason: data.reason }); return; }
+      acceptResourceTrust(data); setResourceTrustOpen(false);
+      if (targetCwd === cwd) onSessionReloaded();
+    } catch (error) { setResourceTrustError({ error: String(error) }); }
+    finally { setResourceTrustBusy(false); }
+  };
+  const renderInstallTarget = (target: typeof skillsTarget, path?: string, state?: { loading?: boolean; busy?: boolean }) => <ResourceInstallTarget value={target.value} projects={target.projects} pending={target.selecting || state?.busy} loading={target.selecting || state?.loading} path={path} error={target.error} note={target.scope === "project" && target.trust && !target.trust.trusted ? t("trust.projectScopeUnavailable") : undefined} onChange={key => void target.select(key)} />;
+
   useLayoutEffect(() => open ? focusModalPanel(document, dialogRef.current, {
     restoreTextEntry: !window.matchMedia?.("(pointer: coarse)").matches,
-  }) : undefined, [open, pluginsPage]);
+  }) : undefined, [open, resourcePage]);
 
   useEffect(() => {
     if (cwd || !sectionRequiresProject) return;
@@ -595,10 +569,10 @@ export function SettingsPanel({
       ref={(node) => { dialogRef.current = node; if (workspaceLayoutRef) workspaceLayoutRef.current = node; }}
       role={embedded ? "region" : "dialog"}
       aria-modal={embedded ? undefined : true}
-      aria-label={t(pluginsPage ? "common.plugins" : "settings.title")}
+      aria-label={t(pageTitle)}
       tabIndex={-1}
       onClick={(event) => { if (!embedded && event.target === event.currentTarget) onClose(); }}
-      className={embedded ? `settings-workspace-page${pluginsPage ? " plugins-workspace-page" : ""}` : "settings-dialog-backdrop"}
+      className={embedded ? `settings-workspace-page${resourcePage ? ` resource-workspace-page ${(open ? initialSection : section) === "skills" ? "skills" : "plugins"}-workspace-page` : ""}` : "settings-dialog-backdrop"}
       hidden={!open}
       inert={!open}
       style={embedded ? { left: sidebarOffset, "--workspace-sidebar-width": `${workspaceSidebarWidth}px` } as React.CSSProperties : undefined}
@@ -610,15 +584,16 @@ export function SettingsPanel({
           data-testid="settings-sidebar-resizer"
         />}
         <div className="settings-dialog-header">
-          {pluginsPage && <button type="button" className="plugins-mobile-home" onClick={onHome ?? onClose} aria-label={t("plugins.home")} title={t("plugins.home")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m3 10 9-7 9 7v10H14v-7h-4v7H3Z" /></svg></button>}
-          {embedded && !pluginsPage && <button type="button" className="settings-mobile-home" onClick={onHome ?? onClose} aria-label={t("plugins.home")} title={t("plugins.home")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m3 10 9-7 9 7v10H14v-7h-4v7H3Z" /></svg></button>}
-          <strong className="settings-dialog-title">{t(pluginsPage ? "common.plugins" : "settings.title")}</strong>
+          {resourcePage && <button type="button" className="plugins-mobile-home" onClick={onHome ?? onClose} aria-label={t("plugins.home")} title={t("plugins.home")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m3 10 9-7 9 7v10H14v-7h-4v7H3Z" /></svg></button>}
+          {embedded && !resourcePage && <button type="button" className="settings-mobile-home" onClick={onHome ?? onClose} aria-label={t("plugins.home")} title={t("plugins.home")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m3 10 9-7 9 7v10H14v-7h-4v7H3Z" /></svg></button>}
+          <strong className="settings-dialog-title">{t(pageTitle)}</strong>
+          {resourcePage && <ProjectTrustBadge status={resourceTarget.trust} onClick={() => setResourceTrustOpen(true)} />}
           <select
             aria-label={t("settings.title")}
             value={section}
             onChange={(event) => activateSection(event.target.value as SettingsSection)}
             className="settings-mobile-section-picker"
-            hidden={pluginsPage}
+            hidden={resourcePage}
           >
             {sections.map((item) => (
               <option key={item.id} value={item.id} disabled={item.requiresProject && !cwd}>
@@ -630,21 +605,22 @@ export function SettingsPanel({
           {!embedded && <button type="button" onClick={onClose} title={t("i18n.close")} aria-label={t("i18n.close")} className="config-close-button settings-dialog-close">×</button>}
         </div>
 
-        <div className={embedded ? `workspace-settings-body${pluginsPage ? " is-plugins" : ""}` : undefined}>
-          {embedded && !pluginsPage && sectionNavigation}
+        <div className={embedded ? `workspace-settings-body${resourcePage ? " is-resource" : ""}` : undefined}>
+          {embedded && !resourcePage && sectionNavigation}
         <main className="settings-dialog-main">
           {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
           {sectionHost("models", <ModelsConfig embedded cwd={cwd} onClose={onClose} />)}
           {/* Visited sections stay mounted, so the ones whose answer depends on trust take the page's
               status and load again in place when trusting from Settings › MCP changes it. */}
-          {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} trust={projectTrust} onClose={onClose} />)}
+          {sectionHost("skills", <SkillsConfig embedded workspace active={open && section === "skills"} cwd={skillsTarget.cwd} trust={skillsTarget.trust} targetScope={skillsTarget.scope} targetPending={skillsTarget.selecting} renderInstallTarget={(path, state) => renderInstallTarget(skillsTarget, path, state)} onClose={onClose} />)}
           {cwd && sectionHost("agents", <AgentsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
-          {sectionHost("plugins", <PluginsConfig embedded workspace active={open && section === "plugins"} key={cwd ?? "global"} cwd={cwd} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
+          {sectionHost("plugins", <PluginsConfig embedded workspace active={open && section === "plugins"} cwd={pluginsTarget.cwd} sessionId={pluginsTarget.cwd === cwd ? sessionId : null} trust={pluginsTarget.trust} targetScope={pluginsTarget.scope} targetPending={pluginsTarget.selecting} renderInstallTarget={(path, state) => renderInstallTarget(pluginsTarget, path, state)} onClose={onClose} onReloaded={onSessionReloaded} />)}
           {/* No project needed: the global mcp.json is listed alone, and a project adds its group. */}
           {sectionHost("mcp", <McpConfig embedded key={cwd ?? ""} cwd={cwd} trust={projectTrust} onTrustProject={onOpenTrustDialog} onProjectTrustChanged={onProjectTrustChanged} onClose={onClose} />)}
         </main>
         </div>
       </div>
+      {resourceTrustOpen && resourceTarget.cwd && <ProjectTrustDialog key={resourceTarget.cwd} cwd={resourceTarget.cwd} busy={resourceTrustBusy} error={resourceTrustError} onCancel={() => { if (!resourceTrustBusy) setResourceTrustOpen(false); }} onConfirm={() => void confirmResourceTrust()} onStatus={acceptResourceTrust} />}
     </div>
   );
 }

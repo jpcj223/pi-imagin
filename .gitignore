@@ -13,7 +13,8 @@
 # testing
 /coverage
 /test-results/
-/output/playwright/
+# 本地检查报告、复现脚本、测试日志和浏览器调试产物。
+/output/
 
 # 品牌探索过程留在本机，只提交选定原稿。
 /design/*

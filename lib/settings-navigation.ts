@@ -10,10 +10,15 @@ export const SETTINGS_SECTION_VALUES = [
 export type SettingsSection = (typeof SETTINGS_SECTION_VALUES)[number];
 export type SettingsDetailSection = Exclude<SettingsSection, "general">;
 
+/** 插件与技能独立占用工作区，仍兼容原分区标识。 */
+export function isResourcePage(section: SettingsSection | null): section is "plugins" | "skills" {
+  return section === "plugins" || section === "skills";
+}
+
 const STORAGE_KEY = "pi-web:settings-navigation";
 // Sections that need a project to show anything. Settings › MCP is not one: it
 // lists the global mcp.json without a project and adds a Project group with one.
-const PROJECT_SECTIONS = new Set<SettingsSection>(["skills", "agents"]);
+const PROJECT_SECTIONS = new Set<SettingsSection>(["agents"]);
 
 /** Whether a section is unavailable until a project is open. */
 export function settingsSectionRequiresProject(section: SettingsSection): boolean {
@@ -79,7 +84,7 @@ export function getLastSettingsSection(
   if (!storage) return "general";
   try {
     const section = readState(storage).section;
-    if (!isSettingsSection(section) || section === "plugins") return "general";
+    if (!isSettingsSection(section) || isResourcePage(section)) return "general";
     return settingsSectionRequiresProject(section) && !cwd ? "general" : section;
   } catch {
     return "general";
@@ -90,8 +95,8 @@ export function setLastSettingsSection(
   section: SettingsSection,
   storage: StorageLike | null = getBrowserStorage(),
 ): void {
-  // 插件已迁到主导航，不覆盖设置上次打开的分区；兼容旧存储值。
-  if (section === "plugins") return;
+  // 插件和技能已迁到主导航，不覆盖设置上次打开的分区；兼容旧存储值。
+  if (isResourcePage(section)) return;
   if (!storage) return;
   try {
     const state = readState(storage);

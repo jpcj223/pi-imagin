@@ -89,6 +89,17 @@ async function makePackage(name) {
 const off = { extensions: [], skills: [], prompts: [], themes: [] };
 const settingsPath = join(agentDir, "settings.json");
 
+test("同时安装多个插件后配置保留所有条目，完成顺序不会覆盖其他任务", async () => {
+  const sources = await Promise.all(["parallel-a", "parallel-b", "parallel-c"].map(makePackage));
+  const responses = await Promise.all(sources.map(source => POST(new Request("http://localhost/api/plugins", {
+    method: "POST", headers: { host: "localhost", "content-type": "application/json" },
+    body: JSON.stringify({ action: "install", source, scope: "global" }),
+  }))));
+  assert.ok(responses.every(response => response.status === 200));
+  const data = await (await GET(new Request("http://localhost/api/plugins"))).json();
+  for (const source of sources) assert.ok(data.packages.some(pkg => pkg.installedPath === source), source);
+});
+
 test("无项目的全局安装、禁用、启用及移除沿用 SDK，不加载隐含项目设置", async () => {
   const local = await makePackage("global-local-only");
   await mkdir(join(agentDir, ".pi"), {recursive:true});
@@ -101,6 +112,7 @@ test("无项目的全局安装、禁用、启用及移除沿用 SDK，不加载�
   const state = await installed.json();
   const configured = state.packages.find(pkg=>pkg.installedPath === local && pkg.scope === "global");
   assert.ok(configured, JSON.stringify(state));
+  assert.equal(configured.installOrigin, "app", "通过应用安装的来源持久记录");
   assert.ok(state.packages.every(pkg=>pkg.source !== "npm:must-not-load"));
   for (const [command, disabled] of [["disable",true],["enable",false]]) {
     const response = await action({action:command,source:configured.source,scope:"global"});
@@ -241,4 +253,18 @@ test("enabling keeps an entry's own settings such as autoload", async () => {
   assert.equal(bulk.status, 200);
 
   assert.deepEqual(await readPackages(), [{ source: alpha, autoload: false }, { source: beta, autoload: false }]);
+});
+
+
+test("选择空白项目首次安装后，资源仍被加载且不会写入全局安装范围", async () => {
+  const fresh = join(root, "fresh-install-project");
+  await mkdir(fresh); allowFileRoot(fresh);
+  const local = await makePackage("fresh-project-only");
+  const response = await postPlugins({ action: "install", source: local, scope: "project" }, fresh);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.projectResourcesLoaded, true);
+  assert.ok(body.packages.some(pkg => pkg.scope === "project" && pkg.installedPath === local && pkg.installOrigin === "app"));
+  const global = await (await GET(new Request("http://localhost/api/plugins"))).json();
+  assert.ok(!global.packages.some(pkg => pkg.installedPath === local));
 });

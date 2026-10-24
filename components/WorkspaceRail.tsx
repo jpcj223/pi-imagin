@@ -6,7 +6,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { RAIL_ITEMS, RAIL_ORDER_KEY, moveRailItem, normalizeRailOrder, type RailItem } from "@/lib/workspace-rail-order";
 
-export function WorkspaceRail({ onHome, onSettings, onSearch, onPlugins, settingsOpen, pluginsOpen }: { onSearch: () => void; onHome: () => void; onSettings: () => void; onPlugins: () => void; settingsOpen: boolean; pluginsOpen: boolean }) {
+export function WorkspaceRail({ onHome, onSettings, onSearch, onPlugins, onSkills, settingsOpen, pluginsOpen, skillsOpen }: { onSearch: () => void; onHome: () => void; onSettings: () => void; onPlugins: () => void; onSkills: () => void; settingsOpen: boolean; pluginsOpen: boolean; skillsOpen: boolean }) {
   const { t } = useI18n();
   const [order, setOrder] = useState<RailItem[]>([...RAIL_ITEMS]);
   const [dragging, setDragging] = useState<RailItem | null>(null);
@@ -29,19 +29,20 @@ export function WorkspaceRail({ onHome, onSettings, onSearch, onPlugins, setting
     setTimeout(() => { suppressClick.current = false; }, 0);
   };
   const items = {
-    home: { label: t("workspace.home"), active: !settingsOpen && !pluginsOpen, onClick: onHome, icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z" /></svg> },
+    home: { label: t("workspace.home"), active: !settingsOpen && !pluginsOpen && !skillsOpen, onClick: onHome, icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z" /></svg> },
     search: { label: t("search.title"), active: false, onClick: onSearch, icon: <SearchIcon size={18} /> },
+    skills: { label: t("common.skills"), active: skillsOpen, onClick: onSkills, icon: <SettingsSectionIcon section="skills" size={19} strokeWidth={1.7} /> },
     plugins: { label: t("common.plugins"), active: pluginsOpen, onClick: onPlugins, icon: <SettingsSectionIcon section="plugins" size={19} strokeWidth={1.7} /> },
   };
   return <nav className="workspace-rail" aria-label={t("workspace.navigation")}>
     <div className="workspace-rail-items" ref={groupRef}>
       {order.map(id => {
 const item = items[id]; return <button key={id} type="button" data-rail-item={id}
-          className={`${id === "home" ? "workspace-home" : `workspace-rail-${id}`}${item.active ? " is-active" : ""}${dragging === id ? " is-dragging" : ""}`}
+          className={`workspace-rail-button ${id === "home" ? "workspace-home" : `workspace-rail-${id}`}${item.active ? " is-active" : ""}${dragging === id ? " is-dragging" : ""}`}
           aria-label={item.label} aria-current={item.active ? "page" : undefined} aria-haspopup={id === "search" ? "dialog" : undefined}
           title={`${item.label} · ${t("rail.reorderHint")}`}
           onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } item.onClick(); }}
-          onPointerDown={event => { if (event.button !== 0) return; suppressClick.current = false; dragRef.current = { id, x: event.clientX, y: event.clientY, before: [...order], moved: false }; event.currentTarget.setPointerCapture(event.pointerId); }}
+          onPointerDown={event => { if (event.button !== 0) return; if (event.pointerType === "mouse") event.preventDefault(); suppressClick.current = false; dragRef.current = { id, x: event.clientX, y: event.clientY, before: [...order], moved: false }; event.currentTarget.setPointerCapture(event.pointerId); }}
           onPointerMove={event => {
             const drag = dragRef.current; if (!drag) return;
             if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;

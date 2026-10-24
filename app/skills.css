@@ -1,0 +1,97 @@
+/* 技能目录保留独立滚动区，隐藏详情时不销毁搜索和卡片。 */
+.skills-config {display:flex; flex:1; min-width:0; min-height:0; height:100%;}
+.skills-config [hidden] {display:none !important;}
+.skills-installed-search {padding:14px 10px 10px; border-bottom:1px solid var(--border);}
+.skills-installed-search label {display:flex; flex-direction:column; gap:10px; color:var(--text); font-size:12px; font-weight:600;}
+.skills-content, .skills-catalog-host, .skills-catalog {display:flex; flex:1; flex-direction:column; min-width:0; min-height:0; overflow:hidden;}
+.skills-catalog-tools {flex-shrink:0; display:flex; flex-direction:column; gap:16px; padding:24px 24px 16px; border-bottom:1px solid var(--border);}
+.skills-catalog-tools .config-add-source-heading {margin:0;}
+.skills-catalog-search {display:flex; align-items:stretch; gap:8px; font-size:13px;}
+.skills-catalog-scroll, .skills-installed-detail {flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; padding:16px 24px 24px;}
+.skills-installed-detail {display:flex; flex-direction:column; align-items:stretch; gap:20px; font-size:13px; line-height:1.6;}
+.skills-installed-detail > .config-button {align-self:flex-start;}
+.skills-catalog-summary {margin:0 0 14px; color:var(--text-muted); font-size:12px;}
+.skills-card-grid {display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,235px),1fr)); gap:14px;}
+.skills-catalog-card {display:flex; flex-direction:column; min-width:0; border:1px solid var(--border); border-radius:10px; background:var(--bg-panel); overflow:hidden; transition:border-color .15s;}
+.skills-catalog-card:hover {border-color:var(--accent);}
+.skills-card-open {flex:1; display:grid; grid-template-columns:30px minmax(0,1fr); grid-template-rows:auto auto; gap:6px 10px; text-align:left; border:0; padding:18px 16px 16px; background:none; color:var(--text); cursor:pointer;}
+.skills-card-open:focus-visible {outline:2px solid var(--accent); outline-offset:-3px; border-radius:8px;}
+.skills-card-icon {grid-row:span 2; color:var(--accent); padding-top:1px;}
+.skills-card-name {font-size:14px; font-weight:600; line-height:1.5; overflow-wrap:anywhere;}
+.skills-card-source {font-size:12px; line-height:1.5; color:var(--text-muted); overflow-wrap:anywhere;}
+.skills-card-footer {display:flex; align-items:center; justify-content:space-between; gap:8px; border-top:1px solid var(--border); padding:10px 16px; font-size:11px; color:var(--text-muted);}
+.skills-card-footer .config-button {min-height:30px;}
+.skills-card-footer a {color:var(--accent);}
+.skills-catalog-state {text-align:center; padding:24px 8px; color:var(--text-muted); font-size:12px; line-height:1.7;}
+.skills-catalog-error {color:var(--error, #b94242); font-size:12px; overflow-wrap:anywhere;}
+.skills-catalog-detail {font-size:13px; line-height:1.7; overflow-wrap:anywhere;}
+.skills-catalog-detail > .config-button {margin-bottom:20px;}
+.skills-catalog-detail a {color:var(--accent);}
+.skills-catalog-detail-heading {display:flex; align-items:center; justify-content:space-between; gap:16px;}
+.skills-catalog-detail-heading h3 {font-size:20px; line-height:1.4; margin:0 0 5px; color:var(--text);}
+.skills-catalog-detail-heading p {margin:0; color:var(--text-muted);}
+.skills-config .config-sidebar {width:var(--workspace-sidebar-width,220px);}
+.skills-config .config-sidebar-list {padding:8px; overscroll-behavior:contain;}
+.skills-config .config-sidebar-item {min-height:38px;}
+.skills-installed-search {padding:18px 16px 12px;}
+.skills-installed-search label > span {display:flex; align-items:baseline; gap:8px; font-size:13px; line-height:20px;}
+.skills-installed-search small {font-size:11px; font-weight:400; color:var(--text-muted); font-variant-numeric:tabular-nums;}
+.skills-config .config-list-action {min-height:36px;}
+.skills-catalog-tools {padding:18px clamp(18px,2.5vw,36px) 14px; gap:12px;}
+.skills-directory-toolbar > a, .skills-detail-toolbar > a {color:var(--accent); white-space:nowrap; font-size:12px; text-decoration:none;}
+.skills-directory-toolbar > a:hover, .skills-detail-toolbar > a:hover {text-decoration:underline;}
+.skills-catalog-options {display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px 20px; min-width:0;}
+.skills-catalog-options .config-save-target {min-width:0;}
+.skills-catalog-options .config-save-target-path {flex:0 1 auto; min-width:0; overflow:visible;}
+.skills-catalog-summary {margin:0; flex-shrink:0;}
+.skills-catalog-scroll {padding:20px clamp(18px,2.5vw,36px) 28px;}
+.skills-card-grid {grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr)); gap:16px;}
+.skills-catalog-card {background:var(--bg);}
+.skills-card-name {min-height:21px;}
+.skills-card-footer {background:var(--bg-panel); font-size:12px;}
+.skills-catalog-detail {width:100%; max-width:960px; margin-inline:auto; font-size:14px; line-height:1.75;}
+.skills-catalog-detail-heading h3 {font-size:22px;}
+.skills-catalog-detail .plugin-readme {margin-top:24px;}
+.skills-detail-toolbar, .skills-installed-toolbar {display:flex; align-items:center; flex-wrap:wrap; gap:10px; min-height:30px;}
+.skills-detail-toolbar > a {margin-left:auto;}
+.skills-installed-toolbar {padding:16px clamp(18px,2.5vw,36px); border-bottom:1px solid var(--border); flex-shrink:0;}
+.skills-installed-toolbar > strong {margin-left:6px; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.skills-installed-view {display:flex; flex:1; flex-direction:column; min-width:0; min-height:0; overflow:hidden;}
+.skills-installed-detail {padding:24px clamp(18px,2.5vw,36px) 32px;}
+.skills-installed-detail > .config-detail-stack {width:100%; max-width:960px; margin-inline:auto;}
+.skills-config .config-footer {min-height:36px; padding:4px 16px; gap:8px;}
+.skills-config .config-footer-status {display:flex; align-items:center; gap:12px; font-size:11px;}
+.skills-config .config-footer .config-button-default {min-height:26px; height:26px; padding:3px 12px;}
+.skills-list-back, .skills-mobile-navigation {display:none;}
+/* 小窗口在已安装列表与内容之间切换，不挤压成狭窄的两栏。 */
+@media (max-width:640px) {
+  .skills-config.is-workspace .config-split-view {flex-direction:row;}
+  .skills-config.is-workspace .config-sidebar {width:100%; height:100%; max-height:none; border:0;}
+  .skills-config.is-workspace:not(.is-list) .config-sidebar {display:none;}
+  .skills-config.is-workspace.is-list .skills-content {display:none;}
+  .skills-list-back {display:block; padding:4px 0; border:0; background:none; color:var(--accent); font:inherit; font-size:12px; cursor:pointer;}
+  .skills-mobile-navigation {display:block;}
+  .skills-installed-search {padding:14px 16px 10px;}
+  .skills-catalog-tools {padding:12px 16px; gap:10px;}
+  .skills-catalog-scroll, .skills-installed-detail {padding:16px;}
+  .skills-installed-toolbar {padding:12px 16px;}
+  .skills-installed-toolbar > strong {display:none;}
+  .skills-catalog-detail-heading h3 {font-size:20px;}
+  .skills-catalog-options {align-items:flex-start; gap:8px;}
+  .skills-catalog-options .config-save-target {width:100%;}
+  .skills-detail-toolbar > a {font-size:11px;}
+}
+.skills-remove-button {margin-left:auto;}
+.skills-remove-confirm {padding:12px 20px; border-bottom:1px solid var(--border); background:var(--bg-panel); font-size:12px;}
+.skills-remove-confirm p {margin:0 0 10px; line-height:1.6;}
+.skills-remove-confirm .config-button + .config-button {margin-left:8px;}
+.skills-removal-note {margin:0; padding:10px 20px; font-size:12px; line-height:1.6; color:var(--text-muted); border-bottom:1px solid var(--border);}
+.skills-install-error {margin:0; padding:10px 16px; font-size:12px; line-height:1.6; color:var(--error,#c64a4a); overflow-wrap:anywhere;}
+
+.skills-directory-toolbar {display:flex; align-items:center; gap:12px; min-height:26px; font-size:12px;}
+.skills-directory-toolbar > a {margin-left:auto;}
+.skills-catalog-heading {margin-bottom:10px;}
+.skills-detail-meta {display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:16px; color:var(--text-muted); font-size:12px;}
+.skills-detail-description {margin:20px 0; color:var(--text);}
+.skills-detail-preview {display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px; padding:12px; margin-block:16px; border:1px solid var(--border); border-radius:7px; color:var(--text-muted); font-size:12px;}
+.skills-detail-preview p {margin:0; flex:1; min-width:180px;}

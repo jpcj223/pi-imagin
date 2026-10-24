@@ -1,9 +1,12 @@
-import { existsSync, readFileSync } from "fs";
+import { existsSync, lstatSync, readdirSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { isAbsolute, join, relative, resolve, sep } from "path";
 import type { SkillInfo, SkillInstallInfo, SkillInstallScope } from "@/lib/api-types";
+import { cliGlobalSkillsRoot } from "./skill-locations";
+import { defaultCwdParent } from "./default-cwd";
 
 interface SkillLockEntry {
+  piImaginInstalled?: unknown;
   source?: unknown;
   sourceType?: unknown;
   skillPath?: unknown;
@@ -26,6 +29,8 @@ interface AnnotateSkillOptions {
   agentDir: string;
   globalLockPath?: string;
   projectLockPath?: string;
+  legacyWorkspaceRoot?: string;
+  globalSkillRoots?: string[];
 }
 
 export function getGlobalSkillsLockPath({
@@ -125,22 +130,54 @@ export function annotateSkillsWithInstallInfo(
     agentDir,
     globalLockPath = getGlobalSkillsLockPath(),
     projectLockPath = join(cwd, "skills-lock.json"),
+    legacyWorkspaceRoot = defaultCwdParent(),
+    globalSkillRoots = [cliGlobalSkillsRoot(), join(homedir(), ".agents", "skills")],
   }: AnnotateSkillOptions,
 ): SkillInfo[] {
   const globalEntries = readSkillLock(globalLockPath);
+  const appLockEntries = readSkillLock(join(agentDir, "skills-lock.json"));
+  const appEntries = { ...globalEntries, ...appLockEntries };
   const projectEntries = readSkillLock(projectLockPath);
   const globalSkillsRoot = join(agentDir, "skills");
   const projectSkillsRoot = join(cwd, ".pi", "skills");
+  // 旧版应用调用全局 CLI，却将来源锁保存在应用日期工作区。
+  // 只读已知日期目录，必须同时匹配来源、文档路径与版本哈希，不能靠同名归类。
+  const legacyLocks: Record<string, SkillLockEntry>[] = [];
+  if (skills.some(skill => globalSkillRoots.some(root => isWithin(skill.filePath, root)))) {
+    try {
+      for (const directory of readdirSync(legacyWorkspaceRoot, { withFileTypes: true })) {
+        if (!directory.isDirectory() || !/^\d{8}$/.test(directory.name)) continue;
+        const lock = join(legacyWorkspaceRoot, directory.name, "skills-lock.json");
+        if (existsSync(lock) && lstatSync(lock).isFile()) legacyLocks.push(readSkillLock(lock));
+      }
+    } catch { /* 无旧工作区时不影响正常发现。 */ }
+  }
 
   return skills.map((skill) => {
     if (!existsSync(skill.filePath)) return skill;
 
     const install = isWithin(skill.filePath, globalSkillsRoot)
-      ? getInstallInfo(globalEntries, skill.name, "global")
+      ? getInstallInfo(appEntries, skill.name, "global")
+      : globalSkillRoots.some(root => isWithin(skill.filePath, root))
+        ? getInstallInfo(globalEntries, skill.name, "global")
       : isWithin(skill.filePath, projectSkillsRoot)
         ? getInstallInfo(projectEntries, skill.name, "project")
         : undefined;
 
-    return install ? { ...skill, install } : skill;
+    const globalEntry = findLockEntry(globalEntries, skill.name);
+    const legacyRecorded = globalSkillRoots.some(root => {
+      const parts = relative(root, skill.filePath).split(sep);
+      return parts.length === 2 && parts[1] === "SKILL.md" && parts[0].toLowerCase() === skill.name.toLowerCase();
+    }) && globalEntry && legacyLocks.some(entries => {
+      const entry = findLockEntry(entries, skill.name);
+      return entry && typeof globalEntry.skillFolderHash === "string" && globalEntry.skillFolderHash.length > 0
+        && entry.computedHash === globalEntry.skillFolderHash
+        && typeof entry.skillPath === "string" && entry.skillPath === globalEntry.skillPath
+        && typeof entry.source === "string" && typeof globalEntry.source === "string"
+        && normalizeSource(entry.source, String(entry.sourceType)) === normalizeSource(globalEntry.source, String(globalEntry.sourceType));
+    });
+    const appRecorded = legacyRecorded || isWithin(skill.filePath, globalSkillsRoot) && Boolean(findLockEntry(appLockEntries, skill.name))
+      || isWithin(skill.filePath, projectSkillsRoot) && findLockEntry(projectEntries, skill.name)?.piImaginInstalled === true;
+    return { ...skill, ...(install ? { install } : {}), installOrigin: appRecorded ? "app" : "external" };
   });
 }

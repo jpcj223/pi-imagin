@@ -1,3 +1,5 @@
+import { isAppDefaultWorkspace } from "./default-workspace";
+import { additionalGlobalSkillPaths } from "./skill-locations";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
   createAgentSessionFromServices,
@@ -39,7 +41,9 @@ import { projectTrustReloadOptions } from "./project-trust";
 import { createSubagentCodemodeExtension, createSubagentMcpExtensions } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
 import { createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
-import { resolveShellTools } from "./powershell-settings";
+import { resolveEnvironmentTools } from "./shell-profiles";
+import { createEnvironmentOperations } from "./shell-profile-operations";
+import { createProjectCommandBashExtension, preferUserBashExtension } from "./project-command-env";
 import { createPowerShellOutputExtension, preferUserPowerShellExtension } from "./powershell-operations";
 import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-settings";
 import { SubagentQueue } from "./subagent-queue";
@@ -271,7 +275,7 @@ export function createSubagentController(
 
       const agentDir = getAgentDir();
       const parentModelRuntime = (parent.inner as unknown as { modelRuntime: ModelRuntime }).modelRuntime;
-      const settingsManager = SettingsManager.create(childCwd, agentDir);
+      const settingsManager = SettingsManager.create(childCwd, agentDir, isAppDefaultWorkspace(childCwd, agentDir) ? { projectTrusted: false } : undefined);
       const inheritedParentContext = inheritContext
         ? `The following is the active conversation context from the parent session. Use it only as background for the delegated task:\n${parentContextText(parent)}`
         : undefined;
@@ -323,8 +327,9 @@ export function createSubagentController(
           })
         : undefined;
       const extensionFactories = [
-        ...(process.platform === "win32" && resolveShellTools(profile.tools, settingsManager.getDefaultTools()).includes("powershell")
-          ? [createPowerShellOutputExtension(childCwd)] : []),
+        ...(resolveEnvironmentTools(profile.tools, settingsManager).includes("powershell")
+          ? [createPowerShellOutputExtension(childCwd, () => createEnvironmentOperations(settingsManager, "powershell"))] : []),
+        ...(profile.tools.some(name => name === "bash" || name === "powershell") ? [createProjectCommandBashExtension({ cwd: childCwd, settings: settingsManager, environmentSettings: settingsManager })] : []),
         ...(codemodeExtension ? [codemodeExtension] : []),
         ...(mcp ? [...mcp.extensions, createSubagentMcpPolicyExtension(() => mcpScope)] : []),
         ...(skillsBinding.loaderOptions.extensionFactories ?? []),
@@ -338,11 +343,12 @@ export function createSubagentController(
         resourceLoaderOptions: {
           ...subagentExtensionLoaderOptions({ ...profile, mcp: mcpEnabled }),
           ...skillsBinding.loaderOptions,
+          ...(profile.loadSkills ? { additionalSkillPaths: additionalGlobalSkillPaths(agentDir) } : {}),
           ...(extensionFactories.length > 0 ? { extensionFactories } : {}),
           noPromptTemplates: true,
           noThemes: true,
           noContextFiles: true,
-          extensionsOverride: preferUserPowerShellExtension,
+          extensionsOverride: base => preferUserPowerShellExtension(preferUserBashExtension(base)),
           ...(chatOnly || promptPlan.exactSystemPrompt !== undefined
             ? {
                 systemPrompt: " ",
@@ -371,9 +377,9 @@ export function createSubagentController(
           )
           : services.resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()])
         : [];
-      const activeTools = resolveShellTools(
+      const activeTools = resolveEnvironmentTools(
         withSubagentExtensionTools(profile.tools, extensionToolNames),
-        settingsManager.getDefaultTools(),
+        settingsManager,
       );
       if (codemodeEnabled && !activeTools.includes("codemode")) activeTools.push("codemode");
       mcpScope.tools = activeTools;

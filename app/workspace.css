@@ -4,6 +4,8 @@ html:not([data-theme="light"]) {--terminal-bg:var(--bg-panel);}
 .workspace-titlebar {height:36px;display:flex;align-items:center;gap:12px;padding:0 12px;background:var(--bg-panel);border-bottom:1px solid var(--border);}
 html[data-desktop] .workspace-titlebar {padding-right:160px;}
 html[data-desktop] .workspace-search-backdrop {top:var(--desktop-titlebar-height,36px);}
+/* 原生按钮不受网页遮罩影响，桌面弹窗从标题栏下方开始，避免右上角色块断层。 */
+html[data-desktop] .project-editor-backdrop,html[data-desktop] .resource-remove-backdrop,html[data-desktop] .directory-picker-backdrop {top:var(--desktop-titlebar-height,36px)!important;}
 .workspace-titlebar>.sidebar-brand {font-family:var(--font-ui, inherit);font-size:13px;font-weight:600;gap:8px;}
 .workspace-titlebar>span {flex:1;text-align:center;font-size:11px;color:var(--text-dim);padding-right:140px;}
 .workspace-shell {position:relative;--workspace-space:24px;}
@@ -424,3 +426,28 @@ html[data-desktop] .workspace-search-backdrop {top:var(--desktop-titlebar-height
 .workspace-terminal {--terminal-error:#9e344a;}
 html.dark .workspace-terminal {--terminal-error:#f1a2ad;}
 .workspace-terminal .terminal-panel-error {color:var(--terminal-error);background:var(--terminal-bg);background:color-mix(in srgb,var(--terminal-error) 8%,var(--terminal-bg));border-color:var(--border);}
+
+/* 所有主导航按钮共用对齐和选中样式，包括新加入的技能入口。 */
+.workspace-rail-items > .workspace-rail-button {display:grid; place-items:center; padding:0; border:0; border-radius:8px; background:transparent; color:var(--text-muted); cursor:pointer; flex:none;}
+.workspace-rail-items > .workspace-rail-button:hover,
+.workspace-rail-items > .workspace-rail-button.is-active,
+.workspace-rail-items > .workspace-rail-button.is-dragging {background:var(--bg-selected); color:var(--accent);}
+.workspace-rail-items > .workspace-rail-button.is-dragging {cursor:grabbing;}
+.workspace-rail-button > svg {display:block; width:19px; height:19px;}
+
+/* 会话搜索保留已有匹配选项与键盘导航。 */
+.find-options {display:inline-flex;align-items:center;gap:1px;flex:none;}
+.find-options>button {display:inline-flex;align-items:center;justify-content:center;flex:none;min-width:25px;height:28px;padding:3px;border:0;border-radius:4px;background:transparent;color:var(--text-muted);font:inherit;cursor:pointer;}
+.find-options>button:hover {background:var(--bg-hover);color:var(--text);}
+.find-options>button[aria-pressed="true"] {background:var(--bg-selected);color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);}
+.find-options>.is-wholeWord {text-decoration:underline;}
+.find-options>button:focus-visible {outline:2px solid var(--accent);outline-offset:1px;}
+.find-error {color:var(--error,#b44141);font-size:11px;margin:5px 20px;}
+.workspace-search-field>.find-options {margin-left:auto;}
+@media(max-width:480px){.find-options>button{min-width:22px;}.workspace-search-field{gap:4px;}.workspace-search-field>kbd{display:none;}}
+
+/* 三个页面共用紧凑的受限状态入口，不新增横幅或改变内容起始高度。 */
+.project-trust-badge {display:inline-flex;align-items:center;justify-content:center;gap:6px;flex-shrink:0;min-height:28px;margin-inline:8px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--warning,#d97706);font:inherit;font-size:11px;line-height:1.35;white-space:nowrap;cursor:pointer;}
+.project-trust-badge:hover {background:color-mix(in srgb,#d97706 9%,transparent);}
+.project-trust-badge:focus-visible {outline:2px solid var(--accent);outline-offset:2px;}
+@media(max-width:600px) {.project-trust-badge {gap:4px;margin-inline:4px;padding-inline:4px;font-size:10px;}}

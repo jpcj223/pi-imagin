@@ -15,12 +15,11 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const cwd = searchParams.get("cwd");
   const filePath = searchParams.get("filePath");
-  if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
   if (!filePath) return NextResponse.json({ error: "filePath required" }, { status: 400 });
 
   try {
     const allowedRoots = await getAllowedFileRoots();
-    if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
+    if (cwd && !isExistingFilePathAllowed(cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 

@@ -23,15 +23,14 @@ export async function checkGeneralSettingsReset(page, { capture = async () => {}
 
   let failSave = true;
   const writes = [];
-  const tools = { isWindows: true, powerShellEnabled: true, codemode: 'automatic', codemodeMode: 'on', codemodeInlineBudget: null };
+  const tools = { profiles: [{ id: 'powershell', label: 'Windows PowerShell', path: 'C:/Windows/powershell.exe', kind: 'powershell', builtin: true, available: true, modelSupported: true }], detected: [], selectedId: 'powershell' };
   const handler = async route => {
     if (route.request().method() === 'GET') return route.fulfill({ json: tools });
     writes.push(route.request().postDataJSON());
     if (failSave) return route.fulfill({ status: 500, json: { error: 'Fixture save failure' } });
-    tools.powerShellEnabled = false;
     return route.fulfill({ json: tools });
   };
-  await page.route('**/api/tools/settings', handler);
+  await page.route('**/api/shell-profiles', handler);
   try {
     await reset.getByRole('button', { name: 'Restore defaults', exact: true }).click();
     await reset.getByRole('button', { name: 'Confirm restore', exact: true }).click();
@@ -52,8 +51,9 @@ export async function checkGeneralSettingsReset(page, { capture = async () => {}
     for (const toggle of await switches.all()) assert.equal(await toggle.getAttribute('aria-checked'), 'false');
     assert.equal(await general.locator('input[name="enter-send-mode"]:checked').inputValue(), 'enter');
     assert.equal(await general.locator('.settings-language-option[aria-checked="true"] .settings-language-label').innerText(), '简体中文');
-    assert.equal(await general.getByRole('switch', { name: '使用 PowerShell 替代 Bash', exact: true }).getAttribute('aria-checked'), 'false');
-    assert.deepEqual(writes, [{ enabled: false }, { enabled: false }], '只恢复 Shell，不覆盖其他工具或 MCP 配置');
+    assert.equal(await general.locator('.shell-settings [role="switch"]').count(), 0);
+    await general.locator('.shell-settings [data-shell-id="powershell"]').waitFor();
+    assert.deepEqual(writes, [{ action: 'reset' }, { action: 'reset' }], '只恢复 Shell，不覆盖其他工具或 MCP 配置');
     const stored = await page.evaluate(() => ({
       ui: localStorage.getItem('pi-ui-font-family'), mono: localStorage.getItem('pi-mono-font-family'),
       uiWeight: localStorage.getItem('pi-ui-font-weight'), monoWeight: localStorage.getItem('pi-mono-font-weight'),
@@ -69,7 +69,7 @@ export async function checkGeneralSettingsReset(page, { capture = async () => {}
     await settings.getByRole('button', { name: '常规', exact: true }).click();
     await general.locator('.settings-language-option').filter({ hasText: 'English' }).click();
   } finally {
-    await page.unroute('**/api/tools/settings', handler);
+    await page.unroute('**/api/shell-profiles', handler);
     await page.evaluate(() => localStorage.removeItem('e2e-preserve-on-reset'));
   }
   console.log('PASS: 常规默认恢复、取消、失败保留与重试、存储与无关配置及草稿保留');

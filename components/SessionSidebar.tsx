@@ -49,6 +49,7 @@ import {
   sessionMenuEntries,
   type SessionMenuActionId,
 } from "@/lib/sidebar-actions";
+import { folderDisplayKey } from "@/lib/project-folder-display";
 import { splitBeforeForkSuffix } from "@/lib/session-fork-name";
 import {
   mergeProjectChoices,
@@ -2147,7 +2148,7 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
   const handleGroupNew = useCallback((project: SidebarProject) => {
     setMenu(null);
     const workspace = managed.state.projects.find(item => `managed:${item.id}` === project.key);
-    if (workspace) { setProjectEditor({ project: workspace, mode: "start" }); return; }
+    if (workspace) { const folder = defaultProjectFolder(workspace); if (folder) void startNewSessionIn({ cwd: folder.path, managedProjectId: workspace.id }); return; }
     startNewSessionIn({
       cwd: project.current && selectedCwd ? selectedCwd : project.root,
       projectKey: project.key,
@@ -2298,7 +2299,7 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
     const workspace = managed.state.projects.find(p => `managed:${p.id}` === project.key);
     return [
       { type: "item", id: "edit-project", label: workspace ? t("project.edit") : t("sidebar.manageProjects"), icon: <PencilIcon />, onSelect: () => setProjectEditor(workspace ? { project: workspace } : { initialPath: project.root, initialName: project.name }) },
-      ...(workspace ? [{ type: "item" as const, id: "new-project-session", label: t("project.startSession"), icon: <PlusIcon />, onSelect: () => setProjectEditor({ project: workspace, mode: "start" }) }] : [{ type: "item" as const, id: "rename-project", label: t("sidebar.renameProject"), icon: <PencilIcon />, onSelect: () => startProjectRename(project) }]),
+      ...(!workspace ? [{ type: "item" as const, id: "rename-project", label: t("sidebar.renameProject"), icon: <PencilIcon />, onSelect: () => startProjectRename(project) }] : []),
       { type: "item", id: "open-in-files", label: t("sidebar.openInFilesTab"), icon: <FolderIcon />, onSelect: () => openProjectInFiles(project) },
       {
         type: "item",
@@ -2521,7 +2522,7 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
       onFocus={(event) => { sidebarFocusRef.current = event.target; }}
       onBlur={(event) => { if (event.relatedTarget === null && !document.hasFocus()) return; if (!event.currentTarget.contains(event.relatedTarget)) sidebarFocusRef.current = null; }}
     >
-      {projectEditor && <ProjectEditor {...projectEditor} recentPaths={recentProjects.map(project => project.root)}
+      {projectEditor && <ProjectEditor {...projectEditor} recentPaths={recentProjects.map(project => project.root)} recentNames={Object.fromEntries(managed.state.projects.flatMap(project => projectExecutionFolders(project).map(folder => [folderDisplayKey(folder.path), folder.name])))}
         onClose={() => {
           const composerOrigin = projectEditorComposerRef.current;
           projectEditorComposerRef.current = null;

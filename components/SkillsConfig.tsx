@@ -1,40 +1,31 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { CopyButton } from "./CopyButton";
+import { ResourceRemoveDialog } from "./ResourceRemoveDialog";
+import { ResourceSidebarGroups, ResourceSidebarRow } from "./ResourceSidebarGroups";
+import { RESOURCE_GROUPS, resourceGroup } from "@/lib/resource-sidebar";
 import type {
-  SkillContentResponse,
   SkillInfo as Skill,
-  SkillInstallScope,
-  SkillSearchResult,
   SkillsResponse,
   SkillToggleResult,
   SkillUpdateResult,
   ProjectTrustStatus,
 } from "@/lib/api-types";
-import { displayPathWithin, shortenPath } from "@/lib/display-path";
+import { shortenPath } from "@/lib/display-path";
 import { parseFrontmatter } from "@/lib/frontmatter";
 import {
-  getLastSettingsSelection,
-  setLastSettingsSelection,
-} from "@/lib/settings-navigation";
-import {
-  ConfigAddSourceHeading,
   ConfigButton,
-  ConfigDetail,
   ConfigDetailActions,
   ConfigDetailHeader,
   ConfigDetailHeaderInfo,
   ConfigDetailStack,
-  ConfigEmptyState,
   ConfigField,
   ConfigFooter,
-  ConfigListAction,
   ConfigPanelShell,
-  ConfigSaveTarget,
   ConfigScopeTag,
   ConfigSidebar,
-  ConfigSidebarGroupLabel,
   ConfigSidebarGroupStatus,
   ConfigSidebarGroupSwitch,
   ConfigSidebarItem,
@@ -43,10 +34,12 @@ import {
   ConfigSplitView,
   ConfigStatusDot,
   ConfigSwitch,
-  ConfigTrustNotice,
 } from "./SettingsUi";
 import { itemsToSwitch, projectTrustReloadKey } from "./settings-ui-helpers";
 import { MarkdownBody } from "./MarkdownBody";
+import { ResourcePath } from "./ResourcePath";
+import { SkillCatalog } from "./SkillCatalog";
+import { loadInstalledSkillContent, invalidateInstalledSkillContent } from "@/lib/skills-browser-cache";
 
 type SkillScope = "global" | "project" | "path";
 type Translate = ReturnType<typeof useI18n>["t"];
@@ -122,7 +115,7 @@ function SkillDetail({
   onUpdate,
 }: {
   skill: Skill;
-  cwd: string;
+  cwd: string | null;
   onToggle: (skill: Skill) => void;
   toggling: boolean;
   saveError: string | null;
@@ -146,12 +139,8 @@ function SkillDetail({
 
     const load = async () => {
       try {
-        const params = new URLSearchParams({ cwd, filePath: skill.filePath });
-        const response = await fetch(`/api/skills/content?${params}`, { signal: controller.signal });
-        const data = (await response.json()) as Partial<SkillContentResponse> & { error?: string };
-        if (!response.ok || data.error || typeof data.content !== "string") {
-          throw new Error(data.error ?? `HTTP ${response.status}`);
-        }
+        const data = await loadInstalledSkillContent(cwd, skill.filePath, controller.signal);
+        if (controller.signal.aborted) return;
         setInstructions(skillInstructionsBody(data.content));
       } catch (error) {
         if (controller.signal.aborted) return;
@@ -170,9 +159,7 @@ function SkillDetail({
         <ConfigDetailHeader>
           <ConfigDetailHeaderInfo>
             <ConfigScopeTag scope={label}>{scopeLabel(label, t)}</ConfigScopeTag>
-            <span className="config-detail-path">
-              {label === "project" ? displayPathWithin(skill.filePath, cwd) : shortenPath(skill.filePath)}
-            </span>
+            <ResourcePath path={skill.filePath} />
           </ConfigDetailHeaderInfo>
           <ConfigDetailActions>
             <ConfigSwitch
@@ -299,335 +286,119 @@ function SkillDetail({
   );
 }
 
-function AddSkillPanel({
-  cwd,
-  installedPackages,
-  projectResourcesLoaded,
-  onInstalled,
-}: {
-  cwd: string;
-  installedPackages: Record<SkillInstallScope, ReadonlySet<string>>;
-  projectResourcesLoaded: boolean;
-  onInstalled: () => void;
-}) {
-  const { t } = useI18n();
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SkillSearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const [installing, setInstalling] = useState<string | null>(null);
-  const [installError, setInstallError] = useState<string | null>(null);
-  const [newlyInstalledPkgs, setNewlyInstalledPkgs] = useState<Set<string>>(
-    new Set(),
-  );
-  const [scope, setScope] = useState<"global" | "project">("global");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  const search = useCallback(async (q: string) => {
-    if (!q.trim()) return;
-    setSearching(true);
-    setSearchError(null);
-    setResults([]);
-    try {
-      const res = await fetch("/api/skills/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q.trim() }),
-      });
-      const d = (await res.json()) as {
-        results?: SkillSearchResult[];
-        error?: string;
-      };
-      if (d.error) {
-        setSearchError(d.error);
-        return;
-      }
-      setResults(d.results ?? []);
-      if ((d.results ?? []).length === 0) setSearchError(t("i18n.noSkills"));
-    } catch (e) {
-      setSearchError(String(e));
-    } finally {
-      setSearching(false);
-    }
-  }, [t]);
-
-  const install = useCallback(
-    async (pkg: string) => {
-      setInstalling(pkg);
-      setInstallError(null);
-      try {
-        const res = await fetch("/api/skills/install", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ package: pkg, scope, cwd }),
-        });
-        const d = (await res.json()) as { success?: boolean; error?: string };
-        if (!res.ok || d.error) {
-          setInstallError(d.error ?? `HTTP ${res.status}`);
-          return;
-        }
-        setNewlyInstalledPkgs((prev) =>
-          new Set(prev).add(`${scope}:${pkg}`),
-        );
-        onInstalled();
-      } catch (e) {
-        setInstallError(String(e));
-      } finally {
-        setInstalling(null);
-      }
-    },
-    [onInstalled, scope, cwd],
-  );
-
-  const installPath =
-    scope === "global"
-      ? "~/.pi/agent/skills/"
-      : `${shortenPath(cwd)}/.pi/skills/`;
-
-  return (
-    <ConfigDetailStack className="is-full-height">
-      {/* ── Header area ── */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-          marginBottom: 20,
-        }}
-      >
-        <ConfigAddSourceHeading
-          title={t("i18n.addSkill")}
-          catalogs={[{ href: "https://skills.sh", label: "skills.sh" }]}
-          target={
-            <ConfigSaveTarget
-              value={scope}
-              label={t("config.saveTo")}
-              options={[
-                { value: "global", label: scopeLabel("global", t) },
-                { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
-              ]}
-              path={installPath}
-              disabledReason={t("trust.projectScopeUnavailable")}
-              onChange={setScope}
-            />
-          }
-        />
-
-        {/* Search row */}
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") search(query);
-            }}
-             placeholder={t("i18n.skillSearchPlaceholder")}
-            style={{
-              flex: 1,
-              padding: "7px 10px",
-              fontSize: 12,
-              background: "var(--bg-panel)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              color: "var(--text)",
-              outline: "none",
-            }}
-          />
-          <ConfigButton
-            variant="primary"
-            onClick={() => search(query)}
-            disabled={searching || !query.trim()}
-          >
-             {searching ? t("i18n.searching") : t("i18n.search")}
-          </ConfigButton>
-        </div>
-
-        {/* Errors */}
-        {searchError && (
-          <div style={{ fontSize: 12, color: "#f87171" }}>{searchError}</div>
-        )}
-        {installError && (
-          <div
-            style={{ fontSize: 12, color: "#f87171", wordBreak: "break-word" }}
-          >
-            {installError}
-          </div>
-        )}
-      </div>
-
-      {/* ── Results list ── */}
-      {results.length > 0 && (
-        <div style={{ flex: 1, overflowY: "auto" }}>
-          {results.map((r) => {
-            const isInstalled =
-              installedPackages[scope].has(r.package) ||
-              newlyInstalledPkgs.has(`${scope}:${r.package}`);
-            const isInstalling = installing === r.package;
-            // split "owner/repo@skill" for cleaner display
-            const atIdx = r.package.indexOf("@");
-            const repopart = atIdx > -1 ? r.package.slice(0, atIdx) : r.package;
-            const skillpart = atIdx > -1 ? r.package.slice(atIdx + 1) : null;
-            return (
-              <div
-                key={r.package}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 14,
-                  padding: "12px 0",
-                  borderBottom: "1px solid var(--border)",
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  {/* skill name prominent */}
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: "var(--text)",
-                      marginBottom: 3,
-                    }}
-                  >
-                    {skillpart ?? repopart}
-                  </div>
-                  {/* repo + installs + link row */}
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 11,
-                        color: "var(--text-dim)",
-                      }}
-                    >
-                      {repopart}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 12,
-                        color: "var(--text-muted)",
-                        fontWeight: 500,
-                      }}
-                    >
-                      {r.installs}
-                    </span>
-                    {r.url && (
-                      <a
-                        href={r.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          fontSize: 12,
-                          color: "var(--accent)",
-                          textDecoration: "none",
-                        }}
-                      >
-                        skills.sh ↗
-                      </a>
-                    )}
-                  </div>
-                </div>
-                <ConfigButton
-                  size="small"
-                  onClick={() =>
-                    !isInstalled && !isInstalling && install(r.package)
-                  }
-                  disabled={isInstalled || isInstalling || installing !== null}
-                  style={{
-                    flexShrink: 0,
-                    background: isInstalled ? "rgba(34,197,94,0.1)" : "none",
-                    color: isInstalled
-                      ? "#16a34a"
-                      : isInstalling
-                        ? "var(--accent)"
-                        : "var(--text-muted)",
-                  }}
-                >
-                  {isInstalled
-                     ? `✓ ${t("i18n.installed")}`
-                    : isInstalling
-                       ? t("i18n.installing")
-                       : t("i18n.install")}
-                </ConfigButton>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </ConfigDetailStack>
-  );
-}
-
 export function SkillsConfig({
   cwd,
   onClose,
   embedded = false,
+  active = true,
+  workspace = false,
   trust,
+  targetScope,
+  targetPending = false,
+  renderInstallTarget,
 }: {
-  cwd: string;
+  cwd: string | null;
   onClose: () => void;
   embedded?: boolean;
+  active?: boolean;
+  workspace?: boolean;
   /** The page's trust status for `cwd`; a new decision loads the list again. */
   trust?: ProjectTrustStatus | null;
+  targetScope?: "global" | "project";
+  renderInstallTarget?: (path?: string, state?: { loading?: boolean; busy?: boolean }) => ReactNode;
+  targetPending?: boolean;
 }) {
   const { t } = useI18n();
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [loadedCwd, setLoadedCwd] = useState<string | null>();
+  const switchingTarget = loadedCwd !== cwd;
+  const resourcePending = targetPending || switchingTarget;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(() => getLastSettingsSelection("skills", cwd));
+  const [selected, setSelected] = useState<string | null>(null);
   const [toggling, setToggling] = useState<Set<string>>(new Set());
   const [saveError, setSaveError] = useState<string | null>(null);
   // The group switch that is running, and what the last one left undone.
   const [bulkGroup, setBulkGroup] = useState<string | null>(null);
   const [groupStatus, setGroupStatus] = useState<{ group: string; error: string } | null>(null);
-  const [addMode, setAddMode] = useState(false);
+  const [mobileList, setMobileList] = useState(false);
+  const [catalogBrowse, setCatalogBrowse] = useState(0);
+  const returnToCatalog = () => { setSelected(null); setMobileList(false); setCatalogBrowse(value => value + 1); };
+  const [filter, setFilter] = useState("");
+  const warmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const warmController = useRef<AbortController | null>(null);
+  const stopWarm = () => { if (warmTimer.current) clearTimeout(warmTimer.current); warmController.current?.abort(); };
+  const warmSkill = (skill: Skill) => {
+    stopWarm();
+    warmTimer.current = setTimeout(() => {
+      const controller = new AbortController(); warmController.current = controller;
+      void loadInstalledSkillContent(cwd, skill.filePath, controller.signal).catch(() => {});
+    }, 180);
+  };
+  useEffect(() => () => { if (warmTimer.current) clearTimeout(warmTimer.current); warmController.current?.abort(); }, []);
+  useEffect(() => { if (active) { setSelected(null); setMobileList(false); } }, [active]);
   const [updateStatuses, setUpdateStatuses] = useState<Record<string, SkillUpdateResult>>({});
   const [checkingUpdates, setCheckingUpdates] = useState<Set<string>>(new Set());
   const [checkingAll, setCheckingAll] = useState(false);
   const [updatingSkill, setUpdatingSkill] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [projectResourcesLoaded, setProjectResourcesLoaded] = useState(true);
+  const [globalSkillsPath, setGlobalSkillsPath] = useState("~/.pi/agent/skills/");
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
+  const loadSequence = useRef(0);
+  const currentCwd = useRef(cwd);
+  useEffect(() => { currentCwd.current = cwd; }, [cwd]);
   const loadSkills = useCallback(async () => {
+    if (currentCwd.current !== cwd) return [];
+    const sequence = ++loadSequence.current;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/skills?cwd=${encodeURIComponent(cwd)}`);
+      const res = await fetch(`/api/skills${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ""}`);
       const d = (await res.json()) as Partial<SkillsResponse> & { error?: string };
       if (!res.ok || d.error) throw new Error(d.error ?? `HTTP ${res.status}`);
       const list = d.skills ?? [];
+      if (sequence !== loadSequence.current || currentCwd.current !== cwd) return list;
       setSkills(list);
+      setLoadedCwd(cwd);
+      setGlobalSkillsPath(d.globalSkillsPath ?? "~/.pi/agent/skills/");
       setProjectResourcesLoaded(d.projectResourcesLoaded ?? true);
       setSelected((current) => {
         if (current && list.some((skill) => skill.filePath === current)) return current;
-        const initialSkill = list.find((skill) => !skill.disableModelInvocation) ?? list[0];
-        return initialSkill?.filePath ?? null;
+        return null;
       });
       return list;
     } catch (e) {
-      setError(String(e));
-      return [];
+      if (sequence === loadSequence.current && currentCwd.current === cwd) setError(String(e));
+      throw e;
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current && currentCwd.current === cwd) setLoading(false);
     }
   }, [cwd]);
 
   useEffect(() => {
     setUpdateStatuses({});
     setUpdateError(null);
-    void loadSkills();
+    setSaveError(null); setRemoveError(null); setConfirmRemove(null);
+    void loadSkills().catch(() => {});
   }, [cwd]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const removeSelectedSkill = async (skill: Skill) => {
+    if (removing) return;
+    setRemoving(true); setRemoveError(null);
+    try {
+      const response = await fetch("/api/skills", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filePath: skill.filePath, cwd }) });
+      const result = await response.json();
+      if (!response.ok || result.error) throw new Error(result.error ?? `HTTP ${response.status}`);
+      invalidateInstalledSkillContent(cwd, skill.filePath);
+      await loadSkills();
+      setConfirmRemove(null); if (selected === skill.filePath) returnToCatalog();
+    } catch (error) { setRemoveError(error instanceof Error ? error.message : String(error)); }
+    finally { setRemoving(false); }
+  };
 
   // Whether the project's skills load follows its trust, which can change while
   // this section stays mounted (hidden) in Settings: trusting from Settings ›
@@ -638,12 +409,9 @@ export function SkillsConfig({
   useEffect(() => {
     if (loadedTrustKeyRef.current === trustKey) return;
     loadedTrustKeyRef.current = trustKey;
-    void loadSkills();
-  }, [trustKey, loadSkills]);
+    if (trust && loadedCwd === cwd && trust.trusted !== projectResourcesLoaded) void loadSkills().catch(() => {});
+  }, [trustKey, loadSkills, trust, loadedCwd, cwd, projectResourcesLoaded]);
 
-  useEffect(() => {
-    if (selected) setLastSettingsSelection("skills", selected, cwd);
-  }, [cwd, selected]);
 
   const checkForUpdates = useCallback(async (skill?: Skill) => {
     const targets = skill
@@ -714,6 +482,7 @@ export function SkillsConfig({
       if (!res.ok || data.error || !data.success) {
         throw new Error(data.error ?? `HTTP ${res.status}`);
       }
+      invalidateInstalledSkillContent(cwd, skill.filePath);
       await loadSkills();
       const versionHash = data.skill?.install?.versionHash;
       setUpdateStatuses((current) => ({
@@ -816,23 +585,26 @@ export function SkillsConfig({
   }, [t]);
 
   const selectedSkill = skills.find((s) => s.filePath === selected) ?? null;
-  const bulkBusy = loading || toggling.size > 0 || updatingSkill !== null;
+  const removalSkill = skills.find(skill => skill.filePath === confirmRemove);
+  const targetBusy = toggling.size > 0 || updatingSkill !== null || removing || checkingUpdates.size > 0;
+  const bulkBusy = resourcePending || loading || toggling.size > 0 || updatingSkill !== null || removing;
 
   return (
-    <ConfigPanelShell embedded={embedded} title={t("common.skills")} subtitle={shortenPath(cwd)} closeLabel={t("i18n.close")} onClose={onClose}>
+    <div className={`skills-config${workspace ? " is-workspace" : ""}${mobileList ? " is-list" : ""}`}><ConfigPanelShell embedded={embedded} title={t("common.skills")} subtitle={cwd ? shortenPath(cwd) : undefined} closeLabel={t("i18n.close")} onClose={onClose}>
 
-        {!projectResourcesLoaded && <ConfigTrustNotice message={t("trust.skillsNotLoaded")} />}
+
 
         {/* Body */}
         <ConfigSplitView>
           {/* Left: skill list */}
           <ConfigSidebar>
-            <ConfigSidebarList>
-              {loading ? (
+            <div className="skills-installed-search"><label><span>{t("skills.catalog.installed")} <small>{loadedCwd === undefined ? "—" : skills.length}</small></span><input type="search" className="plugins-search-input" aria-label={t("skills.catalog.filter")} placeholder={t("skills.catalog.filter")} value={filter} onChange={event => setFilter(event.target.value)} /></label></div>
+            <div className="resource-installed-list" aria-busy={loading || resourcePending}><ConfigSidebarList>
+              {loading && skills.length === 0 ? (
                 <div className="config-sidebar-message">
                    {t("i18n.loading")}
                 </div>
-              ) : error ? (
+              ) : error && loadedCwd === undefined ? (
                 <div className="config-sidebar-message is-error">
                   {error}
                 </div>
@@ -840,66 +612,32 @@ export function SkillsConfig({
                 <div className="config-sidebar-message is-empty">
                    {t("i18n.noSkills")}
                 </div>
+              ) : !skills.some(skill => `${skill.name} ${skill.description}`.toLocaleLowerCase().includes(filter.trim().toLocaleLowerCase())) ? (
+                <div className="config-sidebar-message is-empty">{t("skills.catalog.empty")}</div>
               ) : (
                 (() => {
-                  const groups: { label: string; skills: typeof skills }[] = [];
-                  const scopeLabels = {
-                    project: t("skills.scope.project"),
-                    global: t("skills.scope.global"),
-                    path: t("skills.scope.path"),
-                  };
-                  const groupDefinitions = [
-                    {
-                      label: `${scopeLabels.project} / skills.sh`,
-                      matches: (skill: Skill) =>
-                        sourceLabel(skill) === "project" &&
-                        Boolean(skill.install?.skillsShUrl),
-                    },
-                    {
-                      label: scopeLabels.project,
-                      matches: (skill: Skill) =>
-                        sourceLabel(skill) === "project" &&
-                        !skill.install?.skillsShUrl,
-                    },
-                    {
-                      label: `${scopeLabels.global} / skills.sh`,
-                      matches: (skill: Skill) =>
-                        sourceLabel(skill) === "global" &&
-                        Boolean(skill.install?.skillsShUrl),
-                    },
-                    {
-                      label: scopeLabels.global,
-                      matches: (skill: Skill) =>
-                        sourceLabel(skill) === "global" &&
-                        !skill.install?.skillsShUrl,
-                    },
-                    {
-                      label: scopeLabels.path,
-                      matches: (skill: Skill) => sourceLabel(skill) === "path",
-                    },
-                  ];
-                  for (const { label, matches } of groupDefinitions) {
-                    const grpSkills = skills.filter(matches);
-                    if (grpSkills.length > 0)
-                      groups.push({ label, skills: grpSkills });
-                  }
+                  const groups = RESOURCE_GROUPS.map(id => ({ id, label: t(id === "external" ? "resources.external" : id === "global" ? "skills.scope.global" : "skills.scope.project"), skills: skills.filter(skill => resourceGroup(sourceLabel(skill), skill.installOrigin) === id) }))
+                    .filter(group => group.skills.some(skill => `${skill.name} ${skill.description}`.toLocaleLowerCase().includes(filter.trim().toLocaleLowerCase())));
                   const renderSkillRow = (skill: Skill) => {
                     const isSelected =
-                      !addMode && selected === skill.filePath;
+                      selected === skill.filePath;
                     const disabled = skill.disableModelInvocation;
                     return (
-                      <ConfigSidebarItem
-                        key={skill.filePath}
+                      <ResourceSidebarRow key={skill.filePath} name={skill.name} disabled={bulkBusy || !skill.canRemove} reason={!skill.canRemove ? t("skills.removeManaged") : undefined} onRemove={() => { setRemoveError(null); setConfirmRemove(skill.filePath); }}>
+                      <ConfigSidebarItem disabled={resourcePending}
                         active={isSelected}
+                        onPointerEnter={() => warmSkill(skill)} onPointerLeave={stopWarm} onFocus={() => warmSkill(skill)} onBlur={stopWarm}
                         onClick={() => {
-                          setSelected(skill.filePath);
-                          setAddMode(false);
+                          setSelected(current => current === skill.filePath ? null : skill.filePath);
+                          setMobileList(false); setCatalogBrowse(value => value + 1);
+                          stopWarm();
                         }}
                       >
                         <ConfigStatusDot active={!disabled} />
                         <ConfigSidebarText className={`is-grow${disabled ? " is-muted" : ""}`}>
                           {skill.name}
                         </ConfigSidebarText>
+                        {sourceLabel(skill) === "project" && <span className="resource-origin-tag">{t(skill.installOrigin === "app" ? "resources.appInstalled" : "resources.external")}</span>}
                         {(() => {
                           const key = updateKey(skill);
                           const status = key ? updateStatuses[key] : undefined;
@@ -910,54 +648,36 @@ export function SkillsConfig({
                             </span>
                           );
                         })()}
-                      </ConfigSidebarItem>
+                      </ConfigSidebarItem></ResourceSidebarRow>
                     );
                   };
-                  return groups.map(
-                    ({ label: grpLabel, skills: grpSkills }) => {
-                      const visible = grpSkills.filter((skill) => !skill.disableModelInvocation).length;
-                      const allVisible = visible === grpSkills.length;
-                      return (
-                        <div key={grpLabel} className="config-sidebar-group">
-                          <ConfigSidebarGroupLabel
-                            aside={
-                              <ConfigSidebarGroupSwitch
-                                enabled={visible}
-                                total={grpSkills.length}
-                                disabled={bulkBusy}
-                                loading={bulkGroup === grpLabel}
-                                label={t(allVisible ? "skills.groupSwitchOn" : "skills.groupSwitchOff", { group: grpLabel })}
-                                onChange={(enabled) => void setGroupSkills(grpLabel, grpSkills, enabled)}
-                              />
-                            }
-                          >
-                            {grpLabel}
-                          </ConfigSidebarGroupLabel>
-                          {groupStatus?.group === grpLabel && <ConfigSidebarGroupStatus error={groupStatus.error} />}
-                          {orderSkillsByDormancy(grpSkills).map(renderSkillRow)}
-                        </div>
-                      );
-                    },
-                  );
+                  return <ResourceSidebarGroups kind="skills" searching={!!filter.trim()} groups={groups.map(({ id, label, skills: groupSkills }) => {
+                    const enabled = groupSkills.filter(skill => !skill.disableModelInvocation).length;
+                    return { id, label, controls: <ConfigSidebarGroupSwitch enabled={enabled} total={groupSkills.length} disabled={bulkBusy} loading={bulkGroup === id} label={t(enabled === groupSkills.length ? "skills.groupSwitchOn" : "skills.groupSwitchOff", { group: label })} onChange={value => void setGroupSkills(id, groupSkills, value)} />,
+                      status: groupStatus?.group === id && <ConfigSidebarGroupStatus error={groupStatus.error} />,
+                      children: orderSkillsByDormancy(groupSkills).filter(skill => `${skill.name} ${skill.description}`.toLocaleLowerCase().includes(filter.trim().toLocaleLowerCase())).map(renderSkillRow) };
+                  })} />;
                 })()
               )}
-            </ConfigSidebarList>
-            {/* Add skill button */}
-            <ConfigListAction
-                onClick={() => setAddMode(true)}
-                active={addMode}
-              >
-                 {t("i18n.addSkill")}
-            </ConfigListAction>
+            </ConfigSidebarList></div>
           </ConfigSidebar>
 
           {/* Right: detail or add panel */}
-          <ConfigDetail>
-            <ConfigDetailStack className="is-fill">
-              {addMode ? (
-              <AddSkillPanel
+          <div className="skills-content">
+            <div className="skills-catalog-host" hidden={selectedSkill !== null}>
+              <SkillCatalog
+                globalSkillsPath={globalSkillsPath}
+                active={active && selectedSkill === null}
+                sectionActive={active}
+                resetKey={catalogBrowse}
+                navigation={<button type="button" className="skills-list-back" onClick={() => setMobileList(true)}>{t("skills.catalog.installed")} ({skills.length})</button>}
                 cwd={cwd}
-                projectResourcesLoaded={projectResourcesLoaded}
+                targetScope={targetScope}
+                targetPending={resourcePending || !!error}
+                renderInstallTarget={renderInstallTarget ? (path, state) => renderInstallTarget(path, { loading: loading || (resourcePending && !error) || state?.loading, busy: targetBusy || state?.busy }) : undefined}
+                projectResourcesLoaded={projectResourcesLoaded && (targetScope !== "project" || trust?.trusted === true)}
+                installedSkills={skills}
+                onOpenInstalled={filePath => { setSelected(filePath); setMobileList(false); stopWarm(); }}
                 installedPackages={{
                   global: new Set(
                     skills
@@ -970,17 +690,21 @@ export function SkillsConfig({
                       .map((skill) => skill.install!.package),
                   ),
                 }}
-                onInstalled={() => {
-                  void loadSkills();
-                }}
+                onInstalled={loadSkills}
               />
-            ) : loading ? null : selectedSkill ? (
+            </div>
+            {selectedSkill && <div className="skills-installed-view" key={selectedSkill.filePath}>
+              <div className="skills-installed-toolbar"><button type="button" className="skills-list-back" onClick={() => setMobileList(true)}>{t("skills.catalog.installed")} ({skills.length})</button><ConfigButton size="small" onClick={returnToCatalog}>{t("resources.back")}</ConfigButton><span className="resource-name-row"><strong>{selectedSkill.name}</strong><CopyButton value={selectedSkill.name} /></span></div>
+              {!selectedSkill.canRemove && <p className="skills-removal-note">{t("skills.removeManaged")}</p>}
+
+              {removeError && <p role="alert" className="skills-install-error">{removeError}</p>}
+              <div className="skills-installed-detail">
               <SkillDetail
                 key={selectedSkill.filePath}
                 skill={selectedSkill}
                 cwd={cwd}
                 onToggle={toggle}
-                toggling={toggling.has(selectedSkill.filePath)}
+                toggling={resourcePending || toggling.has(selectedSkill.filePath)}
                 saveError={saveError}
                 updateStatus={
                   updateKey(selectedSkill)
@@ -997,15 +721,15 @@ export function SkillsConfig({
                 onCheckUpdate={() => void checkForUpdates(selectedSkill)}
                 onUpdate={() => void updateInstalledSkill(selectedSkill)}
               />
-              ) : (
-                <ConfigEmptyState>{t("i18n.selectSkill")}</ConfigEmptyState>
-              )}
-            </ConfigDetailStack>
-          </ConfigDetail>
+            </div></div>}
+          </div>
         </ConfigSplitView>
 
+        {removalSkill && <ResourceRemoveDialog name={removalSkill.name} description={t("skills.removeConfirm", { name: removalSkill.name })} busy={removing} error={removeError} onCancel={() => setConfirmRemove(null)} onConfirm={() => void removeSelectedSkill(removalSkill)} />}
+
+        {error && loadedCwd !== undefined && <p className="resource-load-error" role="alert">{error}<ConfigButton size="small" onClick={() => void loadSkills().catch(() => {})}>{t("plugins.retry")}</ConfigButton></p>}
         {/* Footer */}
-        <ConfigFooter status={
+        <ConfigFooter status={<><span>{t("skills.catalog.installedCount", { count: skills.length })}</span>{
             Object.values(updateStatuses).filter(
               (status) => status.state === "update-available",
             ).length > 0 && (
@@ -1021,15 +745,15 @@ export function SkillsConfig({
                    ? t("i18n.update")
                    : t("i18n.updates")}
               </span>
-            )}
+            )}</>}
         >
           {!embedded && <ConfigButton onClick={onClose}>{t("i18n.close")}</ConfigButton>}
           {skills.some((skill) => Boolean(skill.install)) && (
-            <ConfigButton variant="secondary" onClick={() => void checkForUpdates()} disabled={checkingAll || updatingSkill !== null}>
+            <ConfigButton variant="secondary" onClick={() => void checkForUpdates()} disabled={resourcePending || checkingAll || updatingSkill !== null}>
               {checkingAll ? t("i18n.checking") : t("i18n.checkUpdates")}
             </ConfigButton>
           )}
         </ConfigFooter>
-    </ConfigPanelShell>
+    </ConfigPanelShell></div>
   );
 }

@@ -7,6 +7,9 @@ import type { SkillToggleResult } from "@/lib/api-types";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
 import { setDisableModelInvocation } from "@/lib/skill-frontmatter";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { removeSkillInstallation } from "@/lib/skill-removal";
+import { cliGlobalSkillsRoot } from "@/lib/skill-locations";
 
 export const dynamic = "force-dynamic";
 
@@ -16,16 +19,33 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const cwd = searchParams.get("cwd");
-  if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
 
   try {
     const allowedRoots = await getAllowedFileRoots();
-    if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
+    if (cwd && !isExistingFilePathAllowed(cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
     return NextResponse.json(await loadSkillsWithInstallInfo(cwd));
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  if (!hasJsonContentType(req)) return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  try {
+    const { filePath, cwd } = await req.json();
+    if (typeof filePath !== "string" || (cwd != null && typeof cwd !== "string")) return NextResponse.json({ error: "Invalid skill path" }, { status: 400 });
+    if (cwd && !isExistingFilePathAllowed(cwd, await getAllowedFileRoots())) return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    const data = await loadSkillsWithInstallInfo(cwd);
+    const skill = data.skills.find(item => path.resolve(item.filePath) === path.resolve(filePath));
+    if (!skill) return NextResponse.json({ error: "Skill not found" }, { status: 404 });
+    if (!skill.canRemove) return NextResponse.json({ error: "Manage this skill through its owning plugin or source directory" }, { status: 403 });
+    await removeSkillInstallation(skill, getAgentDir(), cwd);
+    return NextResponse.json({ success: true, ...(await loadSkillsWithInstallInfo(cwd)) });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }
 
@@ -38,6 +58,7 @@ async function getSkillEditRoots(): Promise<Set<string>> {
   // too (the SDK always treats ~/.agents/skills as trusted).
   const globalSkillsDir = path.join(homedir(), ".agents", "skills");
   if (existsSync(globalSkillsDir)) allowedRoots.add(globalSkillsDir);
+  if (existsSync(cliGlobalSkillsRoot())) allowedRoots.add(cliGlobalSkillsRoot());
   return allowedRoots;
 }
 

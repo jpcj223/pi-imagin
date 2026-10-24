@@ -94,14 +94,15 @@ export async function changeManagedProject(change: ProjectChange, file = managed
       return;
     }
     if (change.action !== "save") throw new ProjectStateError("未知项目操作。");
-    const name = title(change.name, "项目名称");
+    const rawName = change.name;
     if (!Array.isArray(change.folders) || change.folders.length > 16) throw new ProjectStateError("每个项目最多关联 16 个文件夹。");
     if (!existing && state.projects.length >= 1000) throw new ProjectStateError("项目数量已达到上限。", 409);
     const folders = change.folders.map(folder => {
       const path = canonicalProjectFolder(folder?.path);
       const previous = existing?.folders.find(f => projectIdentityKey(f.path) === projectIdentityKey(path));
-      return { id: previous?.id ?? randomUUID(), name: title(folder.name ?? (basename(path) || path), "文件夹名称"), path };
+      return { id: previous?.id ?? randomUUID(), name: title(typeof folder.name === "string" && !folder.name.trim() || folder.name == null ? (basename(path) || path) : folder.name, "文件夹名称"), path };
     });
+    const name = title(typeof rawName === "string" && !rawName.trim() && folders.length ? (basename(folders.find(folder => folder.path === change.defaultPath)?.path || folders[0].path) || folders[0].path) : rawName, "项目名称");
     if (new Set(folders.map(f => projectIdentityKey(f.path))).size !== folders.length) throw new ProjectStateError("不能重复关联同一个真实目录。");
     const id = existing?.id ?? randomUUID();
     const workspace = existing?.workspace ?? (!folders.length ? { id: "workspace", name: "项目工作区", path: projectWorkspacePath(id, file), initialized: false } : undefined);

@@ -14,9 +14,8 @@ export async function POST(req: Request) {
       scope?: unknown;
     };
     const cwd = typeof body.cwd === "string" ? body.cwd : "";
-    if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
     const allowedRoots = await getAllowedFileRoots();
-    if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
+    if (cwd && !isExistingFilePathAllowed(cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
@@ -24,11 +23,12 @@ export async function POST(req: Request) {
     const scope = body.scope === "global" || body.scope === "project"
       ? body.scope as SkillInstallScope
       : undefined;
+    if (!cwd && scope === "project") return NextResponse.json({ error: "cwd required for project skills" }, { status: 400 });
     if ((pkg && !scope) || (!pkg && scope)) {
       return NextResponse.json({ error: "package and scope must be provided together" }, { status: 400 });
     }
 
-    const { skills } = await loadSkillsWithInstallInfo(cwd);
+    const { skills } = await loadSkillsWithInstallInfo(scope === "global" ? null : cwd);
     const installs = skills
       .map((skill) => skill.install)
       .filter((install): install is NonNullable<typeof install> => Boolean(install))

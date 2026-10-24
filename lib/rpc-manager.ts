@@ -1,3 +1,5 @@
+import { isAppDefaultWorkspace } from "./default-workspace";
+import { additionalGlobalSkillPaths } from "./skill-locations";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
@@ -41,7 +43,8 @@ import {
 } from "./subagents";
 import { createSubagentController } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
-import { resolveShellTools } from "./powershell-settings";
+import { resolveEnvironmentTools } from "./shell-profiles";
+import { createEnvironmentOperations } from "./shell-profile-operations";
 import { createPowerShellOutputExtension, preferUserPowerShellExtension } from "./powershell-operations";
 import { createConversationGuidanceExtension } from "./conversation-guidance";
 import { createCredentialFileGuardExtension } from "./credential-file-guard";
@@ -282,9 +285,9 @@ export function resolveActiveToolNames(
 
   const codingToolNames = new Set(CODING_TOOL_NAMES);
   const registered = new Map(session.getAllTools().map((tool) => [tool.name, tool]));
-  const selectedToolNames = resolveShellTools(
+  const selectedToolNames = resolveEnvironmentTools(
     requested.filter((name) => codingToolNames.has(name)),
-    session.settingsManager.getDefaultTools(),
+    session.settingsManager,
   );
   const carriedToolNames = carry.filter((name) => {
     const tool = registered.get(name);
@@ -2054,7 +2057,7 @@ export class AgentSessionWrapper {
 
   private syncProjectTrust(): void {
     const status = getProjectTrustStatus(this.cwd, getAgentDir());
-    this.inner.settingsManager.setProjectTrusted(status.trusted);
+    this.inner.settingsManager.setProjectTrusted(status.trusted && !status.defaultWorkspace);
   }
 }
 
@@ -2410,7 +2413,7 @@ export async function startRpcSession(
       : chatOnly
         ? undefined
         : projectTrustReloadOptions(sessionCwd, agentDir);
-    const settingsManager = SettingsManager.create(sessionCwd, agentDir);
+    const settingsManager = SettingsManager.create(sessionCwd, agentDir, isAppDefaultWorkspace(sessionCwd, agentDir) ? { projectTrusted: false } : undefined);
     // Chat-only sessions and subagents that replace Pi's prompt send an exact
     // system prompt. The prompt is resolved at prompt time through this inline
     // extension: it may read the session's context files, which exist only
@@ -2446,7 +2449,8 @@ export async function startRpcSession(
     const subagentExtensionFactories = [
       // 只增加权限守卫，不扩展子智能体快照中允许的工具。
       createCredentialFileGuardExtension(agentDir),
-      ...(process.platform === "win32" && subagentResources?.tools.includes("powershell") ? [createPowerShellOutputExtension(sessionCwd)] : []),
+      ...(subagentResources?.tools.some(name => name === "powershell" || name === "bash") ? [createPowerShellOutputExtension(sessionCwd, () => createEnvironmentOperations(settingsManager, "powershell"))] : []),
+      ...(subagentResources?.tools.some(name => name === "powershell" || name === "bash") ? [createProjectCommandBashExtension({ cwd: sessionCwd, settings: settingsManager, environmentSettings: settingsManager })] : []),
       ...(subagentCodemode ? [subagentCodemode] : []),
       ...(subagentMcp && subagentResources
         ? [...subagentMcp.extensions, createSubagentMcpPolicyExtension(() => subagentResources)]
@@ -2461,11 +2465,12 @@ export async function startRpcSession(
         ? {
             ...subagentExtensionLoaderOptions(subagentResources),
             ...skillsBinding!.loaderOptions,
+            ...(subagentResources.loadSkills ? { additionalSkillPaths: additionalGlobalSkillPaths(agentDir) } : {}),
             ...(subagentExtensionFactories.length > 0 ? { extensionFactories: subagentExtensionFactories } : {}),
             noPromptTemplates: true,
             noThemes: true,
             noContextFiles: true,
-            extensionsOverride: preferUserPowerShellExtension,
+            extensionsOverride: base => preferUserPowerShellExtension(preferUserBashExtension(base)),
             ...(chatOnly
               ? {
                   systemPrompt: " ",
@@ -2477,17 +2482,19 @@ export async function startRpcSession(
         : chatOnly
           ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension] }
         : {
+            additionalSkillPaths: additionalGlobalSkillPaths(agentDir),
             extensionFactories: [
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
               createConversationGuidanceExtension(),
               // 凭证访问保护只注册拦截器，不向模型增加专用工具或额外系统提示。
               createCredentialFileGuardExtension(agentDir),
-              ...(process.platform === "win32" ? [createPowerShellOutputExtension(sessionCwd)] : []),
+              createPowerShellOutputExtension(sessionCwd, () => createEnvironmentOperations(settingsManager, "powershell")),
               ...(projectScope ? [createProjectWorkspaceExtension(projectScope, () => settingsManager.getDefaultTools(), settingsManager)] : []),
               createProjectCommandBashExtension({
                 cwd: sessionCwd,
                 settings: settingsManager,
+                environmentSettings: settingsManager,
               }),
               createSubagentExtension(
                 SUBAGENT_CONTROLLER.extensionRuntime,
@@ -2562,7 +2569,7 @@ export async function startRpcSession(
       ...(initial?.thinkingLevel ? { thinkingLevel: initial.thinkingLevel } : {}),
       ...(scope.scopedModels.length > 0 ? { scopedModels: [...scope.scopedModels] } : {}),
       ...(subagentResources
-        ? subagentToolOptions(subagentResources)
+        ? subagentToolOptions({ ...subagentResources, tools: resolveEnvironmentTools(subagentResources.tools, settingsManager) })
         : toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
 

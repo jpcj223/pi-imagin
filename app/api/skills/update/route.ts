@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { runNpx } from "@/lib/npx";
+import { installSkillPackage } from "@/lib/skill-install";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { isAbsolute, join, relative, sep } from "node:path";
 import type { SkillInstallScope } from "@/lib/api-types";
 import { buildSkillUpdateArgs } from "@/lib/skill-updates";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
@@ -19,15 +22,15 @@ export async function POST(req: Request) {
     const scope = body.scope === "global" || body.scope === "project"
       ? body.scope as SkillInstallScope
       : undefined;
-    if (!cwd || !pkg || !scope) {
+    if (!pkg || !scope || (!cwd && scope === "project")) {
       return NextResponse.json({ error: "cwd, package, and scope are required" }, { status: 400 });
     }
     const allowedRoots = await getAllowedFileRoots();
-    if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
+    if (cwd && !isExistingFilePathAllowed(cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
-    const { skills } = await loadSkillsWithInstallInfo(cwd);
+    const { skills } = await loadSkillsWithInstallInfo(scope === "global" ? null : cwd);
     const skill = skills.find(
       (item) => item.install?.package === pkg && item.install.scope === scope,
     );
@@ -38,13 +41,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "This skill cannot be updated automatically" }, { status: 400 });
     }
 
-    const { stdout, stderr } = await runNpx(buildSkillUpdateArgs(skill.install), {
+    const args = buildSkillUpdateArgs(skill.install);
+    const rel = relative(scope === "global" ? join(getAgentDir(), "skills") : join(cwd, ".pi", "skills"), skill.filePath);
+    const managed = rel && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+    const { stdout, stderr } = managed ? await installSkillPackage(pkg, scope, cwd, runNpx, { replace: true, args: args.filter(arg => arg !== "-g") }) : await runNpx(args, {
       timeout: 60_000,
       cwd: scope === "project" ? cwd : undefined,
       env: { ...process.env, FORCE_COLOR: "0" },
     });
 
-    const refreshed = await loadSkillsWithInstallInfo(cwd);
+    const refreshed = await loadSkillsWithInstallInfo(scope === "global" ? null : cwd);
     const updatedSkill = refreshed.skills.find(
       (item) => item.install?.package === pkg && item.install.scope === scope,
     );
