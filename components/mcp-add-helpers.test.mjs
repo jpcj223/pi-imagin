@@ -104,7 +104,7 @@ const SAMPLES = {
   "invalid-exposure-dropped": [{ value: "public" }],
   "tool-filter-imported": [{ mode: "include", tools: "a, b" }, { mode: "exclude", tools: "c" }],
   "transport-guessed": [{}],
-  "insecure-http": [{ host: "mcp.example.com" }],
+  "insecure-http": [{ host: "mcp.example.test" }],
   "literal-secret": [{ field: "headers.Authorization" }],
   "cli-option-ignored": [{ cli: "codex", option: "--model" }],
   "cli-option-as-arg": [{ cli: "claude", option: "--verbose" }],
@@ -431,9 +431,9 @@ test("a paste replaced by another server's drops what was typed for the first; a
 });
 
 test("Add waits, with a reason, for a free valid name, the values, and a scope it may write", () => {
-  const taken = analyse({ text: "https://mcp.example.com/mcp", name: "docs" }, overview({ servers: [{ name: "docs", scope: "global" }] }));
+  const taken = analyse({ text: "https://mcp.example.test/mcp", name: "docs" }, overview({ servers: [{ name: "docs", scope: "global" }] }));
   assert.deepEqual(taken.submitBlock, { kind: "name-taken", name: "docs", suggestedName: "docs-2", path: globalFile.path });
-  assert.deepEqual(analyse({ text: "https://mcp.example.com/mcp", name: "a b" }).submitBlock, { kind: "name-invalid" });
+  assert.deepEqual(analyse({ text: "https://mcp.example.test/mcp", name: "a b" }).submitBlock, { kind: "name-invalid" });
   const text = JSON.stringify({ servers: { gh: { type: "http", url: "https://api.example.com/mcp", headers: { Authorization: "Bearer ${input:pat}" } } }, inputs: [{ id: "pat", type: "promptString", password: true, description: "GitHub PAT" }] });
   assert.deepEqual(analyse({ text }).submitBlock, { kind: "fields", fields: ["pat"] });
   assert.deepEqual(analyse({ text: "nothing to see | here" }).submitBlock, { kind: "nothing" });
@@ -457,7 +457,7 @@ test("a config pi's validator refuses once the values are filled in blocks Add, 
   assert.equal(blocked.submitBlock.note.params.url, blocked.preview.target, "the URL as the preview shows it");
   assert.equal(mcpImportNoteText(blocked.submitBlock.note, t), "pi would refuse it: https://my server/mcp is not an http or https URL.");
   // A value that makes a valid URL does not.
-  assert.equal(analyse({ text, values: { [field.id]: "mcp.example.com" } }).submitBlock, undefined);
+  assert.equal(analyse({ text, values: { [field.id]: "mcp.example.test" } }).submitBlock, undefined);
 
   // A password typed into the same URL stays hidden in the block's words, as in the preview.
   const both = "https://<your-server>/mcp?api_key=YOUR_KEY";
@@ -481,7 +481,7 @@ test("the preview shows the command line and URL as written, masking only what w
   assert.match(preview.target, /--token ••• --region eu/);
   assert.equal(preview.masked, true);
 
-  const url = parseMcpImport("https://mcp.example.com/mcp?api_key=YOUR_KEY").servers[0];
+  const url = parseMcpImport("https://mcp.example.test/mcp?api_key=YOUR_KEY").servers[0];
   const urlValues = Object.fromEntries(url.fields.map((field) => [field.id, "k-123456789"]));
   const urlPreview = mcpAddPreview(url, urlValues, fillMcpImportFields(url, urlValues));
   assert.doesNotMatch(urlPreview.target, /k-123456789/);
@@ -505,8 +505,8 @@ test("whoever wrote an install link cannot choose what its preview hides before 
 
   const [hex] = parseMcpImport(JSON.stringify({ mcpServers: { x: { command: "npx", args: ["-y", "a1b2c3d4e5f60718293a4b5c6d7e8f90"] } } })).servers;
   assert.equal(mcpAddPreview(hex, {}, fillMcpImportFields(hex, {})).target, "npx -y a1b2c3d4e5f60718293a4b5c6d7e8f90", "a package name that looks like a token");
-  const [keyed] = parseMcpImport("https://mcp.example.com/mcp?api_key=sk-0123456789abcdef0123").servers;
-  assert.equal(mcpAddPreview(keyed, {}, fillMcpImportFields(keyed, {})).target, "https://mcp.example.com/mcp?api_key=sk-0123456789abcdef0123", "the pasted text is on the page already");
+  const [keyed] = parseMcpImport("https://mcp.example.test/mcp?api_key=sk-0123456789abcdef0123").servers;
+  assert.equal(mcpAddPreview(keyed, {}, fillMcpImportFields(keyed, {})).target, "https://mcp.example.test/mcp?api_key=sk-0123456789abcdef0123", "the pasted text is on the page already");
 });
 
 test("the pi-config toggle is offered only where the importer reads the paste differently with it", () => {

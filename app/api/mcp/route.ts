@@ -46,6 +46,8 @@ import type { PiSdkInternals } from "@/lib/pi-sdk-internals";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { freshFolderTrustBreadth, getProjectTrustStatus, trustFreshFolderAndWrite } from "@/lib/project-trust";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { writeMcpRuntimeEnabled } from "@/lib/mcp-runtime-settings";
+import { requestMcpRuntimeRefresh, requestMcpServerRefresh } from "@/lib/mcp-runtime-sessions";
 
 export const dynamic = "force-dynamic";
 
@@ -235,6 +237,7 @@ async function switchServer(
   } catch (error) {
     return writeRefusal(error).response();
   }
+  requestMcpServerRefresh(server.scope === "project" ? { cwd: project?.cwd } : {});
   return overviewResponse(agentDir, project);
 }
 
@@ -297,6 +300,7 @@ async function switchServerInProject(
   } catch (error) {
     return writeRefusal(error).response();
   }
+  requestMcpServerRefresh({ cwd: project?.cwd });
   return overviewResponse(agentDir, project);
 }
 
@@ -339,6 +343,7 @@ async function switchServers(
       for (const server of group) results.set(key(server), failure.item(server));
     }
   }
+  requestMcpServerRefresh(servers.some(server => server.scope === "global") ? {} : { cwd: project?.cwd });
   return overviewResponse(agentDir, project, { results: servers.map((server) => results.get(key(server)) ?? server) });
 }
 
@@ -533,7 +538,8 @@ async function addServer(
   }
   const prepared = prepareMcpAdd(request, { takenNames: namesInFile(agentDir, project, scope, internals), internals });
   if (!prepared.ok) return addRefusal(prepared).response();
-  const { name, entry } = prepared;
+  const { name } = prepared;
+  const entry = scope === "global" ? { ...prepared.entry, enabled: false } : prepared.entry;
 
   if (trustFolder && project) {
     const target = { scope: "project" as const, cwd: project.cwd, allowedRoots: project.allowedRoots };
@@ -615,6 +621,13 @@ export async function POST(req: Request) {
 
   try {
     switch (body.action) {
+      case "set-runtime": {
+        if (typeof body.enabled !== "boolean") return refusal(400, "invalid-request", "enabled must be a boolean");
+        // 保留项目信任与覆盖；显式切换后通知已有会话，在空闲时应用并连接。
+        await writeMcpRuntimeEnabled(body.enabled);
+        requestMcpRuntimeRefresh();
+        return overviewResponse(agentDir, project);
+      }
       case "enable":
       case "disable":
       case "remove":

@@ -50,7 +50,7 @@ import { createConversationGuidanceExtension } from "./conversation-guidance";
 import { createCredentialFileGuardExtension } from "./credential-file-guard";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
-import { createPiImaginBuiltinExtensions, createSubagentCodemodeExtension, createSubagentMcpExtensions } from "./builtin-extensions";
+import { createPiImaginBuiltinExtensions, createSubagentCodemodeExtension, createSubagentMcpExtensions, preferPiImaginMcpExtension, readBuiltinExtensionSwitches } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension, createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
@@ -137,7 +137,7 @@ type AgentSessionWrapperOptions = {
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
   /** Connects the session's MCP servers before a prompt starts a run, and lets go of them when it closes (lib/mcp-host.ts). */
-  mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
+  mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose"> & Partial<Pick<McpHost, "isActive" | "reconnect">>;
   /** Chat only: the extension-provided model the session wanted, named when a prompt finds no model. */
   chatOnlyExtensionModel?: { provider: string; id: string };
 };
@@ -333,9 +333,14 @@ export class AgentSessionWrapper {
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
-  private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
+  private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose"> & Partial<Pick<McpHost, "isActive" | "reconnect">>;
   private readonly chatOnlyExtensionModel?: { provider: string; id: string };
   private mcpHostDisposed = false;
+  private mcpRuntimeDirty = false;
+  private mcpConfigDirty = false;
+  private mcpReconnectTargets = new Map<string, Parameters<McpHost["reconnect"]>[0]>();
+  private mcpRuntimeRefresh: Promise<void> | null = null;
+  private mcpRuntimeFailed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
   private mcpPromptWait: { controller: AbortController; done: Promise<void> } | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -399,6 +404,74 @@ export class AgentSessionWrapper {
     return this._alive && (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
   }
 
+  /** 设置页显式切换后应用到现有会话；忙碌时等待任务结束，不中断模型或工具。 */
+  requestMcpRuntimeRefresh(): void {
+    if (!this.mcpHost || this.chatOnly || this.suppressCompletionNotifications || !this.isAlive()) return;
+    this.mcpRuntimeDirty = true;
+    this.mcpRuntimeFailed = false;
+    this.drainMcpRuntimeRefresh();
+  }
+
+  requestMcpServerRefresh(target?: Parameters<McpHost["reconnect"]>[0]): boolean {
+    if (!this.mcpHost || this.chatOnly || this.suppressCompletionNotifications || !this.isAlive()) return false;
+    if (target && (!this.mcpHost.reconnect || !this.mcpHost.isActive?.())) return false;
+    this.mcpConfigDirty = true;
+    if (target) this.mcpReconnectTargets.set(`${target.scope}:${target.sourcePath}:${target.name}`, target);
+    this.mcpRuntimeFailed = false;
+    this.drainMcpRuntimeRefresh();
+    return true;
+  }
+
+  mcpRuntimeApplication(): "unavailable" | "pending" | "failed" | "ready" {
+    if (!this.mcpHost || this.chatOnly || this.suppressCompletionNotifications) return "unavailable";
+    return this.mcpRuntimeDirty || this.mcpConfigDirty || this.mcpRuntimeRefresh ? "pending" : this.mcpRuntimeFailed ? "failed" : "ready";
+  }
+
+  private drainMcpRuntimeRefresh(): void {
+    if ((!this.mcpRuntimeDirty && !this.mcpConfigDirty) || this.mcpRuntimeRefresh || !this.isAlive() || this.isRunning()
+      || this.activeMutatingCommands > 0 || this.sessionReplacement) return;
+    const reload = this.mcpRuntimeDirty;
+    const reconnect = [...this.mcpReconnectTargets.values()];
+    this.mcpRuntimeDirty = false;
+    this.mcpConfigDirty = false;
+    this.mcpReconnectTargets.clear();
+    // 先设置 promise，再进入异步重载；之后的修改命令等待它，避免与新提示词竞态。
+    this.mcpRuntimeRefresh = Promise.resolve().then(async () => {
+      if (!this.isAlive()) return;
+      if (reload) await this.reloadResources();
+      if (this.mcpHost?.isActive && !this.mcpHost.isActive()) {
+        const switches = await readBuiltinExtensionSwitches({ agentDir: getAgentDir(), cwd: this.cwd, projectTrusted: this.inner.settingsManager.isProjectTrusted() });
+        if (switches.mcp.enabled) throw new Error("The session's MCP is still owned by another extension; reload the session runtime.");
+      }
+      if (this.isAlive()) await this.mcpHost?.prepareForPrompt(new AbortController().signal, { wait: false });
+      for (const target of reconnect) {
+        if (this.isAlive() && this.mcpHost?.isActive?.()) await this.mcpHost.reconnect?.(target);
+      }
+      this.mcpRuntimeFailed = false;
+    }).catch(error => {
+      this.mcpRuntimeFailed = true;
+      console.error("[pi-imagin] MCP runtime update failed:", error instanceof Error ? error.message : error);
+    }).finally(() => {
+      this.mcpRuntimeRefresh = null;
+      this.drainMcpRuntimeRefresh();
+    });
+  }
+
+  private async reloadResources(): Promise<void> {
+    if (this.isSessionRunningForReplacement()) throw new Error("Wait for the current response to finish before reloading.");
+    if (this.extensionUiAbortController.signal.aborted) this.extensionUiAbortController = new AbortController();
+    const activeToolNames = this.inner.getActiveToolNames();
+    await this.waitForExtensionsBound();
+    if (!this.isAlive()) return;
+    this.extensionStatuses.clear();
+    this.resetExtensionWidgetsForReload();
+    this.syncProjectTrust();
+    await this.inner.reload();
+    this.setActiveToolSelection(activeToolNames);
+    if (typeof this.inner.bindExtensions !== "function") this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
+    invalidateModelsCache();
+  }
+
   /**
    * True while an extension's blocking dialog is unanswered: select, confirm,
    * input, editor, or a custom overlay still open. The run is parked on a promise
@@ -453,6 +526,7 @@ export class AgentSessionWrapper {
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
       if (event.type === "agent_settled") this.notifyAgentRunCompleteIfIdle();
+      if (event.type === "agent_settled") this.drainMcpRuntimeRefresh();
     });
     this.resetIdleTimer();
   }
@@ -790,6 +864,7 @@ export class AgentSessionWrapper {
   async send(command: Record<string, unknown>): Promise<unknown> {
     const type = command.type as string;
     const allowedDuringReplacement = COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT.has(type);
+    while (!allowedDuringReplacement && this.mcpRuntimeRefresh) await this.mcpRuntimeRefresh;
     if (this.sessionReplacement && !allowedDuringReplacement) {
       throw new Error("Session is being copied to a new session");
     }
@@ -1274,25 +1349,7 @@ export class AgentSessionWrapper {
       case "reload": {
         // A reload invalidates the extension ctx the running turn still holds,
         // and the turn dies at its next extension hook (#1172). pi refuses too.
-        if (this.isSessionRunningForReplacement()) {
-          throw new Error("Wait for the current response to finish before reloading.");
-        }
-        if (this.extensionUiAbortController.signal.aborted) {
-          this.extensionUiAbortController = new AbortController();
-        }
-        const activeToolNames = this.inner.getActiveToolNames();
-        await this.waitForExtensionsBound();
-        this.extensionStatuses.clear();
-        this.resetExtensionWidgetsForReload();
-        this.syncProjectTrust();
-        await this.inner.reload();
-        // pi rebuilds from the tools active before, then extensions adjust them as they start
-        // again; carry that result so a tool one switched off during reload stays off.
-        this.setActiveToolSelection(activeToolNames);
-        if (typeof this.inner.bindExtensions !== "function") {
-          this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
-        }
-        invalidateModelsCache();
+        await this.reloadResources();
         return { success: true };
       }
 
@@ -1352,6 +1409,7 @@ export class AgentSessionWrapper {
       }
     } finally {
       if (tracksMutation) this.activeMutatingCommands = Math.max(0, this.activeMutatingCommands - 1);
+      this.drainMcpRuntimeRefresh();
     }
   }
 
@@ -2502,7 +2560,7 @@ export async function startRpcSession(
                 isBuiltInSubagentsEnabled,
               ),
             ],
-            extensionsOverride: (base) => preferUserPowerShellExtension(preferUserBashExtension(preferPiImaginSubagentExtension(base))),
+            extensionsOverride: (base) => preferUserPowerShellExtension(preferUserBashExtension(preferPiImaginSubagentExtension(preferPiImaginMcpExtension(base)))),
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
@@ -2617,7 +2675,13 @@ export async function startRpcSession(
       }
       // Bound extensions may have registered providers a later model listing will not see.
       void wrapper.waitUntilReady()
-        .then(() => rememberProviderModels(inner.modelRuntime as ModelRuntime))
+        .then(async () => {
+          rememberProviderModels(inner.modelRuntime as ModelRuntime);
+          // 用户明确开启后，新会话也直接注册并连接；普通浏览历史仍不创建运行时。
+          if (!subagentResources && !wrapper.isRunning() && mcpHost && settingsManager.getGlobalSettings().extensions?.includes("+builtin:mcp")) {
+            await mcpHost.prepareForPrompt(new AbortController().signal, { wait: false });
+          }
+        })
         .catch(() => undefined);
     }
 

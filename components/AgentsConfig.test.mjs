@@ -61,3 +61,21 @@ test("a profile model's pi :level suffix names its base model; a listed colon id
   assert.equal(base("openai/gpt-5:turbo", isListed), "openai/gpt-5:turbo");
   assert.equal(base("openai/gpt-5:", isListed), "openai/gpt-5:");
 });
+
+test("内置角色只本地化展示资料，同名自定义角色保持原值", () => {
+  const declaration = source.slice(source.indexOf("function profilePresentation("), source.indexOf("function editableProfile("));
+  const code = ts.transpileModule(declaration, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+  const present = vm.runInNewContext(`${code}; profilePresentation`);
+  const profile = { scope: "builtin", name: "explore", displayName: "Explore", description: "Original description", systemPrompt: "Original instructions", tools: ["read"] };
+  const original = structuredClone(profile);
+  assert.equal(present(profile, key => key).name, "agents.role.explore.name");
+  assert.equal(present(profile, key => key).description, "agents.role.explore.description");
+  assert.equal(present(profile, key => key).systemPrompt, "agents.role.explore.prompt");
+  for (const scope of ["global", "project", "workspace"]) {
+    const displayed = present({ ...profile, scope }, () => assert.fail("自定义角色不能套用内置翻译"));
+    assert.equal(displayed.name, profile.displayName);
+    assert.equal(displayed.description, profile.description);
+    assert.equal(displayed.systemPrompt, profile.systemPrompt);
+  }
+  assert.deepEqual(profile, original, "展示转换不改写运行指令、权限或身份");
+});

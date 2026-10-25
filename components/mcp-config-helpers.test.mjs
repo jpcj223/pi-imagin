@@ -225,26 +225,26 @@ test("each state has a color, a full label and, when it is not plain on, visible
   assert.deepEqual(Object.keys(MCP_EXPOSURE_KEYS).sort(), ["codemode", "deferred", "direct", "hidden"]);
 });
 
-test("the Project group appears only with a project, first, and says why it lists nothing", () => {
+test("the Project group appears only with a project, after global, and says why it lists nothing", () => {
   const data = {
     files: [file("global"), file("project")],
     servers: [server({ name: "a" }), server({ name: "b", enabled: false }), server({ name: "c", scope: "project" })],
   };
   const withProject = mcpServerGroups(data, true);
-  assert.deepEqual(withProject.map((group) => group.scope), ["project", "global"]);
-  assert.deepEqual(withProject[0].servers.map((entry) => entry.name), ["c"]);
-  assert.deepEqual(withProject[1].servers.map((entry) => entry.name), ["a", "b"]);
-  assert.deepEqual(mcpGroupCounts(withProject[1].servers), { enabled: 1, total: 2 });
-  assert.equal(mcpGroupEmptyKey(withProject[1]), undefined);
+  assert.deepEqual(withProject.map((group) => group.scope), ["global", "project"]);
+  assert.deepEqual(withProject[1].servers.map((entry) => entry.name), ["c"]);
+  assert.deepEqual(withProject[0].servers.map((entry) => entry.name), ["a", "b"]);
+  assert.deepEqual(mcpGroupCounts(withProject[0].servers), { enabled: 1, total: 2 });
+  assert.equal(mcpGroupEmptyKey(withProject[0]), undefined);
 
   const globalOnly = mcpServerGroups({ files: [file("global")], servers: [server()] }, false);
   assert.deepEqual(globalOnly.map((group) => group.scope), ["global"]);
 
   // A project the route refused has no file: the group stays and says it is not listed.
   const refused = mcpServerGroups({ files: [file("global")], servers: [] }, true);
-  assert.equal(refused[0].file, undefined);
-  assert.equal(mcpGroupEmptyKey(refused[0]), "mcp.group.notListed");
-  assert.equal(mcpGroupEmptyKey(refused[1]), "mcp.group.empty");
+  assert.equal(refused[1].file, undefined);
+  assert.equal(mcpGroupEmptyKey(refused[1]), "mcp.group.notListed");
+  assert.equal(mcpGroupEmptyKey(refused[0]), "mcp.group.empty");
   assert.equal(mcpGroupEmptyKey({ scope: "global", file: file("global", { exists: false }), servers: [] }), "mcp.group.empty");
   const unparsable = { reason: "unparsable", error: "Unexpected token" };
   assert.equal(mcpGroupEmptyKey({ scope: "global", file: file("global", { problems: [unparsable] }), servers: [] }), "mcp.group.fileProblem");
@@ -264,8 +264,8 @@ test("the selection survives a reload while its row exists, and otherwise moves 
   assert.equal(mcpServerKey({ scope: "global", name: "g" }), "global\0g");
   assert.equal(pickMcpSelection(groups, "global\0g"), "global\0g");
   assert.equal(pickMcpSelection(groups, MCP_CODEMODE_SELECTION), MCP_CODEMODE_SELECTION);
-  assert.equal(pickMcpSelection(groups, "global\0gone"), "project\0p");
-  assert.equal(pickMcpSelection(groups, null), "project\0p");
+  assert.equal(pickMcpSelection(groups, "global\0gone"), "global\0g");
+  assert.equal(pickMcpSelection(groups, null), "global\0g");
   assert.equal(pickMcpSelection(mcpServerGroups({ files: [file("global")], servers: [] }, false), "global\0gone"), null);
   // A server's key always holds a NUL, so no server can be taken for Code mode.
   assert.ok(!MCP_CODEMODE_SELECTION.includes("\0"));

@@ -10,7 +10,7 @@ import {
   type McpServerEntry,
   type McpTransportFactory,
 } from "@earendil-works/pi-coding-agent";
-import type { McpHostInactiveInfo, McpScope, McpSessionState, McpSessionStatus } from "./api-types";
+import type { McpHostInactiveInfo, McpScope, McpSessionState, McpSessionStatus, McpTestTool } from "./api-types";
 import { isBuiltinMcpCommand, isMcpExtensionCommand } from "./mcp-command";
 import { canonicalJson, mcpConfigKey, mcpEntryConfigKey } from "./mcp-config-key";
 import { scrubMcpLoadError } from "./mcp-json-error";
@@ -25,9 +25,9 @@ import {
   replaceMcpStatus,
   type McpStatusEntry,
 } from "./mcp-status";
-import { createTestRedactor, maskStatusError, maskStatusStderr } from "./mcp-test";
+import { createTestRedactor, describeMcpTool, MCP_TEST_MAX_TOOLS, maskStatusError, maskStatusStderr } from "./mcp-test";
 import { hasParentDirectorySegment, isPathWithinRoots, resolveRealRoots } from "./path-security";
-import type { McpTransport, PiSdkInternals } from "./pi-sdk-internals";
+import type { McpTool, McpTransport, PiSdkInternals } from "./pi-sdk-internals";
 import { mayReadProjectConfigNow } from "./project-trust";
 
 export { canonicalJson };
@@ -240,6 +240,43 @@ export function watchConnection(transport: ObservedTransport, done: (outcome: "r
   transport.onClose(() => finish("closed"));
 }
 
+/** 观察 SDK 已发出的工具列表请求；不额外连接或调用服务器，分页完成后再发布有上限的摘要。 */
+export function watchToolInventory(
+  transport: ObservedTransport,
+  describe: (tool: McpTool) => McpTestTool,
+  publish: (inventory: { tools: McpTestTool[]; toolCount: number }) => void,
+): void {
+  let generation = 0;
+  let tools: McpTestTool[] = [];
+  let toolCount = 0;
+  const pending = new Map<unknown, number>();
+  const send = transport.send.bind(transport);
+  transport.send = (message: unknown) => {
+    if (isRecord(message) && message.method === "tools/list" && message.id !== undefined) {
+      if (!isRecord(message.params) || !message.params.cursor) {
+        generation++;
+        tools = [];
+        toolCount = 0;
+      }
+      pending.set(message.id, generation);
+    }
+    return send(message);
+  };
+  transport.onMessage((message) => {
+    if (!isRecord(message) || message.method !== undefined || !pending.has(message.id)) return;
+    const requestGeneration = pending.get(message.id);
+    pending.delete(message.id);
+    if (requestGeneration !== generation || !isRecord(message.result) || !Array.isArray(message.result.tools)) return;
+    for (const tool of message.result.tools) {
+      if (!isRecord(tool) || typeof tool.name !== "string" || !isRecord(tool.inputSchema)) continue;
+      toolCount++;
+      if (tools.length < MCP_TEST_MAX_TOOLS) tools.push(describe(tool as unknown as McpTool));
+    }
+    if (!message.result.nextCursor) publish({ tools: [...tools], toolCount });
+  });
+  transport.onClose(() => { pending.clear(); tools = []; });
+}
+
 /** What one transport of a server did, as `watchTransport()` reports it. */
 export type McpTransportEvent =
   | { type: "ready" }
@@ -370,7 +407,7 @@ export interface McpHostServerStatus {
 type StatusTarget = McpStatusEntry & { configKey: string };
 
 /** What a session reports to the status store, before the session, folder and time are added. */
-type SessionReport = Pick<McpSessionStatus, "state" | "error" | "stderr" | "conflict">;
+type SessionReport = Pick<McpSessionStatus, "state" | "error" | "stderr" | "conflict" | "tools" | "toolCount">;
 
 type AttemptState = "connecting" | "ready" | "failed" | "needs-auth" | "disconnected";
 
@@ -515,6 +552,8 @@ class HostInstance {
   /** Prompts waiting in prepareForPrompt(); nor does it run while one waits. */
   private preparing = 0;
 
+  isActive(): boolean { return this.active; }
+
   constructor(private readonly pi: ExtensionAPI, private readonly options: Required<McpHostOptions>) {
     pi.on("session_start", (_event, ctx) => {
       if (this.disposed) return;
@@ -597,11 +636,21 @@ class HostInstance {
       return redactor(text);
     };
     const stderr = (text: string | undefined) => (text === undefined ? {} : { stderr: maskStatusStderr(text, redact) });
+    let inventory: { tools: McpTestTool[]; toolCount: number } | undefined;
+    watchToolInventory(transport as unknown as ObservedTransport,
+      tool => describeMcpTool(tool, entry.config, {
+        getMcpToolExposure: this.options.internals.getMcpToolExposure
+          ?? ((config, name) => config.toolExposure?.[name] ?? config.exposure ?? "codemode"),
+      }, redact),
+      listed => {
+        inventory = listed;
+        if (attempt.current === transport && attempt.state === "ready") this.update(attempt, "ready", listed);
+      });
     watchTransport(transport as unknown as ObservedTransport, usesOAuth, (event) => {
       // An attempt the host let go still settles, for a prompt still waiting on it; `update()` records nothing for it.
       if (attempt.current !== transport) return;
       if (event.type === "ready") {
-        this.update(attempt, "ready");
+        this.update(attempt, "ready", inventory);
       } else if (event.type === "failed") {
         if (event.authRequired) this.update(attempt, "needs-auth");
         else {
@@ -638,6 +687,20 @@ class HostInstance {
     // the prompt gave up on it. A run that does start stops the timer at agent_start.
     void synced.then(() => this.armIdle());
     return synced;
+  }
+
+  reconnect(target: { scope: McpScope; name: string; sourcePath: string; configKey: string }): Promise<void> {
+    return this.enqueue(async () => {
+      if (!this.active || !this.ctx) throw new Error("MCP is not enabled in this session");
+      const wanted = this.desiredServers(this.ctx).get(target.name);
+      if (!wanted || wanted.target.scope !== target.scope || wanted.target.sourcePath !== target.sourcePath
+        || wanted.target.configKey !== target.configKey) return;
+      await this.unregister(target.name);
+      if (!this.active || !this.ctx) return;
+      const fresh = this.desiredServers(this.ctx).get(target.name);
+      if (fresh && canonicalJson(fresh.target) === canonicalJson(wanted.target)) this.register(target.name, fresh);
+      this.armIdle();
+    });
   }
 
   async prepareForPrompt(signal: AbortSignal, wait: boolean): Promise<void> {
@@ -745,13 +808,14 @@ class HostInstance {
       ...(report.error ? { error: report.error } : {}),
       ...(report.stderr ? { stderr: report.stderr } : {}),
       ...(report.conflict ? { conflict: report.conflict } : {}),
+      ...(report.tools ? { tools: report.tools, toolCount: report.toolCount } : {}),
     };
     recordMcpStatus(target, target.configKey, status);
     return status;
   }
 
   /** A change of `attempt`'s state, recorded unless the host let it go. */
-  private update(attempt: ConnectAttempt, state: AttemptState, details: { error?: string; stderr?: string } = {}): void {
+  private update(attempt: ConnectAttempt, state: AttemptState, details: Omit<SessionReport, "state"> = {}): void {
     attempt.update(state, details);
     if (attempt.released) return;
     attempt.recorded = this.write(attempt.target, { state: SESSION_STATES[state], ...details });
@@ -982,7 +1046,7 @@ export interface McpHostOptions {
    * (else a leading `!`, as the SDK decides); and its validator, which keys an
    * untrusted project's entries as Settings does (else as written).
    */
-  internals: Pick<PiSdkInternals, "loadMcpConfig"> & Partial<Pick<PiSdkInternals, "isCommandConfigValue" | "validateMcpServerConfig">>;
+  internals: Pick<PiSdkInternals, "loadMcpConfig"> & Partial<Pick<PiSdkInternals, "isCommandConfigValue" | "validateMcpServerConfig" | "getMcpToolExposure">>;
   /** Whether codemode can run scripts; servers it cannot reach become `deferred`. */
   codemodeAvailable: () => boolean;
   /**
@@ -1072,6 +1136,13 @@ export class McpHost {
   serverStates(): McpHostServerStatus[] {
     return this.current?.serverStates() ?? [];
   }
+
+  reconnect(target: { scope: McpScope; name: string; sourcePath: string; configKey: string }): Promise<void> {
+    return this.current?.reconnect(target) ?? Promise.reject(new Error("MCP is not active"));
+  }
+
+  /** 开关应用完成不等于实际接管，供显式启用后的核对使用。 */
+  isActive(): boolean { return this.current?.isActive() ?? false; }
 
   /** Unregister every server now, as the idle timer does. */
   release(): Promise<void> {

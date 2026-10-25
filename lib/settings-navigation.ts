@@ -16,9 +16,8 @@ export function isResourcePage(section: SettingsSection | null): section is "plu
 }
 
 const STORAGE_KEY = "pi-web:settings-navigation";
-// Sections that need a project to show anything. Settings › MCP is not one: it
-// lists the global mcp.json without a project and adds a Project group with one.
-const PROJECT_SECTIONS = new Set<SettingsSection>(["agents"]);
+// 子代理与 MCP 都能独立管理全局配置；项目范围在各自页面显式选择。
+const PROJECT_SECTIONS = new Set<SettingsSection>();
 
 /** Whether a section is unavailable until a project is open. */
 export function settingsSectionRequiresProject(section: SettingsSection): boolean {
@@ -74,7 +73,7 @@ function selectionKey(section: SettingsDetailSection, cwd?: string | null): stri
   if (cwd) return JSON.stringify([section, cwd]);
   // MCP works without a project; its selection then lives under the bare name,
   // which no project key (always an array) can collide with.
-  return section === "mcp" || section === "plugins" ? section : null;
+  return section === "mcp" || section === "plugins" || section === "agents" ? section : null;
 }
 
 export function getLastSettingsSection(

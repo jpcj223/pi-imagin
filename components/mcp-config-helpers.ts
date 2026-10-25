@@ -327,7 +327,7 @@ export interface McpServerGroup {
  * was not read, so the panel says so instead of hiding where project servers go.
  */
 export function mcpServerGroups(data: Pick<McpResponse, "files" | "servers">, hasProject: boolean): McpServerGroup[] {
-  const scopes: McpScope[] = hasProject ? ["project", "global"] : ["global"];
+  const scopes: McpScope[] = hasProject ? ["global", "project"] : ["global"];
   return scopes.map((scope) => {
     const file = data.files.find((info) => info.scope === scope);
     return {
@@ -1149,6 +1149,7 @@ export function mcpGroupSwitchChecked(servers: readonly McpSwitchable[]): boolea
 
 /** What the panel asks `POST /api/mcp` to do. */
 export type McpActionRequest =
+  | { action: "set-runtime"; enabled: boolean }
   | { action: "enable" | "disable" | "remove" | "sign-out"; scope: McpScope; name: string }
   | { action: "set-exposure"; scope: McpScope; name: string; exposure: NonNullable<McpServerInfo["exposure"]> }
   | { action: "set-in-project"; name: string; enabled: boolean }
@@ -1186,10 +1187,10 @@ export type McpActionResult = { ok: true; data: McpActionResponse } | { ok: fals
 /** How long a change may take; the panel's controls wait meanwhile, as the Code mode switch does. */
 export const MCP_ACTION_TIMEOUT_MS = 15_000;
 
-async function requestMcpAction(body: Record<string, unknown>, fetchImpl: FetchLike, signal: AbortSignal): Promise<McpActionResult> {
+async function requestMcpAction(body: Record<string, unknown>, fetchImpl: FetchLike, signal: AbortSignal, endpoint = "/api/mcp"): Promise<McpActionResult> {
   let response: Awaited<ReturnType<FetchLike>>;
   try {
-    response = await fetchImpl("/api/mcp", {
+    response = await fetchImpl(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -1229,6 +1230,15 @@ export async function postMcpAction(
     () => ({ ok: false, error: { error: `POST /api/mcp did not answer within ${timeoutMs} ms`, timedOut: true } }),
     timeoutMs,
     signal,
+  );
+}
+
+/** 显式连接实际会话，不创建临时测试连接。 */
+export function postMcpConnect(server: McpServerRef, cwd: string | null): Promise<McpActionResult> {
+  return withinDeadline<McpActionResult>(
+    signal => requestMcpAction({ ...server, ...(cwd ? { cwd } : {}) }, fetch, signal, "/api/mcp/connect"),
+    () => ({ ok: false, error: { error: "Connection request timed out", timedOut: true } }),
+    MCP_ACTION_TIMEOUT_MS,
   );
 }
 

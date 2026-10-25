@@ -107,6 +107,18 @@ export function McpSignInRow({
   // What is stored counts, not only tokens: a cancelled sign-in leaves a client registration and its
   // PKCE state, which only Sign out (or `pi mcp logout`) clears. A listing that predates the field
   // falls back to the tokens.
+  // 仅在明确没有 OAuth 凭据且成功连接后，才认定无需登录；失败或未知不能据此隐藏入口。
+  const status = server.status;
+  const connectedWithoutAuth = status?.state === "connected" && !(status.origin === "test" && status.afterSignIn)
+    && !(status.origin === "session" && status.closedAt);
+  const flowConnectedWithoutAuth = !status && !shared && flow?.configKey === server.configKey && flow?.phase === "done"
+    && flow.alreadySignedIn && flow.result?.state === "connected";
+  if (!active && !run?.signedOut && server.signedIn === false && server.oauthStateStored === false
+    && (connectedWithoutAuth || flowConnectedWithoutAuth)) {
+    return <ConfigDetailGridRow label={t("mcp.detail.signIn")}>
+      {t("mcp.signIn.notRequired")}
+    </ConfigDetailGridRow>;
+  }
   const offersSignOut = (server.oauthStateStored ?? server.signedIn) !== false;
   // A sign-out on its way cancels the URL's sign-in when it arrives, so Sign in waits for it.
   const signInDisabled = starting || signingOut || block !== undefined;
@@ -191,7 +203,7 @@ export function McpSignInRow({
               aria-describedby={block ? blockId : undefined}
               onClick={() => onSignIn(server)}
             >
-              {starting ? t("mcp.signIn.starting") : t("mcp.signIn.button")}
+              {starting ? t("mcp.signIn.starting") : t(server.signedIn === true ? "mcp.signIn.reauthorize" : "mcp.signIn.button")}
             </ConfigButton>
           )}
           {offersSignOut && !active && (

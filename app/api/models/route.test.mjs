@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -101,4 +101,23 @@ test("a missing folder that is not a removed worktree of a repo is refused as be
   const orphan = await models(join(`${root}-worktrees`, "orphan"));
   assert.equal(orphan.status, 400);
   assert.equal(orphan.body.error, `Directory does not exist: ${join(`${root}-worktrees`, "orphan")}`);
+});
+
+
+test("显式全局模型不依赖项目授权，不读取服务目录或 agentDir 内的项目配置", async () => {
+  const shadow = join(agentDir, ".pi");
+  const marker = join(root, "unexpected-project-extension");
+  await mkdir(join(shadow, "extensions"), { recursive: true });
+  await writeFile(join(shadow, "settings.json"), JSON.stringify({ defaultThinkingLevel: "high" }));
+  await writeFile(join(shadow, "extensions", "forbidden.js"), `import { writeFileSync } from "node:fs"; export default () => writeFileSync(${JSON.stringify(marker)}, "loaded");`);
+  // cwd 即使指向没有授权的目录，全局请求也只回答全局配置。
+  const deniedCwd = join(root, "unknown");
+  const response = await GET(new Request(`http://localhost/api/models?scope=global&cwd=${encodeURIComponent(deniedCwd)}`));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.modelError, undefined);
+  assert.deepEqual(body.modelList.map(model => `${model.provider}:${model.id}`), ["acme:one"]);
+  assert.equal(body.savedDefaultThinkingLevel, null);
+  assert.equal(existsSync(marker), false, "读取模型不执行伪装成项目资源的扩展");
+  assert.equal((await models(deniedCwd)).status, 403, "全局读取不会扩大项目访问权限");
 });

@@ -33,6 +33,7 @@ import {
   readProjectCodemodeOverride,
 } from "./codemode-settings";
 import { getGlobalSettingsPath } from "./global-settings-file";
+import { readMcpRuntimeApplication } from "./mcp-runtime-sessions";
 import { mcpConfigKey, mcpEntryConfigKey } from "./mcp-config-key";
 import { jsonErrorMessage } from "./mcp-json-error";
 import { isMcpOverrideEntry, MCP_OVERRIDE_KEYS, mcpOverrideRefusal } from "./mcp-override";
@@ -915,6 +916,12 @@ export async function readMcpOverview(options: McpOverviewOptions): Promise<McpR
   const listedFiles = files.filter((file) => !file.problems.some((item) => item.reason !== "auto-enable-codemode-invalid"));
   return {
     mcp: mcpAvailability(environment, internals, switches?.mcp),
+    ...(switches ? { runtime: {
+      enabled: (switches.mcp.global ?? switches.mcp).enabled,
+      application: readMcpRuntimeApplication(),
+      ...(switches.mcp.global && switches.mcp.enabled !== switches.mcp.global.enabled
+        ? { projectOverride: switches.mcp.enabled } : {}),
+    } } : {}),
     codemode: await codemodeInfo(agentDir, switches?.codemode, project && projectSettingsLoad ? project.cwd : undefined),
     files,
     servers: withMcpStatuses(servers, listedFiles),

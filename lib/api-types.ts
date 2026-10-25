@@ -4,6 +4,8 @@ import type { SubagentProfile } from "./subagents";
 
 export interface SubagentProfilesResponse {
   profiles: SubagentProfile[];
+  globalAgentsPath?: string;
+  projectAgentsPath?: string;
 }
 
 export interface SubagentSettingsResponse {
@@ -409,6 +411,9 @@ export interface McpSessionStatus {
   cwd: string;
   /** When the session saw it, in milliseconds since the epoch. */
   updatedAt: number;
+  /** 当前会话实际列出的工具摘要，沿用测试结果的脱敏和数量上限。 */
+  tools?: McpTestTool[];
+  toolCount?: number;
   /** `failed`: why, as far as the transport says; at most 2,000 characters. */
   error?: string;
   /** `failed` / `disconnected`, stdio: the last 2,000 characters the server wrote to stderr. */
@@ -553,6 +558,8 @@ export interface McpProjectInfo {
 
 export interface McpResponse {
   mcp: McpAvailability;
+  /** 全局扩展开关与所选项目的实际覆盖分开；缺失表示读取失败或旧响应。 */
+  runtime?: { enabled: boolean; projectOverride?: boolean; application?: { pending: number; failed: number; sessions: number } };
   codemode: McpCodemodeInfo;
   /**
    * Present when `-builtin:tool-search` (or a pattern matching it), in the
@@ -648,6 +655,7 @@ export type McpRefusalReason =
   | "redirect-denied"
   /** `add`: nothing in the pasted text could be read as a server (`notes`). */
   | "import-failed"
+  | "example-target"
   /** `add`: a value the paste left to fill in is missing or invalid (`notes`). */
   | "fields-incomplete"
   /** `add`: the name is not one pi accepts (letters, digits, `_` and `-`) (`name`). */

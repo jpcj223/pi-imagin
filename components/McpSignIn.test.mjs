@@ -87,7 +87,7 @@ test("an OAuth server offers Sign in, says what it does and, once something is s
   assert.doesNotMatch(text(out), /may replace|Sign out deletes/);
 
   const signedIn = row({ server: { ...oauth, signedIn: true } });
-  assert.deepEqual(buttons(signedIn).map((button) => button.label), ["Sign in", "Sign out"]);
+  assert.deepEqual(buttons(signedIn).map((button) => button.label), ["Authorize again", "Sign out"]);
   assert.match(text(signedIn), /^Sign-in Signed in\./);
   assert.match(text(signedIn), /Signing in may replace what is stored for this server\./);
   assert.match(text(signedIn), /Sign out deletes what is stored for this server; open sessions lose access at their next request\./);
@@ -176,7 +176,7 @@ test("waiting for the browser shows the page as a link, the paste box, and where
 test("how the sign-in ended stays under the row, with Sign in again", () => {
   const result = (state, extra = {}) => ({ state, tools: [], toolCount: 1, durationMs: 4, testedAt: 1, afterSignIn: true, ...extra });
   assert.match(text(row({ run: { flow: flow("done", { result: result("connected") }) } })), /Signed in\. Status above shows what the server offers\./);
-  assert.match(text(row({ run: { flow: flow("done", { alreadySignedIn: true, result: result("connected") }) } })), /Already signed in: the server connected without a new sign-in\./);
+  assert.match(text(row({ run: { flow: flow("done", { alreadySignedIn: true, result: result("connected") }) } })), /Connected without a new sign-in\./);
   assert.match(text(row({ run: { flow: flow("done", { refreshed: true, result: result("connected") }) } })), /Signed in again with the stored refresh token, without the browser\./);
   const after = row({ run: { flow: flow("done", { result: result("failed", { error: "ECONNRESET" }) }) } });
   assert.match(after, /<span role="status" class="mcp-config-line is-warning">Signed in, but the server did not connect afterwards\. Status above says why\.<\/span>/);
@@ -201,7 +201,7 @@ test("a sign-in joined from the other entry of the name and URL ends naming that
   const done = text(row({ run: { flow: flow("done", { scope: "project", result }) } }));
   assert.match(done, /Signed in through the other docs entry, which has the same URL, so the tokens serve this entry too\. Press Test connection to see what this entry's server offers\./);
   assert.doesNotMatch(done, /Status above/);
-  assert.match(text(row({ run: { flow: flow("done", { scope: "project", alreadySignedIn: true, result }) } })), /The other docs entry, which has the same URL, was already signed in/);
+  assert.match(text(row({ run: { flow: flow("done", { scope: "project", alreadySignedIn: true, result }) } })), /The other docs entry connected without a new sign-in/);
   const failed = text(row({ run: { flow: flow("failed", { scope: "project", failure: "connect-failed", result: { ...result, state: "failed" } }) } }));
   assert.match(failed, /The sign-in through the other docs entry, which has the same URL, found nothing to sign in to: that entry's server did not connect, and did not ask for a sign-in\. Its Status row says why\./);
   // The entry that started it keeps its own words.
@@ -222,4 +222,29 @@ test("the row's words come from the locale files", () => {
   assert.ok(keys.length >= 20);
   for (const key of keys) assert.equal(typeof messages[key], "string", `${key} is missing from en.ts`);
   assert.doesNotMatch(source, />\s*[A-Z][a-z]+(?: [a-z]+){2,}[.:]?\s*</);
+});
+
+// 公共服务成功连接不代表账号已登录；认证未知、失败和登出后仍需保留登录入口。
+test("anonymous successful connections hide sign-in without claiming an account login", () => {
+  const publicServer = { ...oauth, oauthStateStored: false, status: { state: "connected", origin: "test" } };
+  for (const server of [publicServer, { ...publicServer, status: { state: "connected", origin: "session" } }]) {
+    const html = row({ server });
+    assert.match(text(html), /No sign-in required/);
+    assert.deepEqual(buttons(html), []);
+    assert.doesNotMatch(text(html), /Signed in|Not signed in/);
+  }
+  const result = { state: "connected", tools: [], toolCount: 0, durationMs: 1, testedAt: 1 };
+  const run = { flow: flow("done", { alreadySignedIn: true, result }) };
+  assert.deepEqual(buttons(row({ server: { ...publicServer, status: undefined }, run })), []);
+  for (const server of [
+    { ...publicServer, signedIn: undefined },
+    { ...publicServer, oauthStateStored: undefined },
+    { ...publicServer, oauthStateStored: true },
+    { ...publicServer, status: { state: "needs-auth", origin: "session" } },
+    { ...publicServer, status: { state: "failed", origin: "test" } },
+    { ...publicServer, status: { state: "connected", origin: "session", closedAt: 1 } },
+    { ...publicServer, status: { state: "connected", origin: "test", afterSignIn: true } },
+  ]) assert.ok(buttons(row({ server })).some(button => button.label === "Sign in"));
+  assert.ok(buttons(row({ server: { ...publicServer, status: { state: "needs-auth", origin: "session" } }, run })).some(button => button.label === "Sign in"));
+  assert.ok(buttons(row({ server: publicServer, run: { signedOut: { removed: true } } })).some(button => button.label === "Sign in"));
 });

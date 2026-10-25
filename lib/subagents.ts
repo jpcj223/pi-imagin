@@ -473,10 +473,10 @@ function builtInProfiles(): SubagentProfile[] {
 }
 
 /** Every configured source, including profiles shadowed by a higher-precedence scope. */
-export function listSubagentProfileSources(cwd: string): SubagentProfile[] {
+export function listSubagentProfileSources(cwd?: string): SubagentProfile[] {
   const profiles = builtInProfiles();
-  for (const [dir, scope] of profileDirectories(cwd)) {
-    profiles.push(...readProfileDirectory(dir, scope, cwd));
+  for (const [dir, scope] of cwd ? profileDirectories(cwd) : [[join(getAgentDir(), "agents"), "global"] as const]) {
+    profiles.push(...readProfileDirectory(dir, scope, cwd ?? ""));
   }
   return profiles.sort((a, b) => a.displayName.localeCompare(b.displayName));
 }

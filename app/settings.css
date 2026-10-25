@@ -534,8 +534,133 @@
 .agents-feature-actions {
   display: flex;
   flex-shrink: 0;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+
+/* 子代理沿用现有双栏布局，仅区分角色说明、运行状态与高级配置。 */
+.agents-feature-title,
+.agents-role-heading,
+.agents-role-identity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agents-state-badge,
+.agents-permission-tag {
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.agents-state-badge.is-enabled {
+  background: var(--bg-selected);
+  color: var(--accent);
+}
+
+.agents-role-state,
+.agents-role-hint,
+.agents-field-hint {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.agents-advanced summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.agents-role-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+
+.agents-role-heading h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.agents-role-overview p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.agents-role-identity {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.agents-role-identity code { overflow-wrap: anywhere; }
+
+.agents-prompt-preview {
+  margin: 0;
+  min-height: 72px;
+  max-height: 132px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font: inherit;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.agents-tool-tag {
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.agents-readonly-value { color: var(--text-muted); }
+
+.agents-advanced {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.agents-advanced summary { color: var(--text); }
+.agents-advanced summary span {
+  margin-left: 10px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.agents-advanced-content { padding-top: 16px; }
+.agents-advanced-content > .config-field { max-width: 420px; }
+.agents-advanced summary:focus-visible,
+.agents-prompt-preview:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+@media (max-width: 1100px) {
+  .agents-feature-setting { flex-wrap: wrap; gap: 10px; }
+  .agents-feature-actions { justify-content: flex-end; margin-left: auto; }
+}
+
+@media (max-width: 600px) {
+  .agents-feature-actions { width: 100%; justify-content: space-between; }
+  .agents-advanced summary span { display: none; }
 }
 
 .agents-concurrency-control {
@@ -2703,3 +2828,166 @@ select.mcp-add-input {
 .resource-path-popup button {flex:none; min-height:26px; padding:2px 8px; border:1px solid var(--border); border-radius:5px; background:var(--bg); color:var(--text); font:inherit; cursor:pointer;}
 .resource-path-popup button:hover {background:var(--bg-selected); color:var(--accent);}
 .resource-path-popup button:focus-visible {outline:2px solid var(--accent); outline-offset:2px;}
+
+/* 子代理范围选择与资源页复用同一工具栏；路径和操作都不撑宽详情标题。 */
+.agents-target-toolbar { flex-shrink: 0; padding: 8px 0 0; border-bottom: 1px solid var(--border); }
+.agents-group-count { flex: none; padding-right: 7px; color: var(--text-dim); font-size: 11px; }
+[data-settings-section="agents"] .config-detail-header-info .inline-resource-path { flex: 1; min-width: 0; }
+[data-settings-section="agents"] .config-detail-header-info .resource-path { flex: 1; min-width: 0; }
+@media (max-width: 600px) { .agents-target-toolbar { padding: 8px 0 0; } }
+
+/* MCP 范围与添加面板：复用资源控件，正文和操作栏保持稳定边界。 */
+.mcp-scope-workspace,.mcp-target-page {display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;}
+.mcp-scope-workspace {height:100%;}
+.mcp-target-page>.config-panel-root {flex:1;}
+.mcp-target-page[hidden] {display:none;}
+.mcp-target-toolbar {padding:8px 0 0;border-bottom:1px solid var(--border);flex:none;}
+.mcp-add-flow {display:flex;flex:1;width:100%;max-width:900px;min-height:100%;margin-inline:auto;}
+.mcp-add-flow>.config-detail-stack {position:relative;flex:1;}
+.mcp-add-intro {margin:0;color:var(--text-muted);font-size:12px;line-height:1.7;}
+.mcp-add-target {display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;}
+.mcp-add-target>.inline-resource-path {flex:0 1 48ch;min-width:0;max-width:100%;}
+.mcp-add-target>.mcp-config-line {flex-basis:100%;}
+.mcp-add-flow .config-add-source-title-row {padding-right:110px;min-height:28px;}
+.mcp-add-catalogs {position:absolute;right:0;top:2px;z-index:2;font-size:12px;}
+.mcp-add-catalogs>summary {cursor:pointer;color:var(--accent);padding:4px 0;}
+.mcp-add-catalogs>div {position:absolute;right:0;top:100%;width:190px;max-height:min(360px,calc(100dvh - 160px));overflow-y:auto;padding:6px;border:1px solid var(--border);border-radius:8px;background:var(--bg);box-shadow:0 6px 20px #182c431a;}
+.mcp-add-catalogs a {display:block;overflow-wrap:anywhere;padding:9px 10px;border-radius:5px;color:var(--text);text-decoration:none;}
+.mcp-add-catalogs a:hover,.mcp-add-catalogs a:focus-visible {background:var(--bg-hover);}
+.mcp-add-flow .config-add-source-input.is-multiline {min-height:104px;max-height:200px;}
+.mcp-add-advanced {border:1px solid var(--border);border-radius:8px;min-width:0;}
+.mcp-add-advanced>summary {padding:10px 12px;cursor:pointer;color:var(--text-muted);font-size:12px;}
+.mcp-add-examples {min-width:0;}
+.mcp-add-examples>summary {padding:10px 0;cursor:pointer;color:var(--text-muted);font-size:12px;line-height:1.7;}
+.mcp-add-examples>summary:focus-visible {outline:2px solid var(--accent);outline-offset:3px;border-radius:4px;}
+.mcp-add-examples>p {margin:0 0 12px;line-height:1.7;}
+.mcp-add-example-list {display:flex;flex-direction:column;gap:8px;}
+.mcp-add-example {display:grid;grid-template-columns:150px minmax(0,1fr);align-items:baseline;gap:6px 20px;width:100%;min-width:0;min-height:50px;padding:14px;border:0;border-radius:6px;background:transparent;color:var(--text-muted);font:inherit;font-size:12px;line-height:1.8;text-align:left;cursor:pointer;overflow-wrap:anywhere;}
+.mcp-add-example>code {min-width:0;white-space:pre-wrap;}
+.mcp-add-example:hover:not(:disabled) {background:var(--bg-hover);color:var(--text);}
+.mcp-add-example:focus-visible {outline:2px solid var(--accent);outline-offset:-2px;background:var(--bg-hover);}
+.mcp-add-example:disabled {opacity:.55;cursor:default;}
+.mcp-add-advanced>.config-detail-grid,.mcp-add-advanced>.mcp-add-toggle {margin:0;padding:0 12px 12px;}
+.mcp-add-flow .config-detail-grid:empty {display:none;}
+.mcp-add-actions {position:sticky;bottom:-20px;display:flex;justify-content:flex-end;gap:10px;padding:14px 0;margin-top:auto;border-top:1px solid var(--border);background:var(--bg);z-index:1;}
+.mcp-add-actions>.config-button {min-width:80px;justify-content:center;}
+@media(max-width:640px){
+ .mcp-target-toolbar {padding:8px 0 0;}
+ .mcp-add-actions {bottom:-14px;}
+ .mcp-add-example {grid-template-columns:1fr;padding:12px;}
+}
+
+/* MCP 范围切换不再由异步提示条重排整个页面；正文、列表独立滚动。 */
+.mcp-target-toolbar .resource-install-target-status,.agents-target-toolbar .resource-install-target-status {height:16px;line-height:16px;margin-top:2px;}
+.mcp-target-page .config-detail {display:flex;flex-direction:column;scrollbar-gutter:stable;overflow-anchor:none;}
+.mcp-target-page .config-detail>.config-detail-stack {flex:1;min-height:0;}
+.mcp-target-page .mcp-config-notices {flex:none;max-height:none;overflow:visible;}
+.mcp-target-page .mcp-config-notices:not(:empty) {margin-bottom:18px;}
+.mcp-target-page .mcp-config-notices>.config-notice {margin-bottom:8px;}
+.mcp-target-page .mcp-add-flow {min-height:0;}
+.mcp-runtime-status {padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-panel);color:var(--text-muted);font-size:12px;line-height:1.7;}
+.mcp-runtime-status-summary {display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.mcp-runtime-status-summary>strong {color:var(--text);font-size:12px;}
+.mcp-runtime-status-icon {display:grid;place-items:center;width:18px;height:18px;border:1px solid var(--border);border-radius:50%;color:var(--accent);font-size:11px;font-weight:600;flex:none;}
+.mcp-runtime-status details {margin:5px 0 0 26px;}
+.mcp-runtime-status summary {width:fit-content;color:var(--text-dim);cursor:pointer;font-size:11px;}
+.mcp-runtime-status p {margin:8px 0 0;overflow-wrap:anywhere;}
+.mcp-runtime-status code {display:block;margin-top:6px;white-space:pre-wrap;overflow-wrap:anywhere;}
+.mcp-runtime-header {display:flex;align-items:center;justify-content:space-between;gap:20px;flex:none;padding:14px 18px;background:var(--bg-panel);border-bottom:1px solid var(--border);}
+.mcp-runtime-header-copy {display:flex;flex-direction:column;gap:4px;min-width:0;}
+.mcp-runtime-heading {display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;}
+.mcp-runtime-header-copy p {margin:0;color:var(--text-muted);font-size:12px;line-height:1.6;}
+.mcp-runtime-badge {font-size:10px;font-weight:500;padding:2px 7px;border-radius:4px;background:var(--bg-hover);color:var(--text-muted);}
+.mcp-runtime-badge.is-on {color:var(--accent);}
+.mcp-runtime-hint {color:var(--text-dim);font-size:11px;line-height:1.6;overflow-wrap:anywhere;}
+.mcp-runtime-hint.is-warning {color:var(--warning,#b7791f);}
+.mcp-runtime-feedback {min-height:0;}
+.mcp-runtime-feedback.is-error {color:var(--error);}
+/* 两个功能总开关共用双行说明槽，反馈替换说明而不增加一行。 */
+.settings-feature-header {box-sizing:border-box;height:80px;min-height:80px;padding:10px 18px;flex-wrap:nowrap;}
+.settings-feature-header .agents-feature-copy,
+.settings-feature-header .mcp-runtime-header-copy {gap:4px;flex:1;}
+.settings-feature-header .agents-feature-title,
+.settings-feature-header .mcp-runtime-heading {min-height:20px;font-size:13px;line-height:20px;}
+.settings-feature-header .agents-feature-copy>span,
+.settings-feature-header .mcp-runtime-feedback {display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;height:32px;margin:0;font-size:12px;line-height:16px;}
+@media(max-width:640px){.settings-feature-header{height:112px;min-height:112px;padding:12px;align-items:center;}.settings-feature-header .agents-feature-actions{max-width:135px;}.settings-feature-header .agents-concurrency-control{flex-wrap:wrap;justify-content:flex-end;}}
+.mcp-advanced-entry {margin-top:16px;padding-top:12px;border-top:1px solid var(--border);}
+.mcp-advanced-pane {display:flex;flex-direction:column;gap:14px;}
+.mcp-advanced-options {border:1px solid var(--border);border-radius:8px;min-width:0;}
+.mcp-advanced-options>summary {display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer;font-size:13px;font-weight:500;list-style:none;}
+.mcp-advanced-options>summary::-webkit-details-marker {display:none;}
+.mcp-advanced-options>summary::before {content:'›';font-size:18px;line-height:1;transition:transform .12s;}
+.mcp-advanced-options[open]>summary::before {transform:rotate(90deg);}
+.mcp-advanced-options>summary>span {margin-left:auto;color:var(--text-muted);font-size:11px;font-weight:400;}
+.mcp-advanced-options>summary:hover {background:var(--bg-hover);}
+.mcp-advanced-options>summary:focus-visible {outline:2px solid var(--accent);outline-offset:-2px;border-radius:7px;}
+.mcp-advanced-options>.config-detail-stack {padding:4px 16px 18px;}
+@media(max-width:640px){.mcp-runtime-header{padding:12px;gap:12px;}.mcp-runtime-hint{font-size:10px;}.mcp-advanced-options>summary{padding:12px;}.mcp-advanced-options>.config-detail-stack{padding:4px 12px 14px;}}
+.mcp-add-example-list {gap:6px;}
+.mcp-add-example {grid-template-columns:158px minmax(0,1fr);align-items:center;min-height:60px;padding:14px 16px;gap:12px 20px;border-radius:8px;transition:background-color .12s ease;}
+.mcp-add-example>.config-add-source-example-label {width:fit-content;max-width:100%;padding:3px 8px;border-radius:5px;background:var(--bg-hover);color:var(--text);font-size:11px;font-weight:500;line-height:1.65;}
+.mcp-add-example>.config-add-source-example-value {color:var(--text-muted);font-size:12px;line-height:1.8;}
+.mcp-add-example:hover:not(:disabled)>.config-add-source-example-value {color:var(--text);}
+.mcp-add-example:focus-visible {outline:2px solid var(--accent);outline-offset:-2px;}
+.mcp-target-page .config-footer {min-height:56px;padding:10px 16px;gap:12px;background:var(--bg-panel);}
+.mcp-target-page .config-footer-actions {gap:10px;min-width:0;}
+.mcp-footer-add:empty {display:none;}
+.mcp-footer-add .mcp-add-actions {position:static;margin:0;padding:0;border:0;background:transparent;}
+.mcp-target-page .config-footer .config-button {min-width:72px;min-height:34px;}
+.mcp-target-page .config-footer .config-button-primary {min-width:112px;}
+.mcp-add-catalogs .mcp-catalog-manage {display:block;width:100%;margin-top:5px;padding:9px 10px;border:0;border-top:1px solid var(--border);border-radius:0;background:transparent;color:var(--accent);text-align:left;cursor:pointer;font:inherit;}
+.mcp-catalog-manage:hover {background:var(--bg-hover);}
+.resource-remove-dialog.mcp-catalog-dialog {width:min(660px,calc(100vw - 32px));overflow:hidden;max-height:min(720px,calc(100dvh - 48px));display:flex;flex-direction:column;}
+.mcp-catalog-dialog>p {margin:8px 0 20px;color:var(--text-muted);}
+.mcp-catalog-dialog form {display:flex;flex-direction:column;min-height:0;}
+.mcp-catalog-edit-list {overflow-y:auto;scrollbar-gutter:stable;min-height:0;padding:2px;}
+.mcp-catalog-edit-row {display:grid;grid-template-columns:minmax(110px,1fr) minmax(160px,2fr) 30px;gap:10px;align-items:end;padding:10px 0;border-bottom:1px solid var(--border);}
+.mcp-catalog-edit-row label {display:flex;flex-direction:column;gap:6px;min-width:0;font-size:11px;color:var(--text-muted);}
+.mcp-catalog-edit-row input {width:100%;height:36px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font:inherit;font-size:12px;}
+.mcp-catalog-edit-row input:focus-visible {outline:2px solid var(--accent);outline-offset:1px;}
+.mcp-catalog-edit-row>.config-button {height:36px;min-width:30px;}
+.mcp-catalog-edit-tools {display:flex;justify-content:space-between;gap:10px;margin-top:14px;}
+.mcp-catalog-dialog footer {flex:none;margin-top:20px;padding-top:14px;border-top:1px solid var(--border);}
+@media(max-width:640px){
+ .mcp-add-example {grid-template-columns:1fr;gap:8px;padding:14px;}
+ .mcp-target-page .config-footer {padding:8px 10px;gap:6px;flex-wrap:wrap;}
+ .mcp-target-page .config-footer-status {flex:1 1 100%;}
+ .mcp-target-page .config-footer-actions {width:100%;justify-content:flex-end;gap:8px;}
+ .mcp-target-page .config-footer .config-button {min-width:64px;}
+ .mcp-runtime-status {padding:10px 12px;}
+ .mcp-catalog-edit-row {grid-template-columns:minmax(0,1fr) 30px;}
+ .mcp-catalog-edit-row>label:first-child {grid-column:1;}
+ .mcp-catalog-edit-row>label:nth-child(2) {grid-column:1;}
+ .mcp-catalog-edit-row>.config-button {grid-column:2;grid-row:1/3;align-self:center;}
+}
+
+.mcp-catalog-dialog p[role="alert"] {color:var(--error,#c64a4a);}
+@media(max-width:520px){
+ .mcp-target-toolbar .resource-install-target-summary,.agents-target-toolbar .resource-install-target-summary {grid-column:auto;min-height:0;}
+}
+
+/* MCP 调用设置保持轻量分组；菜单样式只作用于本菜单。 */
+.mcp-advanced-pane {gap:10px;max-width:960px;}
+.mcp-calling-settings {gap:22px;}
+.mcp-calling-settings>.config-detail-grid {row-gap:24px;padding-block:12px;}
+.mcp-calling-more {border-top:1px solid var(--border);padding-top:6px;}
+.mcp-calling-more>summary {padding:14px 0;color:var(--text-muted);cursor:pointer;font-size:12px;}
+.mcp-calling-more>.config-detail-grid {padding:8px 0 18px;row-gap:22px;}
+.mcp-exposure-choice .mcp-exposure-select {display:inline-flex;align-items:center;justify-content:space-between;gap:18px;min-width:190px;min-height:34px;}
+.mcp-exposure-option {display:flex;flex-direction:column;gap:6px;width:100%;padding:12px;text-align:left;border:0;border-radius:6px;background:transparent;color:var(--text);cursor:pointer;}
+.mcp-exposure-option:hover,.mcp-exposure-option:focus-visible {background:var(--bg-hover);}
+.mcp-exposure-option:focus-visible {outline:2px solid var(--accent);outline-offset:-2px;}
+.mcp-exposure-option[aria-checked="true"] {background:var(--bg-selected);}
+.mcp-exposure-option-title {display:flex;justify-content:space-between;gap:12px;font-size:13px;font-weight:500;}
+.mcp-exposure-option-description {font-size:11px;line-height:1.6;color:var(--text-muted);white-space:normal;}
+@media(max-width:640px){.mcp-calling-settings>.config-detail-grid,.mcp-calling-more>.config-detail-grid{grid-template-columns:1fr;row-gap:12px;}.mcp-calling-settings .config-detail-grid-label{margin-top:10px;}}
+
+.mcp-calling-more>summary:focus-visible {outline:2px solid var(--accent);outline-offset:2px;border-radius:4px;}
+.mcp-exposure-choice .mcp-exposure-select {padding:7px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font:inherit;cursor:pointer;}
+.mcp-exposure-choice .mcp-exposure-select:focus-visible {outline:2px solid var(--accent);outline-offset:2px;}
+.mcp-exposure-choice .mcp-exposure-select:disabled {cursor:default;opacity:.5;}
+
+/* MCP 分组批量开关，部分开启时提供明确的全关操作。 */
+.mcp-group-controls { display: inline-flex; align-items: center; gap: 6px; }
+.mcp-group-partial { margin-inline-start: 6px; font-size: 11px; color: var(--text-muted); font-weight: normal; }

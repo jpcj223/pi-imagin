@@ -20,6 +20,7 @@ writeFileSync(join(agent, "skills-lock.json"), JSON.stringify({ version: 1, skil
 writeFileSync(join(agent, "models.json"), JSON.stringify({ providers: { fixture: { baseUrl: "https://example.invalid/v1", api: "openai-completions", apiKey: "test", models: [{ id: "test" }] } } }));
 writeFileSync(join(agent, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", enabledModels: ["fixture/test"] }));
 const folders = [join(workspaces, "20261024"), join(workspaces, "20261025"), other];
+if (process.env.RESOURCE_SIDEBAR_ONLY) folders.push(join(artifacts, "history/default"), join(artifacts, "old/default"), join(artifacts, "switch"));
 for (const [i, cwd] of folders.entries()) {
   mkdirSync(join(cwd, ".pi"), { recursive: true });
   writeFileSync(join(cwd, ".pi/settings.json"), "{}");
@@ -63,7 +64,7 @@ try {
   });
   await page.route('**/api/plugins/detail?*', route => route.fulfill({ json: { name: 'public-plugin', description: 'Fixture plugin', partial: false } }));
   await page.route('**/api/plugins/logos?*', route => route.fulfill({ json: {} }));
-  if (!process.env.RESOURCE_SIDEBAR_ONLY) for (const [i, cwd] of folders.entries()) {
+  if (!process.env.RESOURCE_SWITCH_ONLY && !process.env.RESOURCE_SIDEBAR_ONLY && !process.env.AGENTS_UI_ONLY && !process.env.MCP_UI_ONLY) for (const [i, cwd] of folders.entries()) {
     await page.goto(`${base}/?session=resource-trust-${i}`);
     await page.locator(".chat-message-area").getByText("Resource trust fixture", { exact: true }).waitFor();
     const status = await (await page.request.get(`${base}/api/project-trust?cwd=${encodeURIComponent(cwd)}`)).json();
@@ -135,10 +136,13 @@ try {
     }
   }
 
-  if (process.env.RESOURCE_SIDEBAR_ONLY) await page.goto(`${base}/?session=resource-trust-2`);
-  if (!process.env.RESOURCE_TRUST_ONLY) await (await import("./resource-sidebar-checks.mjs")).checkResourceSidebars(page, base, artifacts, other);
+  if (process.env.RESOURCE_SWITCH_ONLY || process.env.RESOURCE_SIDEBAR_ONLY || process.env.AGENTS_UI_ONLY || process.env.MCP_UI_ONLY) await page.goto(`${base}/?session=resource-trust-2`);
+  if (process.env.RESOURCE_SWITCH_ONLY) await (await import("./resource-switching.mjs")).checkResourceSwitching(page, base, artifacts, other);
+  else if (!process.env.RESOURCE_TRUST_ONLY && !process.env.AGENTS_UI_ONLY && !process.env.MCP_UI_ONLY) await (await import("./resource-sidebar-checks.mjs")).checkResourceSidebars(page, base, artifacts, other);
+  if (process.env.MCP_UI_ONLY) await (await import("./mcp-config.mjs")).checkMcpConfig(page, base, artifacts);
+  else if (process.env.AGENTS_UI_ONLY) await (await import("./agents-config.mjs")).checkAgentsConfig(page, base, artifacts);
   assert.deepEqual(errors, []);
-  console.log(`${process.env.RESOURCE_SIDEBAR_ONLY ? "PASS 本轮资源侧栏检查" : "PASS 默认工作区无授权、公共插件安装和技能跨日期使用、其他项目受限、三个页面状态入口"}；${artifacts}`);
+  console.log(`${process.env.RESOURCE_SWITCH_ONLY ? "PASS 四页项目切换检查" : process.env.MCP_UI_ONLY ? "PASS MCP 添加和范围检查" : process.env.AGENTS_UI_ONLY ? "PASS 子代理页面检查" : process.env.RESOURCE_SIDEBAR_ONLY ? "PASS 本轮资源侧栏检查" : "PASS 默认工作区无授权、公共插件安装和技能跨日期使用、其他项目受限、三个页面状态入口"}；${artifacts}`);
 } catch (error) {
   if (page && !page.isClosed()) { await page.screenshot({ path: join(artifacts, 'failure.png') }); writeFileSync(join(artifacts, 'failure.txt'), await page.locator('body').innerText()); }
   console.error(`Artifacts: ${artifacts}`); throw error;

@@ -1,3 +1,4 @@
+import { isMcpExampleTarget } from "./mcp-example-target";
 import type { McpServerConfig } from "@earendil-works/pi-coding-agent";
 import type { McpRefusalReason, McpScope } from "./api-types";
 import {
@@ -183,6 +184,7 @@ export function prepareMcpAdd(
   if (!filled.ok) {
     return { ok: false, status: 400, reason: "fields-incomplete", error: "Some values to fill in are missing or invalid", notes: filled.notes };
   }
+  if (isMcpExampleTarget(filled.config)) return { ok: false, status: 400, reason: "example-target", error: "Replace the example address with your MCP server address" };
   const validated = internals.validateMcpServerConfig(name, filled.config);
   if (typeof validated === "string") return { ok: false, status: 409, reason: "server-invalid", error: validated, name };
   if (findWebPasswordField(filled.config, internals)) {

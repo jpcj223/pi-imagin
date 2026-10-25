@@ -69,13 +69,13 @@ const trustFile = async () => (existsSync(trustPath) ? readJson(trustPath) : {})
 
 test("a pasted server is added to the global file, and the answer is the overview after it", async () => {
   const { status, body } = await add({ text: "npx -y @scope/lint-mcp" });
-  assert.equal(status, 200);
+  assert.equal(status, 200, JSON.stringify(body));
   assert.deepEqual(body.added, { scope: "global", name: "lint", path: globalPath });
   assert.ok(body.servers.some((server) => server.scope === "global" && server.name === "lint"), "the whole overview, as GET answers it");
   assert.equal(body.trust, undefined, "a global server changes no folder's trust");
   assert.deepEqual((await readJson(globalPath)).mcpServers, {
     docs: { url: "https://docs.example.com/mcp" },
-    lint: { command: "npx", args: ["-y", "@scope/lint-mcp"] },
+    lint: { command: "npx", args: ["-y", "@scope/lint-mcp"], enabled: false },
   });
 });
 
@@ -313,4 +313,13 @@ test("MCP off leaves every file as it is", async () => {
   assert.deepEqual([status, body.reason], [409, "mcp-off"]);
   assert.equal(await readFile(globalPath, "utf8"), globalText);
   assert.deepEqual(await trustFile(), { [trusted]: true });
+});
+
+test("页面演示地址不能通过接口保存，原配置与信任记录保持不变", async () => {
+  for (const text of ["https://mcp.example.com/mcp", JSON.stringify({ mcpServers: { demo: { url: "https://mcp.example.com/mcp" } } })]) {
+    const { status, body } = await add({ text });
+    assert.deepEqual([status, body.reason], [400, "example-target"]);
+    assert.equal(await readFile(globalPath, "utf8"), globalText);
+    assert.deepEqual(await trustFile(), { [trusted]: true });
+  }
 });

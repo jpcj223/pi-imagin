@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, type ReactNode } from "react";
+import { invalidateResourceOverviews, peekResourceOverview, readResourceOverview } from "@/lib/resource-overview-cache";
+import { useDeferredLoading } from "@/hooks/useDeferredLoading";
 import { useI18n } from "@/hooks/useI18n";
 import { CopyButton } from "./CopyButton";
 import { ResourceRemoveDialog } from "./ResourceRemoveDialog";
@@ -314,6 +316,7 @@ export function SkillsConfig({
   const switchingTarget = loadedCwd !== cwd;
   const resourcePending = targetPending || switchingTarget;
   const [loading, setLoading] = useState(true);
+  const showLoading = useDeferredLoading(loading);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [toggling, setToggling] = useState<Set<string>>(new Set());
@@ -351,25 +354,30 @@ export function SkillsConfig({
   const loadSequence = useRef(0);
   const currentCwd = useRef(cwd);
   useEffect(() => { currentCwd.current = cwd; }, [cwd]);
-  const loadSkills = useCallback(async () => {
+  const loadSkills = useCallback(async (restore = false) => {
     if (currentCwd.current !== cwd) return [];
+    if (!restore) invalidateResourceOverviews("skills");
     const sequence = ++loadSequence.current;
     setLoading(true);
     setError(null);
-    try {
-      const res = await fetch(`/api/skills${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ""}`);
-      const d = (await res.json()) as Partial<SkillsResponse> & { error?: string };
-      if (!res.ok || d.error) throw new Error(d.error ?? `HTTP ${res.status}`);
+    const apply = (d: Partial<SkillsResponse>) => {
       const list = d.skills ?? [];
-      if (sequence !== loadSequence.current || currentCwd.current !== cwd) return list;
       setSkills(list);
       setLoadedCwd(cwd);
       setGlobalSkillsPath(d.globalSkillsPath ?? "~/.pi/agent/skills/");
       setProjectResourcesLoaded(d.projectResourcesLoaded ?? true);
-      setSelected((current) => {
-        if (current && list.some((skill) => skill.filePath === current)) return current;
-        return null;
-      });
+      setSelected(current => current && list.some(skill => skill.filePath === current) ? current : null);
+    };
+    if (restore) {
+      const cached = peekResourceOverview<SkillsResponse>("skills", cwd);
+      if (cached) apply(cached);
+      else { setSkills([]); setLoadedCwd(undefined); setSelected(null); setProjectResourcesLoaded(false); }
+    }
+    try {
+      const d = await readResourceOverview<SkillsResponse>("skills", cwd, undefined, restore);
+      const list = d.skills ?? [];
+      if (sequence !== loadSequence.current || currentCwd.current !== cwd) return list;
+      apply(d);
       return list;
     } catch (e) {
       if (sequence === loadSequence.current && currentCwd.current === cwd) setError(String(e));
@@ -379,11 +387,12 @@ export function SkillsConfig({
     }
   }, [cwd]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    currentCwd.current = cwd;
     setUpdateStatuses({});
     setUpdateError(null);
     setSaveError(null); setRemoveError(null); setConfirmRemove(null);
-    void loadSkills().catch(() => {});
+    void loadSkills(true).catch(() => {});
   }, [cwd]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const removeSelectedSkill = async (skill: Skill) => {
@@ -521,6 +530,7 @@ export function SkillsConfig({
         setSaveError(d.error ?? `HTTP ${res.status}`);
         return;
       }
+      invalidateResourceOverviews("skills");
       setSkills((prev) =>
         prev.map((s) =>
           s.filePath === skill.filePath
@@ -560,6 +570,7 @@ export function SkillsConfig({
       const d = (await res.json()) as { results?: SkillToggleResult[]; error?: string };
       if (!res.ok || d.error || !d.results) throw new Error(d.error ?? `HTTP ${res.status}`);
       const results = d.results;
+      invalidateResourceOverviews("skills");
       setSkills((prev) => applySkillToggleResults(prev, results, disableModelInvocation));
       const failures = results.filter((result) => result.error);
       if (failures.length > 0) {
@@ -600,9 +611,9 @@ export function SkillsConfig({
           <ConfigSidebar>
             <div className="skills-installed-search"><label><span>{t("skills.catalog.installed")} <small>{loadedCwd === undefined ? "—" : skills.length}</small></span><input type="search" className="plugins-search-input" aria-label={t("skills.catalog.filter")} placeholder={t("skills.catalog.filter")} value={filter} onChange={event => setFilter(event.target.value)} /></label></div>
             <div className="resource-installed-list" aria-busy={loading || resourcePending}><ConfigSidebarList>
-              {loading && skills.length === 0 ? (
+              {loading && loadedCwd === undefined ? (
                 <div className="config-sidebar-message">
-                   {t("i18n.loading")}
+                   {showLoading ? t("i18n.loading") : null}
                 </div>
               ) : error && loadedCwd === undefined ? (
                 <div className="config-sidebar-message is-error">

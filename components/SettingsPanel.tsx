@@ -40,7 +40,7 @@ import { ProjectTrustBadge } from "./ProjectTrustBadge";
 import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
 import { PluginsConfig } from "./PluginsConfig";
-import { McpConfig } from "./McpConfig";
+import { McpWorkspace } from "./McpWorkspace";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
 import { SIDEBAR_DEFAULT_WIDTH } from "@/lib/panel-layout";
@@ -451,7 +451,6 @@ export function SettingsPanel({
   onQuoteSelectionChange,
   projectTrust,
   projectContext,
-  onOpenTrustDialog,
   onProjectTrustChanged,
 }: Props) {
   const { t } = useI18n();
@@ -487,8 +486,8 @@ export function SettingsPanel({
   const dialogRef = useRef<HTMLDivElement>(null);
   const resourcePage = embedded && isResourcePage(open ? initialSection : section);
   const pageTitle = resourcePage ? (open ? initialSection : section) === "skills" ? "common.skills" : "common.plugins" : "settings.title";
-  const skillsTarget = useResourceInstallTarget(cwd, projectTrust, projectContext, open && section === "skills");
-  const pluginsTarget = useResourceInstallTarget(cwd, projectTrust, projectContext, open && section === "plugins");
+  const skillsTarget = useResourceInstallTarget(cwd, projectTrust, projectContext, open && section === "skills", "skills");
+  const pluginsTarget = useResourceInstallTarget(cwd, projectTrust, projectContext, open && section === "plugins", "plugins");
   const resourceTarget = (open ? initialSection : section) === "skills" ? skillsTarget : pluginsTarget;
   const [resourceTrustOpen, setResourceTrustOpen] = useState(false);
   const [resourceTrustBusy, setResourceTrustBusy] = useState(false);
@@ -613,10 +612,10 @@ export function SettingsPanel({
           {/* Visited sections stay mounted, so the ones whose answer depends on trust take the page's
               status and load again in place when trusting from Settings › MCP changes it. */}
           {sectionHost("skills", <SkillsConfig embedded workspace active={open && section === "skills"} cwd={skillsTarget.cwd} trust={skillsTarget.trust} targetScope={skillsTarget.scope} targetPending={skillsTarget.selecting} renderInstallTarget={(path, state) => renderInstallTarget(skillsTarget, path, state)} onClose={onClose} />)}
-          {cwd && sectionHost("agents", <AgentsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
+          {sectionHost("agents", <AgentsConfig embedded cwd={cwd} projectContext={projectContext} active={open && section === "agents"} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
           {sectionHost("plugins", <PluginsConfig embedded workspace active={open && section === "plugins"} cwd={pluginsTarget.cwd} sessionId={pluginsTarget.cwd === cwd ? sessionId : null} trust={pluginsTarget.trust} targetScope={pluginsTarget.scope} targetPending={pluginsTarget.selecting} renderInstallTarget={(path, state) => renderInstallTarget(pluginsTarget, path, state)} onClose={onClose} onReloaded={onSessionReloaded} />)}
           {/* No project needed: the global mcp.json is listed alone, and a project adds its group. */}
-          {sectionHost("mcp", <McpConfig embedded key={cwd ?? ""} cwd={cwd} trust={projectTrust} onTrustProject={onOpenTrustDialog} onProjectTrustChanged={onProjectTrustChanged} onClose={onClose} />)}
+          {sectionHost("mcp", <McpWorkspace cwd={cwd} trust={projectTrust} projectContext={projectContext} active={open && section === "mcp"} onProjectTrustChanged={onProjectTrustChanged} onClose={onClose} />)}
         </main>
         </div>
       </div>

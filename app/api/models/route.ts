@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import { stat } from "fs/promises";
 import { resolve } from "path";
-import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionServices, getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import {
   loadModelsWithCache,
@@ -17,7 +17,7 @@ import { inferRemovedWorktree } from "@/lib/worktree";
 
 export const dynamic = "force-dynamic";
 
-async function loadModels(cwd: string): Promise<ModelsData> {
+async function loadModels(cwd: string, globalOnly = false): Promise<ModelsData> {
   const nameMap = new Map<string, string>();
   let modelList: { id: string; name: string; provider: string }[] = [];
   let defaultModel: { provider: string; modelId: string } | null = null;
@@ -28,10 +28,11 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   // Gate untrusted project extensions: enumerating models still imports and
   // runs a repository's .pi/extensions factories, so honor project trust here
   // too (see lib/project-trust.ts, #236).
-  const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
+  const trustReloadOptions = globalOnly ? { resolveProjectTrust: async () => false } : projectTrustReloadOptions(cwd, agentDir);
   const services = await createAgentSessionServices({
     cwd,
     agentDir,
+    ...(globalOnly ? { settingsManager: SettingsManager.create(cwd, agentDir, { projectTrusted: false }) } : {}),
     ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
   });
   const modelError = services.modelRuntime.getError();
@@ -102,7 +103,17 @@ const EMPTY_MODELS: ModelsData = {
 };
 
 export async function GET(req: Request) {
-  const requestedCwd = resolve(new URL(req.url).searchParams.get("cwd") || process.cwd());
+  const query = new URL(req.url).searchParams;
+  // 全局配置不借用服务进程目录，也不加载任何项目设置或扩展。
+  if (query.get("scope") === "global") {
+    const agentDir = getAgentDir();
+    try {
+      return Response.json(await loadModelsWithCache(`global:${agentDir}`, () => loadModels(agentDir, true)));
+    } catch {
+      return Response.json(withSafeModelLoadFailure(EMPTY_MODELS));
+    }
+  }
+  const requestedCwd = resolve(query.get("cwd") || process.cwd());
   // A subagent run isolated in a worktree has that worktree removed when the run
   // finishes, yet its session file still records the worktree as its cwd. Fall back
   // to the main repo it branched from, so opening a finished subagent resolves the

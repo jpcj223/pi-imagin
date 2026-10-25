@@ -126,6 +126,7 @@ export interface SidebarMenuProps {
   /** Desktop width in px. */
   width?: number;
   compact?: boolean;
+  className?: string;
   minLeft?: number;
   /**
    * The files tab's project and worktree menus on a desktop: the look of the
@@ -380,6 +381,7 @@ export interface SidebarMenuSurfaceProps {
   focusCancel?: boolean;
   width?: number;
   compact?: boolean;
+  className?: string;
   classic?: boolean;
   footer?: ReactNode;
   surfaceRef?: Ref<HTMLDivElement>;
@@ -478,6 +480,7 @@ export function SidebarMenuSurface({
   focusCancel = false,
   width = DEFAULT_MENU_WIDTH,
   compact = false,
+  className,
   classic = false,
   footer,
   surfaceRef,
@@ -529,7 +532,7 @@ export function SidebarMenuSurface({
     return (
       <div
         ref={surfaceRef}
-        className={`sidebar-menu${classic ? " is-classic" : ""}${compact ? " workspace-project-menu" : ""}`}
+        className={`sidebar-menu${classic ? " is-classic" : ""}${compact ? " workspace-project-menu" : ""}${className ? ` ${className}` : ""}`}
         role={menuRole ?? "dialog"}
         aria-label={ariaLabel}
         style={{ width }}
@@ -545,7 +548,7 @@ export function SidebarMenuSurface({
       {/* The backdrop takes the tap that closes the sheet, so it reaches neither the
           drawer's own backdrop (which would close the sidebar) nor a row. */}
       <div className="sidebar-sheet-backdrop" aria-hidden="true" onClick={() => onClose("outside")} />
-      <div ref={surfaceRef} className="sidebar-sheet" role="dialog" aria-modal="true" aria-label={ariaLabel}>
+      <div ref={surfaceRef} className={`sidebar-sheet${className ? ` ${className}` : ""}`} role="dialog" aria-modal="true" aria-label={ariaLabel}>
         {title ? <div className="sidebar-sheet-title">{title}</div> : null}
         <div className="sidebar-sheet-body" role={menuRole} aria-label={menuRole ? ariaLabel : undefined}>{body}</div>
         <button
@@ -576,6 +579,7 @@ export function SidebarMenu({
   returnFocusTo,
   width,
   compact = false,
+  className,
   minLeft,
   classic = false,
   footer,
@@ -772,6 +776,7 @@ export function SidebarMenu({
       focusCancel={focusCancel}
       width={width}
       compact={compact}
+      className={className}
       classic={classic}
       footer={footer}
       surfaceRef={surfaceRef}

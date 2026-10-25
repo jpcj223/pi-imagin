@@ -51,6 +51,8 @@ const projectText = `${JSON.stringify({ mcpServers: { repo: { command: "node", a
 
 beforeEach(async () => {
   delete process.env.PI_WEB_DISABLE_MCP;
+  await rm(join(agentDir, "settings.json"), { force: true });
+  await rm(join(cwd, ".pi", "settings.json"), { force: true });
   await writeFile(globalPath, globalText);
   await rm(projectPath, { force: true, recursive: true });
   await writeFile(projectPath, projectText);
@@ -68,6 +70,33 @@ async function post(body, headers = {}) {
 
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 const server = (body, scope, name) => body.servers.find((entry) => entry.scope === scope && entry.name === name);
+
+test("runtime switch changes global settings only, preserving server secrets and project overrides", async () => {
+  const settingsPath = join(agentDir, "settings.json");
+  const projectSettingsPath = join(cwd, ".pi", "settings.json");
+  const initial = { extensions: ["./custom.js", "-builtin:mcp"], theme: "pine" };
+  await writeFile(settingsPath, JSON.stringify(initial));
+  await writeFile(projectSettingsPath, JSON.stringify({ extensions: ["-builtin:mcp"] }));
+  store.set(cwd, true);
+  let result = await post({ action: "set-runtime", enabled: true, cwd });
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.deepEqual(result.body.runtime, { enabled: true, projectOverride: false, application: { pending: 0, failed: 0, sessions: 0 } });
+  assert.equal(result.body.mcp.reason, "builtin-disabled");
+  assert.deepEqual(await readJson(settingsPath), { ...initial, extensions: ["./custom.js", "+builtin:mcp"] });
+  assert.equal(await readFile(globalPath, "utf8"), globalText);
+  assert.equal(await readFile(projectPath, "utf8"), projectText);
+  assert.deepEqual(await readJson(projectSettingsPath), { extensions: ["-builtin:mcp"] });
+  assert.ok(!JSON.stringify(result.body).includes(SECRET));
+  result = await post({ action: "set-runtime", enabled: false });
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body.runtime, { enabled: false, application: { pending: 0, failed: 0, sessions: 0 } });
+  assert.equal(result.body.mcp.reason, "builtin-disabled");
+  assert.equal((await post({ action: "set-runtime", enabled: "true" })).status, 400);
+  const before = await readFile(settingsPath, "utf8");
+  process.env.PI_WEB_DISABLE_MCP = "1";
+  assert.notEqual((await post({ action: "set-runtime", enabled: true })).status, 200);
+  assert.equal(await readFile(settingsPath, "utf8"), before);
+});
 
 test("a server is switched off and on in its file, and the answer is the overview after it", async () => {
   let { status, body } = await post({ action: "disable", scope: "global", name: "lint" });
@@ -409,4 +438,44 @@ test("a global server is turned off and on in the project alone, through an over
   // It names a global server and a switch position, and needs the project.
   assert.equal((await post({ action: "set-in-project", name: "lint", cwd })).status, 400);
   assert.equal((await post({ action: "set-in-project", name: "lint", enabled: false })).status, 400);
+});
+
+
+test("connect queues the exact saved entry in an existing session and never enables disabled entries", async () => {
+  const { POST: connect } = await jiti.import("./connect/route.ts");
+  const requests = [];
+  const previous = globalThis.__piSessions;
+  globalThis.__piSessions = new Map([["fixture", { cwd, isAlive: () => true, requestMcpServerRefresh: target => { requests.push(target); return true; } }]]);
+  const request = body => connect(new Request("http://localhost/api/mcp/connect", {
+    method: "POST", headers: { host: "localhost", "Content-Type": "application/json" }, body: JSON.stringify(body),
+  }));
+  try {
+    assert.equal((await request({ scope: "global", name: "lint" })).status, 200);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].sourcePath, globalPath);
+    assert.equal(requests[0].scope, "global");
+    assert.equal(requests[0].name, "lint");
+    assert.ok(requests[0].configKey);
+    const config = JSON.parse(await readFile(globalPath, "utf8"));
+    config.mcpServers.lint.enabled = false;
+    await writeFile(globalPath, JSON.stringify(config));
+    assert.equal((await request({ scope: "global", name: "lint" })).status, 409);
+    assert.equal(requests.length, 1);
+    assert.equal((await request({ scope: "project", name: "repo", cwd })).status, 403);
+    assert.equal(requests.length, 1, "untrusted project does not queue any connection");
+  } finally { globalThis.__piSessions = previous; }
+});
+
+test("connect without an existing session refuses instead of starting a disposable test", async () => {
+  const { POST: connect } = await jiti.import("./connect/route.ts");
+  const previous = globalThis.__piSessions;
+  globalThis.__piSessions = new Map();
+  try {
+    const response = await connect(new Request("http://localhost/api/mcp/connect", {
+      method: "POST", headers: { host: "localhost", "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "global", name: "lint" }),
+    }));
+    assert.equal(response.status, 409);
+    assert.match((await response.json()).error, /No active MCP session/);
+  } finally { globalThis.__piSessions = previous; }
 });

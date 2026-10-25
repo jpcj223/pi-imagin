@@ -11,6 +11,7 @@ import {
   type ExtensionFactory,
   type InlineExtension,
   type LoadedMcpConfig,
+  type LoadExtensionsResult,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { McpHost, type McpHostOptions } from "./mcp-host";
@@ -22,8 +23,9 @@ import { PROJECT_SETTINGS_MAX_BYTES, readRegularFileText } from "./regular-file"
 // The built-in extensions the pi CLI prepends from a module the SDK does not
 // export (ADR 0006, "Loading"). Normal sessions load them under the CLI's
 // names, so `-builtin:<name>`, project overrides, `noExtensions`, and
-// replacement by a third-party extension that registers `/mcp`, `codemode`, or
-// `tool_search` behave as in the CLI. `llama.cpp` is not among them: it serves
+// replacement for `codemode` or `tool_search` behave as in the CLI.
+// 普通会话保留内置 MCP 入口，由加载过滤器避让已知重复适配包。
+// `llama.cpp` is not among them: it serves
 // a local model server, not a feature of the session. Chat-only sessions load
 // none of them; a subagent only what its profile turns on.
 
@@ -329,8 +331,19 @@ export async function readBuiltinExtensionSwitches(options: {
  */
 const unavailableExtension: ExtensionFactory = () => {};
 
-function builtin(name: BuiltinExtensionName, factory: ExtensionFactory): InlineExtension {
-  return { name, factory, replaceable: true, builtin: true };
+function builtin(name: BuiltinExtensionName, factory: ExtensionFactory, replaceable = true): InlineExtension {
+  return { name, factory, replaceable, builtin: true };
+}
+
+/** 内置 MCP 开启时只避让已知重复适配包，不卸载插件、不更改用户配置。 */
+export function preferPiImaginMcpExtension(base: LoadExtensionsResult): LoadExtensionsResult {
+  if (!base.extensions.some(extension => extension.path === "builtin:mcp" && extension.commands.has("mcp"))) return base;
+  const legacyPaths = new Set(base.extensions.filter(extension => extension.path.replaceAll("\\", "/").split("/").includes("pi-mcp-adapter")
+    && (extension.commands.has("mcp") || extension.commands.has("mcp-adapter"))).map(extension => extension.path));
+  if (legacyPaths.size === 0) return base;
+  return { ...base, extensions: base.extensions.filter(extension => !legacyPaths.has(extension.path)),
+    errors: base.errors.filter(error => !legacyPaths.has(error.path)
+      && !(error.path === "builtin:mcp" && [...legacyPaths].some(path => error.error.includes(path)))) };
 }
 
 /**
@@ -345,6 +358,7 @@ function createMcpBuiltins(
     codemodeAvailable: () => boolean;
     mcpHost?: Pick<McpHostOptions, "idleMs" | "promptWaitMs">;
     gate?: (name: BuiltinExtensionName, factory: ExtensionFactory) => ExtensionFactory;
+    preferBuiltin?: boolean;
   },
 ): PiImaginBuiltinExtensions {
   const gate = options.gate ?? ((_name, factory) => factory);
@@ -372,7 +386,7 @@ function createMcpBuiltins(
             openUrl: () => {},
           })
         : unavailableExtension,
-    )),
+    ), !options.preferBuiltin),
   ];
   if (mcpHost) extensions.push(mcpHost.extension());
   return { extensions, mcpHost };
@@ -457,6 +471,7 @@ export async function createPiImaginBuiltinExtensions(
   const [sandbox, mcp] = await Promise.all([checkCodemodeSandbox(), loadMcpRuntime()]);
   const { extensions, mcpHost } = createMcpBuiltins(mcp, {
     agentDir: options.agentDir,
+    preferBuiltin: true,
     codemodeAvailable: () => sandbox.available,
     ...(options.mcpHost ? { mcpHost: options.mcpHost } : {}),
   });

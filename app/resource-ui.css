@@ -111,12 +111,16 @@ body:has(.project-editor-backdrop)>.sidebar-menu {z-index:1150;}
 .resource-sidebar-group [hidden] {display:none;}
 
 /* 安装目标变更只刷新资源快照；固定工具栏节奏，长名称及提示不推动卡片。 */
-.resource-install-target-row {display:grid;grid-template-columns:auto auto minmax(0,1fr);align-items:center;gap:10px;min-height:32px;}
+.resource-install-target-row {display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:10px;min-height:32px;}
 .resource-install-target-summary {display:flex;align-items:center;gap:10px;min-width:0;overflow:hidden;}
 .resource-install-target-summary>.resource-path {min-width:0;flex:0 1 42ch;}
 .resource-install-target-summary>.resource-install-project-name {flex:0 1 auto;max-width:14ch;min-width:0;}
 .resource-install-target-status {height:20px;line-height:20px;margin-top:4px;font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .resource-install-target-status>[role="alert"] {color:var(--error,#c64a4a);}
+/* 快速刷新仍禁止操作，但不让已有列表和范围按钮突然变淡。 */
+.resource-install-target[data-loading] .config-scope-switch-option:disabled,
+.resource-installed-list[aria-busy="true"] .config-sidebar-item:disabled,
+.config-sidebar-group[data-agent-group][aria-busy="true"] .config-sidebar-item:disabled {opacity:1;}
 .resource-installed-list {display:flex;flex:1;flex-direction:column;min-height:0;min-width:0;overflow:hidden;}
 .resource-installed-list>.config-sidebar-list {flex:1;min-height:0;}
 .resource-load-error {display:flex;align-items:center;gap:12px;margin:0;padding:8px 16px;border-top:1px solid var(--border);color:var(--error,#c64a4a);font-size:12px;}
@@ -129,3 +133,11 @@ body:has(.project-editor-backdrop)>.sidebar-menu {z-index:1150;}
  .resource-install-target-summary {grid-column:1/-1;min-height:24px;}
  .resource-install-target-status {margin-top:2px;}
 }
+
+/* 三种资源页共享项目菜单尺寸；长名称最多两行，菜单内部滚动。 */
+.resource-project-menu.sidebar-menu {padding:6px;max-height:min(360px,calc(var(--app-viewport-height,100dvh) - 16px));scrollbar-gutter:stable;}
+.resource-project-menu .sidebar-menu-header {padding:6px 10px;font-size:11px;line-height:18px;}
+.resource-project-menu .sidebar-menu-item {height:auto;min-height:36px;padding:8px 10px;gap:8px;font-size:12px;line-height:18px;}
+.resource-project-menu .sidebar-menu-label {white-space:normal;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;}
+.resource-project-menu .sidebar-menu-filter {padding:4px 4px 6px;}
+.resource-project-menu.sidebar-sheet .sidebar-menu-item {min-height:44px;padding-block:10px;font-size:14px;line-height:20px;}

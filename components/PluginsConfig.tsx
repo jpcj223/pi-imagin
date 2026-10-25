@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { invalidateResourceOverviews, peekResourceOverview, readResourceOverview } from "@/lib/resource-overview-cache";
+import { useDeferredLoading } from "@/hooks/useDeferredLoading";
 import { useInstallTasks } from "@/hooks/useInstallTasks";
 import { ResourcePath } from "./ResourcePath";
 import { CopyButton } from "./CopyButton";
@@ -486,6 +488,7 @@ export function PluginsConfig({
   const switchingTarget = loadedCwd !== cwd;
   const resourcePending = targetPending || switchingTarget;
   const [loading, setLoading] = useState(true);
+  const showLoading = useDeferredLoading(loading);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -549,26 +552,28 @@ export function PluginsConfig({
   // 返回卡片目录时恢复滚动，详情之间切换则回到顶部。
   useEffect(() => { detailRef.current?.querySelector(".config-detail")?.scrollTo(0, selected || selectedCatalog ? 0 : catalogScroll.current); }, [selected, selectedCatalog]);
 
-  const loadPlugins = useCallback(async () => {
+  const loadPlugins = useCallback(async (restore = false) => {
     if (currentCwd.current !== cwd) return;
+    if (!restore) invalidateResourceOverviews("plugins");
     const sequence = ++loadSequence.current;
     setLoading(true);
     setError(null);
     setGroupStatus(null);
-    try {
-      const res = await fetch(`/api/plugins${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ""}`);
-      const next = (await res.json()) as PluginsResponse & { error?: string };
-      if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
-      if (sequence !== loadSequence.current || currentCwd.current !== cwd) return;
+    const apply = (next: PluginsResponse) => {
       setData(next);
       setLoadedCwd(cwd);
-      setSelected((current) => {
-        if (current && (
-          next.packages.some((pkg) => packageKey(pkg) === current)
-          || next.standaloneExtensions.some((extension) => extensionKey(extension) === current)
-        )) return current;
-        return null;
-      });
+      setSelected(current => current && (next.packages.some(pkg => packageKey(pkg) === current)
+        || next.standaloneExtensions.some(extension => extensionKey(extension) === current)) ? current : null);
+    };
+    if (restore) {
+      const cached = peekResourceOverview<PluginsResponse>("plugins", cwd);
+      if (cached) apply(cached);
+      else { setData(null); setLoadedCwd(undefined); setSelected(null); }
+    }
+    try {
+      const next = await readResourceOverview<PluginsResponse>("plugins", cwd, undefined, restore);
+      if (sequence !== loadSequence.current || currentCwd.current !== cwd) return;
+      apply(next);
     } catch (err) {
       if (sequence === loadSequence.current && currentCwd.current === cwd) setError(err instanceof Error ? err.message : String(err));
       throw err;
@@ -577,11 +582,12 @@ export function PluginsConfig({
     }
   }, [cwd]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    currentCwd.current = cwd;
     setUpdateStatuses({});
     setUpdateError(null);
     setActionError(null); setActionMessage(null); setConfirmRemove(null);
-    void loadPlugins().catch(() => {});
+    void loadPlugins(true).catch(() => {});
   }, [cwd]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Whether project packages load, and the Project scope can be chosen, follows
@@ -656,6 +662,7 @@ export function PluginsConfig({
       });
       const next = (await res.json()) as PluginsResponse & { error?: string };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
+      invalidateResourceOverviews("plugins");
       setData(next);
       setUpdateStatuses({});
       setActionMessage(t("i18n.packagesUpdated"));
@@ -683,6 +690,7 @@ export function PluginsConfig({
       });
       const next = (await res.json()) as PluginsResponse & { error?: string };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
+      invalidateResourceOverviews("plugins");
       setData(next);
       if (action === "remove") {
         setSelected(current => current === key ? null : current);
@@ -749,6 +757,7 @@ export function PluginsConfig({
       const next = (await res.json()) as Partial<PluginsBulkResponse> & { error?: string };
       if (!res.ok || next.error || !next.results) throw new Error(next.error ?? `HTTP ${res.status}`);
       const { results, ...plugins } = next as PluginsBulkResponse;
+      invalidateResourceOverviews("plugins");
       setData(plugins);
       const failures = results.filter((result) => result.error);
       if (failures.length < results.length) {
@@ -917,7 +926,7 @@ export function PluginsConfig({
 
             </div>
             <div className="resource-installed-list" aria-busy={loading || resourcePending}><ConfigSidebarList>
-              {loading && !data ? <div className="config-sidebar-message">{t("i18n.loading")}</div>
+              {loading && !data ? <div className="config-sidebar-message">{showLoading ? t("i18n.loading") : null}</div>
                 : error && !data ? <div className="plugins-sidebar-empty is-error" role="alert"><p>{error}</p><ConfigButton size="small" onClick={() => void loadPlugins().catch(() => {})}>{t("plugins.retry")}</ConfigButton></div>
                   : visibleCount === 0 ? <div className="plugins-sidebar-empty" role="status"><p>{t(search ? "plugins.noMatches" : "plugins.noInstalled")}</p>{!search && <span>{t("plugins.installFromCatalog")}</span>}</div>
                     : <ResourceSidebarGroups kind="plugins" searching={!!search.trim()} groups={RESOURCE_GROUPS.map(id => {

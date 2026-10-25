@@ -1,9 +1,11 @@
 "use client";
 
-import { useId, useMemo } from "react";
+import { useId, useMemo, useRef, type ReactNode } from "react";
 import type { McpServerConfig } from "@earendil-works/pi-coding-agent";
 import type { McpResponse, McpScope } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
+import { McpCatalogs } from "./McpCatalogs";
+import { InlineResourcePath } from "./ResourcePath";
 import { shortenPath } from "@/lib/display-path";
 import type { McpImportField, McpImportNote } from "@/lib/mcp-import";
 import { isReferenceOnly } from "@/lib/mcp-secrets";
@@ -11,7 +13,6 @@ import { mcpFieldLabel, mcpVariableChips, revealHiddenCharacters } from "@/lib/m
 import {
   ConfigAddSourcePanel,
   ConfigButton,
-  type ConfigAddSourceCatalog,
   ConfigDetailGrid,
   ConfigDetailGridRow,
   ConfigField,
@@ -52,15 +53,6 @@ function scopeLabel(scope: McpScope, t: Translate): string {
   return scope === "project" ? t("skills.scope.project") : t("skills.scope.global");
 }
 
-/** MCP server catalogs to browse, linked at the right of the pane's title. */
-const MCP_CATALOGS: readonly ConfigAddSourceCatalog[] = [
-  { href: "https://glama.ai/mcp/servers", label: "glama.ai" },
-  { href: "https://smithery.ai/servers", label: "smithery.ai" },
-  { href: "https://mcp.so/", label: "mcp.so" },
-  { href: "https://registry.modelcontextprotocol.io/", label: "MCP Registry" },
-  { href: "https://github.com/mcp", label: "github.com/mcp" },
-];
-
 /** The importer's notes about the server's name, shown under the name box instead of with the rest. */
 const NAME_NOTE_CODES: ReadonlySet<string> = new Set(["name-derived", "name-sanitized", "name-deduplicated", "name-taken"]);
 
@@ -86,6 +78,8 @@ function submitBlockText(block: McpAddSubmitBlock, t: Translate, fields: readonl
   switch (block.kind) {
     case "mcp-off":
       return t("mcp.reason.mcp-off");
+    case "example":
+      return t("mcp.add.exampleBlocked");
     case "nothing":
       return t("mcp.add.blocked.nothing");
     case "name-invalid":
@@ -156,6 +150,9 @@ export function McpAddServer({
   failure,
   onDraftChange,
   onSubmit,
+  onCancel,
+  renderActions,
+  scopeLocked = false,
   onTrustProject,
 }: {
   data: McpResponse;
@@ -169,12 +166,26 @@ export function McpAddServer({
   failure: McpActionFailure | null;
   onDraftChange: (draft: McpAddDraft) => void;
   onSubmit: (request: McpAddActionRequest) => void;
+  onCancel?: () => void;
+  renderActions?: (actions: ReactNode) => ReactNode;
+  scopeLocked?: boolean;
   /** Opens the trust dialog, for a project that needs a trust decision first. */
   onTrustProject?: () => void;
 }) {
   const { t } = useI18n();
   const blockId = useId();
   const nameId = useId();
+  const flowRef = useRef<HTMLDivElement>(null);
+  const examplesRef = useRef<HTMLDetailsElement>(null);
+  const fillExample = (text: string) => {
+    onDraftChange(mcpAddDraftWithPaste(draft, { text }));
+    if (examplesRef.current) examplesRef.current.open = false;
+    requestAnimationFrame(() => {
+      const input = flowRef.current?.querySelector<HTMLTextAreaElement>("textarea.config-add-source-input");
+      input?.focus({ preventScroll: true });
+      input?.scrollIntoView({ block: "nearest" });
+    });
+  };
   const analysis = useMemo(() => mcpAddAnalysis(draft, data, cwd), [draft, data, cwd]);
   const offersRawPi = useMemo(() => mcpAddOffersRawPi(draft.text), [draft.text]);
   const { parsed, server, preview, projectBlock, submitBlock } = analysis;
@@ -196,19 +207,39 @@ export function McpAddServer({
     ?? (analysis.scope === "project" && cwd ? `${cwd.replace(/[\\/]+$/, "")}/.pi/mcp.json` : "mcp.json");
   // Why Add waits, under it. Project picked, then blocked (a secret typed since) is said here too:
   // the switch at the top explains only a disabled option, and the way out is often in the fields above Add.
-  const ownBlockLine = submitBlock && (draft.text.trim() !== "" || submitBlock.kind === "mcp-off")
+  const ownBlockLine = submitBlock && submitBlock.kind !== "example" && (draft.text.trim() !== "" || submitBlock.kind === "mcp-off")
     ? submitBlockText(submitBlock, t, server?.fields)
     : undefined;
   const trustable = projectBlock?.kind === "project-untrusted" && projectBlock.trustable && onTrustProject;
   // The preview leaves out what is not set: no working directory, no env or header names.
   const names = preview ? (preview.transport === "http" ? preview.headerNames : preview.envNames) : [];
 
+  const actions = (<div className="mcp-add-actions">
+      {onCancel && <ConfigButton disabled={busy || controlsBusy} onClick={onCancel}>{t("sidebar.cancel")}</ConfigButton>}
+      <ConfigButton
+        variant="primary"
+        disabled={!canSubmit}
+        aria-busy={busy || undefined}
+        aria-describedby={ownBlockLine ? blockId : undefined}
+        onClick={submit}
+      >
+        {busy ? t("mcp.add.adding") : analysis.trustFolder ? t("mcp.add.buttonTrust") : t("mcp.add.button")}
+      </ConfigButton>
+      </div>);
+
   return (
-    <ConfigAddSourcePanel
+    <div className="mcp-add-flow" ref={flowRef}><ConfigAddSourcePanel
       title={t("mcp.add.title")}
-      catalogs={MCP_CATALOGS}
-      target={
-        <ConfigSaveTarget
+      catalogs={[]}
+      target={<>
+        <p className="mcp-add-intro">{t("mcp.add.intro")}</p>
+        <McpCatalogs />
+        {scopeLocked ? <div className="mcp-add-target">
+          <InlineResourcePath path={targetFile} />
+          {analysis.scope === "project" && projectBlock && <span className="mcp-config-line is-warning">{mcpAddProjectBlockText(projectBlock, t, displayPath)}</span>}
+          {analysis.scope === "project" && trustable && <ConfigButton size="small" onClick={onTrustProject}>{t("mcp.trust.trustButton")}</ConfigButton>}
+          {analysis.trustFolder && analysis.projectMode.kind === "trust-and-write" && <p className="mcp-config-line is-warning">{t("mcp.add.trustExplain", { path: displayPath(analysis.projectMode.folder) })}</p>}
+        </div> : <ConfigSaveTarget
           value={analysis.scope}
           label={t("config.saveTo")}
           options={[
@@ -216,10 +247,10 @@ export function McpAddServer({
             { value: "project", label: scopeLabel("project", t), disabled: projectBlock !== undefined && analysis.scope !== "project" },
           ]}
           path={displayPath(targetFile)}
-          disabledReason={projectBlock ? mcpAddProjectBlockText(projectBlock, t, displayPath) : null}
+          disabledReason={analysis.scope === "project" && projectBlock ? mcpAddProjectBlockText(projectBlock, t, displayPath) : null}
           onChange={(scope) => change({ scope })}
         >
-          {trustable && (
+          {analysis.scope === "project" && trustable && (
             <span className="mcp-config-line">
               <ConfigButton size="small" onClick={onTrustProject}>{t("mcp.trust.trustButton")}</ConfigButton>
             </span>
@@ -227,7 +258,7 @@ export function McpAddServer({
           {analysis.trustFolder && analysis.projectMode.kind === "trust-and-write" && (
             <p className="mcp-config-line is-warning">{t("mcp.add.trustExplain", { path: displayPath(analysis.projectMode.folder) })}</p>
           )}
-        </ConfigSaveTarget>
+        </ConfigSaveTarget>}</>
       }
       inputLabel={t("mcp.add.inputLabel")}
       inputId="mcp-add-source"
@@ -237,18 +268,24 @@ export function McpAddServer({
       onValueChange={(text) => onDraftChange(mcpAddDraftWithPaste(draft, { text }))}
       onSubmit={submit}
       examplesLabel={t("mcp.add.examples")}
-      // Every format the importer reads, each with an example, only while the box is empty: clicking one replaces the paste.
-      examples={draft.text.trim() === "" ? MCP_ADD_EXAMPLES.map(({ source, text }) => ({ label: t(MCP_IMPORT_SOURCE_KEYS[source]), value: text })) : []}
+      // 示例使用独立折叠区；点击只填充草稿，不自动保存或测试。
+      examples={[]}
       multiline
     >
+      <details className="mcp-add-examples" ref={examplesRef}>
+        <summary>{t("mcp.add.viewExamples")}</summary>
+        <p className="mcp-config-line is-dim">{t("mcp.add.examplesHint")}</p>
+        <div className="mcp-add-example-list">{MCP_ADD_EXAMPLES.map(({ source, text }) => <button key={source} type="button" className="mcp-add-example" disabled={busy || controlsBusy} onClick={() => fillExample(text)}><span className="config-add-source-example-label">{t(MCP_IMPORT_SOURCE_KEYS[source])}</span><code className="config-add-source-example-value">{text}</code></button>)}</div>
+      </details>
       {offersRawPi && (
+        <details className="mcp-add-advanced" open={draft.rawPi || undefined}><summary>{t("mcp.add.advanced")}</summary>
         <label className="mcp-add-toggle">
           <input type="checkbox" checked={draft.rawPi} onChange={(event) => onDraftChange(mcpAddDraftWithPaste(draft, { rawPi: event.target.checked }))} />
           <span className="mcp-config-lines">
             <span className="mcp-config-line">{t("mcp.add.rawPi")}</span>
             {draft.rawPi && <span className="mcp-config-line is-dim">{t("mcp.add.rawPiOn")}</span>}
           </span>
-        </label>
+        </label></details>
       )}
 
       {!parsed.ok && draft.text.trim() !== "" && <McpImportNotes notes={parsed.notes} />}
@@ -299,11 +336,14 @@ export function McpAddServer({
         <>
           <ConfigSectionTitle>{t("mcp.add.preview")}</ConfigSectionTitle>
           <ConfigDetailGrid>
-            <ConfigDetailGridRow label={t("mcp.add.readAs")}>{t(MCP_IMPORT_SOURCE_KEYS[preview.source])}</ConfigDetailGridRow>
             <ConfigDetailGridRow label={t("mcp.detail.transport")}>{t(`mcp.transport.${preview.transport}`)}</ConfigDetailGridRow>
             <ConfigDetailGridRow label={preview.transport === "http" ? t("mcp.detail.url") : t("mcp.detail.command")} tone="plain" mono>
               {preview.target}
             </ConfigDetailGridRow>
+          </ConfigDetailGrid>
+          <details className="mcp-add-advanced"><summary>{t("mcp.add.parseDetails")}</summary>
+          <ConfigDetailGrid>
+            <ConfigDetailGridRow label={t("mcp.add.readAs")}>{t(MCP_IMPORT_SOURCE_KEYS[preview.source])}</ConfigDetailGridRow>
             {preview.transport === "stdio" && preview.cwd !== undefined && (
               <ConfigDetailGridRow label={t("mcp.detail.cwd")} mono>{preview.cwd}</ConfigDetailGridRow>
             )}
@@ -312,6 +352,8 @@ export function McpAddServer({
                 <McpAddNames names={names} />
               </ConfigDetailGridRow>
             )}
+          </ConfigDetailGrid></details>
+          <ConfigDetailGrid>
             {preview.commandFields.length > 0 && (
               <ConfigDetailGridRow label={t("mcp.detail.shellCommands")} tone="plain">
                 <span className="mcp-config-lines">
@@ -387,16 +429,6 @@ export function McpAddServer({
         </>
       )}
 
-      <ConfigButton
-        variant="primary"
-        className="is-pushed-right"
-        disabled={!canSubmit}
-        aria-busy={busy || undefined}
-        aria-describedby={ownBlockLine ? blockId : undefined}
-        onClick={submit}
-      >
-        {busy ? t("mcp.add.adding") : analysis.trustFolder ? t("mcp.add.buttonTrust") : t("mcp.add.button")}
-      </ConfigButton>
       {ownBlockLine && (
         <p id={blockId} className={`mcp-config-line ${submitBlock?.kind === "scope" ? "is-warning" : "is-dim"}`}>{ownBlockLine}</p>
       )}
@@ -437,7 +469,8 @@ export function McpAddServer({
           )}
         </div>
       )}
-    </ConfigAddSourcePanel>
+      {renderActions ? renderActions(actions) : actions}
+    </ConfigAddSourcePanel></div>
   );
 }
 

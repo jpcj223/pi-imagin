@@ -271,7 +271,7 @@ function toolExposure(config: McpServerConfig, name: string, internals: Pick<PiS
  * One listed tool. pi-mcp checks only a tool's `name` and `inputSchema`, so
  * every other field is whatever the server sent: only strings are read.
  */
-function describeTool(
+export function describeMcpTool(
   tool: McpTool,
   config: McpServerConfig,
   internals: Pick<PiSdkInternals, "getMcpToolExposure">,
@@ -443,7 +443,7 @@ export async function observeTestConnection(
   const client = "client" in outcome ? outcome.client : undefined;
   const run: McpTestRun = {
     state,
-    tools: tools.slice(0, MCP_TEST_MAX_TOOLS).map((tool) => describeTool(tool, config, internals, redact)),
+    tools: tools.slice(0, MCP_TEST_MAX_TOOLS).map((tool) => describeMcpTool(tool, config, internals, redact)),
     toolCount: tools.length,
     durationMs,
     ...cwd,

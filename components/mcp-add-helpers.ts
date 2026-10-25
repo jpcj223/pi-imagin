@@ -1,3 +1,4 @@
+import { isMcpExampleTarget } from "@/lib/mcp-example-target";
 import type { McpExposure, McpServerConfig } from "@earendil-works/pi-coding-agent";
 import type {
   FreshFolderTrustBreadth,
@@ -247,23 +248,23 @@ const FETCH_NAMED = JSON.stringify({ name: "fetch", command: "uvx", args: ["mcp-
  * along with a format added to the importer without one here.
  */
 export const MCP_ADD_EXAMPLES: readonly { source: McpImportFormat; text: string }[] = [
-  { source: "url", text: "https://mcp.example.com/mcp" },
+  { source: "url", text: "https://learn.microsoft.com/api/mcp" },
   { source: "command-line", text: "npx -y @modelcontextprotocol/server-everything" },
-  { source: "pi-mcp-add", text: "pi mcp add docs --url https://mcp.example.com/mcp" },
-  { source: "claude-mcp-add", text: "claude mcp add --transport http docs https://mcp.example.com/mcp" },
-  { source: "claude-mcp-add-json", text: `claude mcp add-json docs '{"type":"http","url":"https://mcp.example.com/mcp"}'` },
+  { source: "pi-mcp-add", text: "pi mcp add docs --url https://learn.microsoft.com/api/mcp" },
+  { source: "claude-mcp-add", text: "claude mcp add --transport http docs https://learn.microsoft.com/api/mcp" },
+  { source: "claude-mcp-add-json", text: `claude mcp add-json docs '{"type":"http","url":"https://learn.microsoft.com/api/mcp"}'` },
   { source: "codex-mcp-add", text: "codex mcp add fetch -- uvx mcp-server-fetch" },
-  { source: "gemini-mcp-add", text: "gemini mcp add --transport http docs https://mcp.example.com/mcp" },
+  { source: "gemini-mcp-add", text: "gemini mcp add --transport http docs https://learn.microsoft.com/api/mcp" },
   { source: "vscode-add-mcp", text: `code --add-mcp '${FETCH_NAMED}'` },
   { source: "mcp-servers-json", text: '{ "mcpServers": { "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] } } }' },
-  { source: "vscode-json", text: '{ "servers": { "docs": { "type": "http", "url": "https://mcp.example.com/mcp" } } }' },
+  { source: "vscode-json", text: '{ "servers": { "docs": { "type": "http", "url": "https://learn.microsoft.com/api/mcp" } } }' },
   { source: "zed-json", text: '{ "context_servers": { "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] } } }' },
-  { source: "opencode-json", text: '{ "mcp": { "docs": { "type": "remote", "url": "https://mcp.example.com/mcp" } } }' },
-  { source: "server-object", text: '{ "type": "http", "url": "https://mcp.example.com/mcp" }' },
+  { source: "opencode-json", text: '{ "mcp": { "docs": { "type": "remote", "url": "https://learn.microsoft.com/api/mcp" } } }' },
+  { source: "server-object", text: '{ "type": "http", "url": "https://learn.microsoft.com/api/mcp" }' },
   { source: "server-map", text: '{ "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] } }' },
   {
     source: "registry-server-json",
-    text: '{ "name": "com.example/docs", "version": "1.0.0", "remotes": [{ "type": "streamable-http", "url": "https://mcp.example.com/mcp" }] }',
+    text: '{ "name": "com.example/docs", "version": "1.0.0", "remotes": [{ "type": "streamable-http", "url": "https://learn.microsoft.com/api/mcp" }] }',
   },
   { source: "cursor-install-link", text: `cursor://anysphere.cursor-deeplink/mcp/install?name=fetch&config=${btoa(FETCH_CONFIG)}` },
   { source: "vscode-install-link", text: `vscode:mcp/install?${encodeURIComponent(FETCH_NAMED)}` },
@@ -554,6 +555,7 @@ function fileBlock(scope: McpScope, data: Pick<McpResponse, "files">): McpAddPro
 export type McpAddSubmitBlock =
   | { kind: "mcp-off" }
   | { kind: "nothing" }
+  | { kind: "example" }
   | { kind: "name-invalid" }
   | { kind: "name-taken"; name: string; suggestedName: string; path?: string }
   /** Values still to fill in, by label. */
@@ -684,7 +686,8 @@ export function mcpAddAnalysis(draft: McpAddDraft, data: McpResponse, cwd: strin
     // A URL is shown as the preview shows it, so a password typed into it stays hidden.
     const params = filledProblem.problem === "url" ? { ...filledProblem, url: preview.target } : filledProblem;
     submitBlock = { kind: "config-invalid", note: { code: "invalid-config", params } };
-  } else if (referencesWebPassword(fill.config)) submitBlock = { kind: "web-password" };
+  } else if (fill.ok && isMcpExampleTarget(fill.config)) submitBlock = { kind: "example" };
+  else if (referencesWebPassword(fill.config)) submitBlock = { kind: "web-password" };
   else if (scope === "project" && projectBlock) submitBlock = { kind: "scope", block: projectBlock };
   else {
     const block = fileBlock(scope, data);

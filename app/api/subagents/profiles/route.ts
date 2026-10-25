@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { existsSync } from "fs";
+import { join } from "path";
+import { getAgentDir } from "@/lib/agent-dir";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import {
   deleteSubagentProfile,
@@ -32,8 +34,9 @@ function validateToggleScope(scope: unknown): SubagentWritableScope | "builtin" 
 
 export async function GET(req: Request) {
   try {
-    const cwd = await validateCwd(new URL(req.url).searchParams.get("cwd"));
-    return NextResponse.json({ profiles: listSubagentProfileSources(cwd) });
+    const query = new URL(req.url).searchParams;
+    const cwd = query.get("scope") === "global" ? undefined : await validateCwd(query.get("cwd"));
+    return NextResponse.json({ profiles: listSubagentProfileSources(cwd), globalAgentsPath: join(getAgentDir(), "agents"), ...(cwd ? { projectAgentsPath: join(cwd, ".pi", "agents") } : {}) });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 400 });
@@ -47,8 +50,8 @@ export async function PUT(req: Request) {
       scope?: unknown;
       profile?: Omit<SubagentProfile, "scope" | "filePath">;
     };
-    const cwd = await validateCwd(body.cwd);
     const scope = validateScope(body.scope);
+    const cwd = scope === "global" ? "" : await validateCwd(body.cwd);
     if (!body.profile || typeof body.profile.name !== "string") {
       return NextResponse.json({ error: "profile required" }, { status: 400 });
     }
@@ -62,12 +65,12 @@ export async function PUT(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const body = await req.json() as { cwd?: unknown; scope?: unknown; name?: unknown; enabled?: unknown };
-    const cwd = await validateCwd(body.cwd);
     const scope = validateToggleScope(body.scope);
+    const cwd = scope === "project" ? await validateCwd(body.cwd) : "";
     if (typeof body.name !== "string") return NextResponse.json({ error: "name required" }, { status: 400 });
     if (typeof body.enabled !== "boolean") return NextResponse.json({ error: "enabled required" }, { status: 400 });
     const name = body.name;
-    const source = listSubagentProfileSources(cwd).find((profile) =>
+    const source = listSubagentProfileSources(cwd || undefined).find((profile) =>
       profile.scope === scope && profile.name.toLowerCase() === name.toLowerCase()
     );
     if (!source) return NextResponse.json({ error: "Agent profile not found" }, { status: 404 });
@@ -110,8 +113,8 @@ export async function PATCH(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const body = await req.json() as { cwd?: unknown; scope?: unknown; name?: unknown };
-    const cwd = await validateCwd(body.cwd);
     const scope = validateScope(body.scope);
+    const cwd = scope === "global" ? "" : await validateCwd(body.cwd);
     if (typeof body.name !== "string") return NextResponse.json({ error: "name required" }, { status: 400 });
     deleteSubagentProfile(cwd, scope, body.name);
     return NextResponse.json({ ok: true });

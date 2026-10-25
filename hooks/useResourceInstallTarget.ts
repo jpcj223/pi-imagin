@@ -3,22 +3,21 @@
 import { useEffect, useRef, useState } from "react";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { NewSessionContext } from "@/lib/new-session-context";
-import { newSessionProjectOptions } from "@/lib/new-session-project";
+import { fileProjectChoices } from "@/lib/new-session-context";
 import type { ResourceProjectOption } from "@/components/ResourceInstallTarget";
 import { validateWorkspaceSelection } from "@/lib/workspace-selection";
+import { prepareResourceOverview, type ResourceOverviewKind } from "@/lib/resource-overview-cache";
 
-export function useResourceInstallTarget(cwd: string | null, inheritedTrust: ProjectTrustStatus | null | undefined, context: NewSessionContext | null | undefined, active: boolean) {
+export function useResourceInstallTarget(cwd: string | null, inheritedTrust: ProjectTrustStatus | null | undefined, context: NewSessionContext | null | undefined, active: boolean, kind?: ResourceOverviewKind) {
   const [selection, setSelection] = useState("default");
   const [remote, setRemote] = useState<{ cwd: string; status?: ProjectTrustStatus; error?: string } | null>(null);
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const [selecting, setSelecting] = useState(false);
   const pickSequence = useRef(0);
-  const projects: ResourceProjectOption[] = context ? newSessionProjectOptions(context).map(option => ({ key: option.key, name: option.name, cwd: option.target.cwd, projectId: option.target.managedProjectId })) : [];
-  const currentProject = projects.find(project => project.cwd === cwd || context?.cwd === cwd && project.projectId === context?.managedProjectId && project.projectId !== undefined);
-  const current = cwd && inheritedTrust && !inheritedTrust.defaultWorkspace
-    ? currentProject ? { ...currentProject, cwd } : { key: "current", name: cwd.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || cwd, cwd }
-    : null;
-  if (current && !projects.some(project => project.key === current.key)) projects.unshift(current);
+  const pickController = useRef<AbortController | null>(null);
+  useEffect(() => () => { ++pickSequence.current; pickController.current?.abort(); }, []);
+  // 与文件区共用正式项目清单，历史会话、最近目录和当前执行目录不另算项目。
+  const projects: ResourceProjectOption[] = context ? fileProjectChoices(context).map(option => ({ key: option.id, name: option.name, cwd: option.target.cwd, projectId: option.target.managedProjectId })) : [];
   const chosen = projects.find(project => project.key === selection) ?? null;
   // 全局是独立的安装范围，不借用当前会话或默认日期目录读取项目资源。
   const targetCwd = chosen?.cwd ?? null;
@@ -39,15 +38,18 @@ export function useResourceInstallTarget(cwd: string | null, inheritedTrust: Pro
     error: selectionError ?? (remote?.cwd === targetCwd ? remote.error : null),
     select: async (key: string) => {
       const sequence = ++pickSequence.current;
+      pickController.current?.abort();
+      const controller = new AbortController();
+      pickController.current = controller;
       setSelectionError(null);
-      if (key === "default") { setSelection(key); setSelecting(false); return; }
-      const project = projects.find(project => project.key === key);
-      if (!project) { setSelecting(false); return; }
+      const project = key === "default" ? null : projects.find(project => project.key === key);
+      if (key !== "default" && !project) { setSelecting(false); return; }
       setSelecting(true);
       try {
-        await validateWorkspaceSelection(project.cwd, fetch, undefined, project.projectId);
+        if (project) await validateWorkspaceSelection(project.cwd, fetch, controller.signal, project.projectId);
+        if (kind && sequence === pickSequence.current) await prepareResourceOverview(kind, project?.cwd ?? null, controller.signal);
         if (sequence === pickSequence.current) setSelection(key);
-      } catch (error) { if (sequence === pickSequence.current) setSelectionError(String(error)); }
+      } catch (error) { if (sequence === pickSequence.current && !controller.signal.aborted) setSelectionError(String(error)); }
       finally { if (sequence === pickSequence.current) setSelecting(false); }
     },
     acceptTrust: (next: ProjectTrustStatus) => { if (targetCwd) setRemote({ cwd: targetCwd, status: next }); },

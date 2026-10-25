@@ -389,3 +389,35 @@ test("profiles route rejects missing paths, malformed profiles, and unsafe names
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), { error: "enabled required" });
 });
+
+test("显式全局无需会话目录，两个项目的同名角色独立读写和删除", async t => {
+  const a = await mkdtemp(join(tmpdir(), "agents-project-a-"));
+  const b = await mkdtemp(join(tmpdir(), "agents-project-b-"));
+  allowFileRoot(a); allowFileRoot(b);
+  t.after(async () => { await rm(a, { recursive: true, force: true }); await rm(b, { recursive: true, force: true }); });
+  const name = "scope-isolation";
+  for (const [cwd, scope, description] of [[null, "global", "global"], [a, "project", "A"], [b, "project", "B"]]) {
+    const response = await PUT(jsonRequest("PUT", { cwd, scope, profile: profile({ name, description }) }));
+    assert.equal(response.status, 200, JSON.stringify(await response.json()));
+  }
+  const globalResponse = await GET(new Request(`http://localhost/api/subagents/profiles?scope=global&cwd=${encodeURIComponent(a)}`));
+  const globalData = await globalResponse.json();
+  assert.equal(globalResponse.status, 200);
+  assert.equal(globalData.globalAgentsPath, join(testAgentDir, "agents"));
+  assert.equal(globalData.projectAgentsPath, undefined);
+  assert.deepEqual(globalData.profiles.filter(item => item.name === name).map(item => item.description), ["global"]);
+  assert.ok(globalData.profiles.every(item => item.scope === "builtin" || item.scope === "global"));
+  for (const [cwd, description] of [[a, "A"], [b, "B"]]) {
+    const data = await (await GET(new Request(`http://localhost/api/subagents/profiles?cwd=${encodeURIComponent(cwd)}`))).json();
+    assert.equal(data.projectAgentsPath, join(cwd, ".pi", "agents"));
+    assert.deepEqual(data.profiles.filter(item => item.name === name).map(item => [item.scope, item.description]).sort(), [["global", "global"], ["project", description]]);
+  }
+  assert.equal((await PATCH(jsonRequest("PATCH", { cwd: null, scope: "global", name, enabled: false }))).status, 200);
+  assert.equal((await DELETE(jsonRequest("DELETE", { cwd: null, scope: "global", name }))).status, 200);
+  assert.equal(existsSync(join(testAgentDir, "agents", name + ".md")), false);
+  assert.equal((await DELETE(jsonRequest("DELETE", { cwd: a, scope: "project", name }))).status, 200);
+  assert.equal(existsSync(join(a, ".pi", "agents", name + ".md")), false);
+  assert.equal(existsSync(join(b, ".pi", "agents", name + ".md")), true);
+  const denied = await PUT(jsonRequest("PUT", { cwd: null, scope: "project", profile: profile({ name }) }));
+  assert.equal(denied.status, 400, "项目写入仍必须验证实际目录");
+});

@@ -8,6 +8,10 @@ export async function checkResourceSidebars(page, base, artifacts, other) {
   const second = join(artifacts, "second"); mkdirSync(second);
   const response = await page.request.post(`${base}/api/projects`, { data: { action: "save", name: "第二项目", folders: [{ path: second }], defaultPath: second } });
   assert.equal(response.status(), 200);
+  const third = join(artifacts, "third"); mkdirSync(third);
+  const savedThird = await page.request.post(`${base}/api/projects`, { data: { action: "save", name: "第三项目", folders: [{ path: third }], defaultPath: third } });
+  assert.equal(savedThird.status(), 200);
+
   const counts = { extensions: 1, skills: 0, prompts: 0, themes: 0 };
   const makeSkill = (name, scope, origin) => ({ name, description: `${name} instructions`, filePath: join(scope === "global" ? artifacts : other, name, "SKILL.md"), baseDir: artifacts, source: scope === "global" ? "user" : "project", sourceInfo: { scope: scope === "global" ? "user" : "project", source: scope === "global" ? "user" : "project" }, installOrigin: origin, disableModelInvocation: false, canRemove: true, install: { package: `fixture/catalog@${name}`, scope, source: "fixture/catalog", sourceType: "github", canCheckForUpdates: false } });
   const makePlugin = (name, scope, origin) => ({ packageName: name, source: `npm:${name}`, scope, installOrigin: origin, counts, resources: [], status: "loaded", disabled: false, filtered: false, canCheckForUpdates: false, description: `${name} description` });
@@ -54,10 +58,11 @@ export async function checkResourceSidebars(page, base, artifacts, other) {
     await filter.fill("");
     assert.equal(await toggle("external").getAttribute("aria-expanded"), "false", "搜索临时展开，不覆盖折叠偏好");
     await host.locator("[data-resource-install-target]").click();
+    assert.deepEqual((await page.getByRole("menuitemradio").allTextContents()).map(name => name.trim()).sort(), ["安装测试项目", "第二项目", "第三项目"].sort(), `${kind} 项目菜单只列主页三个项目，不混入历史 default、switch 或关联目录`);
     await page.getByRole("menuitemradio", { name: "安装测试项目", exact: true }).click();
-    await host.locator(".resource-install-project-name").getByText("安装测试项目", { exact: true }).waitFor();
     assert.equal(await titleCount.innerText(), originalCount, "切换中保留列表数量，不重置为 0");
     assert.equal(await host.locator(".resource-installed-list").getAttribute("aria-busy"), "true");
+    await host.locator(".resource-install-project-name").getByText("安装测试项目", { exact: true }).waitFor();
     assert.equal(await catalogSearch.inputValue(), "retained-query", "切换不重建目录搜索");
     assert.equal(await host.locator(kind === "skills" ? ".skills-catalog-scroll" : ".plugins-card-grid").evaluate(node => node.getBoundingClientRect().top), layoutTop, "安装位置与信任提示不改变卡片起点");
     await toggle("project").waitFor();
