@@ -9,6 +9,7 @@ import { focusModalPanel, listenForStackedDialogEscape } from "@/lib/stacked-dia
 import { ConfigButton, ConfigPanelShell } from "./SettingsUi";
 import { TerminalIcon } from "./TerminalIcon";
 import { SidebarMenu, type SidebarMenuItem } from "./SidebarMenu";
+import { PiCommandSettings } from "./PiCommandSettings";
 
 export const SHELL_PROFILES_CHANGED = "pi-shell-profiles-changed";
 const icon = (kind: ShellKind) => kind === "powershell" ? "powershell" : kind === "cmd" ? "cmd" : kind === "wsl" ? "linux" : "bash";
@@ -67,6 +68,7 @@ export function ShellProfilesSettings({ disabled = false, revision = 0, onBusy }
   return <section className="settings-general-section shell-settings" ref={section}>
     <h3 className="settings-general-heading">{t("shell.title")}</h3>
     <p className="settings-general-description">{t("shell.description")}</p>
+    <PiCommandSettings disabled={disabled || busy} />
     <ol className="shell-profile-list" aria-label={t("shell.title")}>
       {data?.profiles.map((profile, i) => <li key={profile.id} data-shell-id={profile.id} className={`shell-profile-row${over === profile.id ? " is-drop-target" : ""}${!profile.available ? " is-unavailable" : ""}`} draggable={!disabled && !busy}
         onDragStart={event => { if ((event.target as HTMLElement).closest(".shell-profile-more,.shell-profile-path")) { event.preventDefault(); return; } event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", profile.id); setDragging(profile.id); setMenu(null); }} onDragEnd={() => { setDragging(null); setOver(null); }}

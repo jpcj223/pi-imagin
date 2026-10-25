@@ -46,6 +46,10 @@ export const zhCNLocale: LocalePlugin = {
     "skills.catalog.detailFailed": "暂时无法加载技能说明，可重试或前往 skills.sh 查看。",
 
     "shell.title": "命令执行环境",
+    "shell.externalPi": "在外部终端使用 Pi",
+    "shell.externalPiHint": "将 pi 命令加入当前用户 PATH，重开系统终端后生效。关闭不影响应用内终端。",
+    "shell.externalPiRepair": "修复 Pi 命令入口",
+    "shell.externalPiUnsupported": "外部命令注册目前支持 Windows。",
     "shell.description": "AI 命令优先使用列表中首个可用环境，拖动可调整优先级。",
     "shell.builtin": "系统内置",
     "shell.added": "额外添加",

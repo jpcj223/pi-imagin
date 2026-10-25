@@ -46,6 +46,10 @@ export const enLocale: LocalePlugin = {
     "skills.catalog.detailFailed": "Could not load the skill documentation. You can retry or view it on skills.sh.",
 
     "shell.title": "Command environments",
+    "shell.externalPi": "Use Pi in external terminals",
+    "shell.externalPiHint": "Add pi to your user PATH. Reopen system terminals to apply. Turning this off keeps Pi available inside the app.",
+    "shell.externalPiRepair": "Repair Pi command",
+    "shell.externalPiUnsupported": "External command registration currently supports Windows.",
     "shell.description": "Use the first available environment in this list for AI commands. Drag to change priority.",
     "shell.builtin": "System built-in",
     "shell.added": "Added",

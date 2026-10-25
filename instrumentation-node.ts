@@ -36,4 +36,9 @@ export function registerNodeInstrumentation(): void {
   // 桌面先完成轻量认证和首屏，SDK 不再与这些请求争抢冷启动资源。
   // 会话接口仍按需导入同一 SDK，不创建会话，也不改变其行为。
   scheduleSdkPreload(process.env.PI_IMAGIN_DESKTOP === "1", process, loadSdk);
+  if (process.env.PI_IMAGIN_DESKTOP === "1") {
+    void import("@/lib/pi-command").then(module => module.initializeExternalPiCommand()).catch(error => {
+      console.warn("[pi-command] External command registration failed:", error instanceof Error ? error.message : String(error));
+    });
+  }
 }

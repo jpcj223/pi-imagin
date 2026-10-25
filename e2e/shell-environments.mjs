@@ -48,7 +48,7 @@ async function check(page, name) {
   const shells = settings.locator('.shell-settings');
   await shells.locator('[data-shell-id="powershell"]').waitFor();
   const capture = async suffix => { await shells.scrollIntoViewIfNeeded(); await page.screenshot({ path: join(artifacts, `${name}-${suffix}.png`), animations: 'disabled' }); };
-  assert.equal(await shells.getByRole('switch').count(), 0);
+  assert.equal(await shells.locator('.shell-profile-list').getByRole('switch').count(), 0);
   assert.equal((await request('GET')).data.selectedId, 'powershell');
   const row = id => shells.locator(`[data-shell-id="${id}"]`);
   await row('powershell').getByRole('button', { name: 'Actions for Windows PowerShell' }).click();

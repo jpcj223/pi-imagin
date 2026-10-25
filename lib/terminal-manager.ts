@@ -5,6 +5,7 @@ import { readShellProfilesSync } from "./shell-profiles";
 import type { IPty } from "node-pty";
 import { samePath } from "./paths";
 import { readTerminalDirectory } from "./terminal-directory";
+import { internalPiCommandDirectory } from "./pi-command";
 
 export type TerminalEvent =
   | { type: "output"; data: string; offset: number; reset?: boolean }
@@ -57,6 +58,11 @@ function shellEnvironment(): Record<string, string> {
     if (value !== undefined && comparableKey !== "PI_WEB_PASSWORD") env[key] = value;
   }
   env.TERM = "xterm-256color";
+  const piBin = internalPiCommandDirectory();
+  if (piBin) {
+    const key = Object.keys(env).find(name => name.toUpperCase() === "PATH") || "PATH";
+    env[key] = `${piBin};${env[key] || ""}`;
+  }
   env.COLORTERM = "truecolor";
   // Windows shells (Git Bash / MSYS2, cmd, PowerShell) otherwise inherit the
   // system ANSI codepage (e.g. GBK on zh-CN) and mangle non-ASCII filenames.

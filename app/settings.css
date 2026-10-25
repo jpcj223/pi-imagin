@@ -1395,6 +1395,11 @@
 
 /* 命令环境列表沿用常规设置正文宽度，不把路径挤入主行。 */
 .shell-profile-list { list-style: none; padding: 0; margin: 16px 0 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.pi-command-settings { margin-top: 20px; }
+.pi-command-setting-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.pi-command-setting-row > div { min-width: 0; }
+.pi-command-setting-row .settings-general-description { margin: 6px 0 0; }
+.pi-command-setting-row > button { flex-shrink: 0; }
 .shell-profile-row + .shell-profile-row { border-top: 1px solid var(--border); }
 .shell-profile-row { background: var(--bg); transition: background 120ms; }
 .shell-profile-row:hover { background: var(--bg-hover); }
