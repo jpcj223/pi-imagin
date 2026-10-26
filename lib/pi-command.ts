@@ -31,6 +31,11 @@ try {
   $kind = if ($key.GetValueNames() -contains 'Path') { $key.GetValueKind('Path') } else { [Microsoft.Win32.RegistryValueKind]::ExpandString }
   $key.SetValue('Path', $next, $kind)
 } finally { $key.Dispose() }
+'changed'
+`;
+
+/** 系统广播可能等待其他窗口，不阻塞已完成的注册表保存。 */
+export const USER_ENVIRONMENT_NOTICE_SCRIPT = `
 Add-Type -Namespace PiImagin -Name EnvironmentNotice -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll", CharSet=System.Runtime.InteropServices.CharSet.Unicode)] public static extern System.IntPtr SendMessageTimeout(System.IntPtr window, uint message, System.UIntPtr wParam, string lParam, uint flags, uint timeout, out System.UIntPtr result);'
 $result = [UIntPtr]::Zero
 [void][PiImagin.EnvironmentNotice]::SendMessageTimeout([IntPtr]0xffff, 0x1a, [UIntPtr]::Zero, 'Environment', 2, 1000, [ref]$result)
@@ -83,26 +88,59 @@ async function userPath(action: "read" | "enable" | "disable", directory: string
     windowsHide: true, timeout: 10000, maxBuffer: 16384,
     env: { ...process.env, PI_IMAGIN_PATH_DATA: Buffer.from(JSON.stringify({ action, directory })).toString("base64") },
   });
-  return stdout.trim() === "true";
+  return stdout.trim() === (action === "read" ? "true" : "changed");
+}
+
+const PATH_STATUS_TTL_MS = 3000;
+const pathStatus = new Map<string, { expiresAt: number; value?: boolean; pending?: Promise<boolean> }>();
+
+async function readUserPath(directory: string): Promise<boolean> {
+  const cached = pathStatus.get(directory);
+  if (cached?.pending) return cached.pending;
+  if (cached?.value !== undefined && cached.expiresAt > Date.now()) return cached.value;
+  const entry: { expiresAt: number; value?: boolean; pending?: Promise<boolean> } = { expiresAt: 0 };
+  pathStatus.set(directory, entry);
+  entry.pending = userPath("read", directory).then(value => {
+    if (pathStatus.get(directory) === entry) { entry.value = value; entry.expiresAt = Date.now() + PATH_STATUS_TTL_MS; entry.pending = undefined; }
+    return value;
+  }).catch(error => { if (pathStatus.get(directory) === entry) pathStatus.delete(directory); throw error; });
+  return entry.pending;
+}
+
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleEnvironmentNotice(): void {
+  if (noticeTimer) clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => {
+    noticeTimer = undefined;
+    const powershell = join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    void run(powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(USER_ENVIRONMENT_NOTICE_SCRIPT, "utf16le").toString("base64")], {
+      windowsHide: true, timeout: 10000, maxBuffer: 16384,
+    }).catch(error => { console.warn("[pi-imagin] environment notification failed after PATH update:", error instanceof Error ? error.message : String(error)); });
+  }, 100);
+  noticeTimer.unref();
 }
 
 export async function readPiCommandSettings(): Promise<PiCommandSettings> {
   const enabled = await readGlobalSettings(getGlobalSettingsPath(), settings => settings[KEY] !== false);
   if (process.platform !== "win32") return { supported: false, enabled, registered: false };
   const directory = externalDirectory();
-  return { supported: true, enabled, registered: existsSync(join(directory, "pi.cmd")) && await userPath("read", directory) };
+  return { supported: true, enabled, registered: existsSync(join(directory, "pi.cmd")) && await readUserPath(directory) };
 }
 
 async function applyExternalCommand(enabled: boolean): Promise<void> {
   const directory = externalDirectory();
+  pathStatus.delete(directory);
+  let changed: boolean;
   if (enabled) {
     const { node, cli } = commandPaths();
     writePiLaunchers(directory, node, cli);
-    await userPath("enable", directory);
+    changed = await userPath("enable", directory);
   } else {
-    await userPath("disable", directory);
+    changed = await userPath("disable", directory);
     removePiLaunchers(directory);
   }
+  pathStatus.set(directory, { value: enabled, expiresAt: Date.now() + PATH_STATUS_TTL_MS });
+  if (changed) scheduleEnvironmentNotice();
 }
 
 let pending: Promise<unknown> = Promise.resolve();
