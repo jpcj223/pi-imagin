@@ -119,6 +119,11 @@ html[data-desktop] .project-editor-backdrop,html[data-desktop] .resource-remove-
 @media(max-width:640px){.workspace-settings-body>.settings-section-tabs{height:auto;overflow:visible;}.workspace-settings-body .settings-section-tab{width:auto;}.settings-workspace-page .settings-mobile-section-picker{display:none;}}
 .workspace-status>button {display:inline-flex;align-items:center;gap:5px;}
 .workspace-shell .terminal-xterm .xterm-viewport {background-color:var(--terminal-bg)!important;}
+/* xterm 6 自绘滚动条与应用原生滚动条共用颜色；保留 14px 拖动区，滑块只显示中间 6px。 */
+.workspace-shell .terminal-xterm .xterm-scrollable-element > .scrollbar.vertical {opacity:1;pointer-events:auto;transition:none;}
+.workspace-shell .terminal-xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {box-sizing:border-box;border:2px solid transparent;border-left-width:4px;border-right-width:4px;border-radius:7px;background-color:color-mix(in srgb,var(--text-dim) 45%,transparent);background-clip:padding-box;}
+.workspace-shell .terminal-xterm .xterm-scrollable-element > .scrollbar.vertical > .slider:hover {background-color:color-mix(in srgb,var(--text-dim) 72%,transparent);}
+.workspace-shell .terminal-xterm .xterm-scrollable-element > .scrollbar.vertical > .slider.active {background-color:var(--text-dim);}
 .workspace-shell .terminal-panel-header button {height:23px;width:23px;border-color:var(--border);color:var(--text-muted);}
 .workspace-inspection-host {flex:1;min-width:0;min-height:0;overflow:hidden;}
 .workspace-inspector-content .system-prompt-panel {height:100%;min-height:0;border:0;background:var(--bg);}

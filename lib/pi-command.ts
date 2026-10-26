@@ -51,13 +51,20 @@ function commandPaths() {
   return { node: process.execPath, cli };
 }
 
-export function writePiLaunchers(directory: string, node: string, cli: string): void {
+export function writePiLaunchers(directory: string, node: string, cli: string, options: { tuiMode?: "regular"; hardwareCursorDefault?: boolean } = {}): void {
   // CMD 禁用延迟展开，百分号使用批处理转义；Git Bash 使用标准单引号转义。
   const cmdQuote = (value: string) => `"${value.replace(/%/g, "%%")}"`;
   const shQuote = (value: string) => `'${value.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`;
+  // 默认参数置于用户参数之前，显式 --tui-mode 仍可覆盖；外部入口不设置此项。
+  const defaults = options.tuiMode ? ["--tui-mode", options.tuiMode] : [];
+  const cmdArgs = defaults.length ? ` ${defaults.map(cmdQuote).join(" ")}` : "";
+  const shArgs = defaults.length ? ` ${defaults.map(shQuote).join(" ")}` : "";
+  // ConPTY 会忽略隐藏光标的纯位置更新；仅给应用内 Pi 默认启用真实光标，供输入法跟随。
+  const cmdEnv = options.hardwareCursorDefault ? 'if not defined PI_HARDWARE_CURSOR set "PI_HARDWARE_CURSOR=1"\r\n' : "";
+  const shEnv = options.hardwareCursorDefault ? 'export PI_HARDWARE_CURSOR="${PI_HARDWARE_CURSOR:-1}"\n' : "";
   const files = {
-    "pi.cmd": `@rem ${MARKER}\r\n@echo off\r\nsetlocal DisableDelayedExpansion\r\n${cmdQuote(node)} ${cmdQuote(cli)} %*\r\nexit /b %errorlevel%\r\n`,
-    pi: `#!/bin/sh\n# ${MARKER}\nexec ${shQuote(node)} ${shQuote(cli)} "$@"\n`,
+    "pi.cmd": `@rem ${MARKER}\r\n@echo off\r\nsetlocal DisableDelayedExpansion\r\n${cmdEnv}${cmdQuote(node)} ${cmdQuote(cli)}${cmdArgs} %*\r\nexit /b %errorlevel%\r\n`,
+    pi: `#!/bin/sh\n# ${MARKER}\n${shEnv}exec ${shQuote(node)} ${shQuote(cli)}${shArgs} "$@"\n`,
   };
   for (const name of Object.keys(files)) {
     const path = join(directory, name);
@@ -169,6 +176,6 @@ export function internalPiCommandDirectory(): string | undefined {
   if (process.platform !== "win32") return undefined;
   const directory = join(dirname(getGlobalSettingsPath()), "terminal-bin");
   const { node, cli } = commandPaths();
-  writePiLaunchers(directory, node, cli);
+  writePiLaunchers(directory, node, cli, { tuiMode: "regular", hardwareCursorDefault: true });
   return directory;
 }
