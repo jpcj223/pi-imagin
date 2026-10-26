@@ -52,6 +52,7 @@ export interface StartSubagentRequest {
   runInBackground?: boolean;
   model?: string;
   isolation?: "worktree";
+  cwd?: string;
   signal?: AbortSignal;
   onUpdate?: (run: SubagentRunInfo) => void;
 }
@@ -113,19 +114,23 @@ export function subagentToolDetails(run: SubagentRunInfo): SubagentToolDetails {
 }
 
 export function subagentFinalText(run: SubagentRunInfo): string {
+  // details 不进入模型上下文；运行时清理告警也必须出现在前后台共用的正文中。
+  const withCleanupWarning = (text: string) => run.worktreeCleanupError
+    ? `${text}\n\nWorktree cleanup warning: ${run.worktreeCleanupError}`
+    : text;
   if (run.status === "starting" || run.status === "running") {
     return `Subagent ${run.sessionId} is ${run.status}.`;
   }
   // Keep the session ID in the text: the model only sees `content`, never `details`, and needs it for `resume` / `get_subagent_result`.
   if (run.status === "completed") {
     const result = run.result?.trim();
-    return result ? `Subagent ${run.sessionId} completed.\n\n${result}` : `Subagent ${run.sessionId} completed without text output.`;
+    return withCleanupWarning(result ? `Subagent ${run.sessionId} completed.\n\n${result}` : `Subagent ${run.sessionId} completed without text output.`);
   }
-  if (run.status === "aborted") return `Subagent ${run.sessionId} was stopped.`;
-  if (run.status === "interrupted") return `Subagent ${run.sessionId} was interrupted before completion.`;
+  if (run.status === "aborted") return withCleanupWarning(`Subagent ${run.sessionId} was stopped.`);
+  if (run.status === "interrupted") return withCleanupWarning(`Subagent ${run.sessionId} was interrupted before completion.`);
   const failure = `Subagent ${run.sessionId} failed: ${run.error ?? "Unknown error"}`;
   const partial = run.result?.trim();
-  return partial ? `${failure}\n\nPartial output:\n\n${partial}` : failure;
+  return withCleanupWarning(partial ? `${failure}\n\nPartial output:\n\n${partial}` : failure);
 }
 
 /**
@@ -162,13 +167,15 @@ export function createSubagentExtension(
       pi.registerTool(defineTool({
         name: "Agent",
         label: "Agent",
-        description: `Delegate a focused task to a configured subagent. Each subagent runs as a full, inspectable Pi session. Use background mode for independent work and foreground mode when the result is needed immediately.\n\nAvailable agent types:\n${agentTypeDescription(profiles)}`,
+        description: `Delegate a focused task to a configured subagent. Each subagent runs as a full, inspectable Pi session. To continue the SAME completed, idle or closed subagent, set resume to its existing session ID; omit subagent_type, cwd, model, isolation and input_files. Omitting resume starts a NEW session and does not continue the previous one. If multiple earlier subagents could match the user's reference, ask which one before calling Agent; do not choose by recency, list order, or convenience. Use background mode for independent work and foreground mode when the result is needed immediately.\n\nAvailable agent types:\n${agentTypeDescription(profiles)}`,
         promptSnippet: "Delegate a focused task to an inspectable subagent session",
         exposure: SUBAGENT_TOOL_EXPOSURE,
         promptGuidelines: [
           "Use Agent for a focused task that benefits from an isolated context.",
           "Use multiple background Agent calls in the same response for independent parallel work.",
           "Do not duplicate work already delegated to a running subagent.",
+          "When asked to continue the same subagent, use Agent with its existing session ID in resume. A completed or closed session can be resumed; do not start a replacement or take over its task.",
+          "Resolve references to subagents using the user's explicit ID, assigned task, or unambiguous conversation context. If multiple subagents still fit, ask which one before resuming, steering, or assigning side effects. Do not silently pick the most recent or first subagent.",
         ],
         executionMode: "parallel",
         parameters: Type.Object({
@@ -176,13 +183,14 @@ export function createSubagentExtension(
           prompt: Type.String({ description: "The complete task for the subagent." }),
           resume: Type.Optional(Type.String({ description: "Existing session ID to continue with its current profile, model, thinking, and context. Omit new-session options." })),
           input_files: Type.Optional(Type.Array(Type.String(), {
-            description: "UTF-8 text files under the session cwd to include with the task.",
+            description: "UTF-8 text files to include with the task. In a linked project use absolute paths within its current folders.",
             maxItems: MAX_SUBAGENT_INPUT_FILES,
           })),
           description: Type.String({ description: "Short activity label shown in the UI." }),
           run_in_background: Type.Optional(Type.Boolean({ description: "Return immediately and notify this session when complete." })),
           model: Type.Optional(Type.String({ description: 'Optional provider/modelId override. Append ":<level>" (off, minimal, low, medium, high, xhigh, max) to also set the thinking level for this run, e.g. "provider/model:high".' })),
           isolation: Type.Optional(Type.String({ description: 'Set to "worktree" to run the subagent in an isolated git worktree.' })),
+          cwd: Type.Optional(Type.String({ description: 'Only use when isolation="worktree": the absolute repository directory to isolate, required for multi-folder projects in that mode. Omit for ordinary delegation and resume; put task locations as absolute paths in prompt.' })),
         }),
         async execute(toolCallId, params, signal, onUpdate, ctx) {
           try {
@@ -192,6 +200,7 @@ export function createSubagentExtension(
                 params.model?.trim() && "model",
                 params.input_files?.length && "input_files",
                 params.isolation?.trim() && "isolation",
+                params.cwd?.trim() && "cwd",
               ].filter(Boolean);
               if (creationOptions.length > 0) {
                 throw new Error(`${creationOptions.join(", ")} only apply to new subagents. Omit them to resume the existing session, or start a new subagent.`);
@@ -221,6 +230,7 @@ export function createSubagentExtension(
               ...(params.run_in_background !== undefined ? { runInBackground: params.run_in_background } : {}),
               ...(params.model ? { model: params.model } : {}),
               ...(params.isolation === "worktree" ? { isolation: "worktree" as const } : {}),
+              ...(params.cwd ? { cwd: params.cwd } : {}),
               signal,
               onUpdate: (run) => onUpdate?.({
                 content: [{ type: "text", text: `${run.profile}: ${run.description} (${run.status})` }],
@@ -228,6 +238,7 @@ export function createSubagentExtension(
               }),
                 });
 
+            const operation = resume ? "resume existing session" : "create new session";
             if (execution.run.runInBackground) {
               void execution.completion
                 .then((run) => runtime.notifyParent(run))
@@ -238,14 +249,14 @@ export function createSubagentExtension(
                   );
                 });
               return {
-                content: [{ type: "text", text: `Subagent started in background. Session ID: ${execution.run.sessionId}. You will be notified when it completes.` }],
+                content: [{ type: "text", text: `Subagent started in background. Session ID: ${execution.run.sessionId}. You will be notified when it completes.` }, { type: "text", text: `Agent operation: ${operation}. Actual session ID: ${execution.run.sessionId}.` }],
                 details: subagentToolDetails(execution.run),
               };
             }
 
             const run = await execution.completion;
             return {
-              content: [{ type: "text", text: subagentFinalText(run) }],
+              content: [{ type: "text", text: subagentFinalText(run) }, { type: "text", text: `Agent operation: ${operation}. Actual session ID: ${run.sessionId}. To continue this same session later, call Agent with resume=${JSON.stringify(run.sessionId)}, prompt and description. Omitting resume creates a different subagent.` }],
               details: subagentToolDetails(run),
               ...(run.status === "failed" ? { isError: true } : {}),
             };
@@ -301,7 +312,7 @@ export function createSubagentExtension(
       pi.registerTool(defineTool({
         name: "steer_subagent",
         label: "Steer agent",
-        description: "Send a steering message to a currently running subagent session.",
+        description: "Send a steering message only to a currently running subagent. To continue a completed, idle or closed subagent, call Agent with resume set to its session ID, plus prompt and description; do not start a replacement or take over its task.",
         exposure: SUBAGENT_TOOL_EXPOSURE,
         parameters: Type.Object({
           agent_id: Type.String({ description: "Subagent session ID." }),

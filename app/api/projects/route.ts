@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { changeManagedProject, ProjectStateError, readManagedProjects } from "@/lib/managed-projects";
-import { projectExecutionFolders, type ProjectChange } from "@/lib/managed-projects-shared";
+import { type ProjectChange } from "@/lib/managed-projects-shared";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
-import { allowFileRoot } from "@/lib/file-access";
+import { invalidateAllowedFileRoots } from "@/lib/file-access";
 
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "no-store" };
@@ -18,8 +18,8 @@ export async function POST(req: Request) {
   catch { return NextResponse.json({ error: "无效的 JSON 请求。" }, { status: 400 }); }
   try {
     const state = await changeManagedProject(change);
-    // 显式保存的项目目录与已有文件 API 使用相同的真实路径访问边界。
-    for (const project of state.projects) for (const folder of projectExecutionFolders(project)) allowFileRoot(folder.path);
+    // 项目授权从最新定义读取，不把解除关联的根永久存入附加授权集合。
+    invalidateAllowedFileRoots();
     return NextResponse.json({ state }, { headers });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "保存项目失败。" }, { status: error instanceof ProjectStateError ? error.status : 500, headers });

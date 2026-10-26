@@ -206,7 +206,7 @@ export const enLocale: LocalePlugin = {
     "project.folderPath": "Folder path",
     "project.pathPlaceholder": "Enter the full directory path",
     "project.addPath": "Add",
-    "project.scopeHint": "New sessions can work across linked directories. Existing sessions keep their directory snapshots. Commands run with your system account permissions.",
+    "project.scopeHint": "Sessions automatically follow linked folders. The agent chooses where to work for each task; no default folder is required.",
     "project.directoryUnavailable": "Cannot access directory",
     "project.alreadyLinked": "This folder is already linked.",
     "project.select": "Select project",

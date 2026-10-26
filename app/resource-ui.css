@@ -45,7 +45,6 @@
 .project-editor-folder>div {overflow:hidden;}
 .project-editor-folder>.project-folder-actions {display:flex;align-items:center;gap:3px;flex:0 0 auto;overflow:visible;}
 .project-folder-actions>.resource-copy-control {width:28px;}
-.project-folder-actions>button[aria-pressed] {width:72px;white-space:nowrap;padding-inline:3px;}
 .project-folder-actions>button:last-child {width:24px;}
 .project-folder-actions .resource-copy-button {width:28px;height:28px;}
 body:has(.project-editor-backdrop)>.sidebar-menu {z-index:1150;}

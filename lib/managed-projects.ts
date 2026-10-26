@@ -16,6 +16,10 @@ const MAX_BYTES = 4 * 1024 * 1024;
 export class ProjectStateError extends Error {
   constructor(message: string, public status = 400) { super(message); }
 }
+/** 区分真正的范围拒绝与路径格式、文件缺失等可纠正输入错误。 */
+export class ProjectScopeAccessError extends ProjectStateError {
+  constructor(message: string) { super(message, 403); }
+}
 export function managedProjectPath(): string { return join(getAgentDir(), "pi-imagin-projects.json"); }
 
 // 只从项目身份推导私有路径，不接受前端指定内部工作区或共享父目录。
@@ -38,7 +42,9 @@ export function readManagedProjects(file = managedProjectPath()): ManagedProject
     || state.projects.some(p => !p || typeof p.id !== "string" || typeof p.name !== "string" || !Number.isSafeInteger(p.revision) || !Array.isArray(p.folders) || !p.folders.every(validFolder)
       || (p.workspace !== undefined && (!validFolder(p.workspace) || p.workspace.id !== "workspace" || typeof p.workspace.initialized !== "boolean" || p.workspace.path !== projectWorkspacePath(p.id, file)))
       || (p.folders.length ? !p.folders.some(f => f.id === p.defaultFolderId) : !p.workspace || p.defaultFolderId !== p.workspace.id))
-    || Object.entries(state.sessions).some(([id, scope]) => ["__proto__", "constructor", "prototype"].includes(id) || !scope || typeof scope.projectId !== "string" || typeof scope.projectName !== "string" || typeof scope.cwd !== "string" || !isAbsolute(scope.cwd) || !Array.isArray(scope.folders) || !scope.folders.length || !scope.folders.every(validFolder))
+    || Object.entries(state.sessions).some(([id, scope]) => ["__proto__", "constructor", "prototype"].includes(id) || !scope || typeof scope.projectId !== "string" || typeof scope.projectName !== "string" || typeof scope.cwd !== "string" || !isAbsolute(scope.cwd) || !Array.isArray(scope.folders) || !scope.folders.length || !scope.folders.every(validFolder)
+      || (scope.worktreeRoot !== undefined && (typeof scope.worktreeRoot !== "string" || !isAbsolute(scope.worktreeRoot)))
+      || (scope.isolatedWorktree !== undefined && typeof scope.isolatedWorktree !== "boolean"))
     || (state.removedRoots !== undefined && (!Array.isArray(state.removedRoots) || !state.removedRoots.every(root => typeof root === "string")))) {
     throw new ProjectStateError("项目数据格式无法读取，请保留原文件后检查。", 500);
   }
@@ -112,14 +118,26 @@ export async function changeManagedProject(change: ProjectChange, file = managed
         throw new ProjectStateError(`目录已属于项目“${other.name}”，请先解除原有关联。`, 409);
       }
     }
-    const defaultPath = folders.length ? canonicalProjectFolder(change.defaultPath) : workspace!.path;
+    // 旧客户端仍可提交 defaultPath；新客户端不需要配置，重排保留既有资源定位。
+    const previousStart = folders.find(folder => folder.id === existing?.defaultFolderId);
+    const defaultPath = folders.length ? (change.defaultPath ? canonicalProjectFolder(change.defaultPath) : (previousStart ?? folders[0]).path) : workspace!.path;
     const defaultFolder = folders.length ? folders.find(f => projectIdentityKey(f.path) === projectIdentityKey(defaultPath)) : workspace;
     if (!defaultFolder) throw new ProjectStateError("默认目录必须来自关联文件夹。");
     const project = { id, revision: (existing?.revision ?? 0) + 1, name, folders, defaultFolderId: defaultFolder.id, ...(workspace ? { workspace } : {}) };
     state.projects = existing ? state.projects.map(p => p.id === existing.id ? project : p) : [...state.projects, project];
     state.removedRoots = state.removedRoots?.filter(root => !folders.some(f => projectIdentityKey(f.path) === projectIdentityKey(root)));
   });
-  return readManagedProjects(file);
+  const saved = readManagedProjects(file);
+  // 已有会话解除最后一个关联目录后可继续使用原项目，无需重建会话。
+  if (change.action === "save" && change.id) {
+    const project = saved.projects.find(item => item.id === change.id);
+    if (project && !project.folders.length && project.workspace && !project.workspace.initialized
+      && Object.values(saved.sessions).some(scope => scope.projectId === project.id)) {
+      await prepareProjectWorkspace(project.id, project.workspace.path, file);
+      return readManagedProjects(file);
+    }
+  }
+  return saved;
 }
 
 /** 首次选择或执行时准备工作区；已使用后若被移走或改成链接，拒绝静默重建。 */
@@ -146,13 +164,18 @@ export async function prepareProjectWorkspace(projectId: string, cwd: string, fi
   });
 }
 
-/** 会话首次进入项目执行时固定目录快照；项目编辑不改变已经存在的会话快照。 */
+/** 持久化会话所属项目和历史起点；当前执行范围由 resolveCurrentProjectScope 获取。 */
 export async function bindProjectSession(sessionId: string, cwd: string, projectId?: string, file = managedProjectPath()): Promise<ProjectSessionScope | undefined> {
   if (!/^[a-z0-9][a-z0-9._-]{0,127}$/i.test(sessionId) || ["__proto__", "constructor", "prototype"].includes(sessionId)) throw new ProjectStateError("无效的会话身份。");
   const current = readManagedProjects(file);
   if (Object.hasOwn(current.sessions, sessionId)) {
     if (projectId && current.sessions[sessionId].projectId !== projectId) throw new ProjectStateError("已有会话不能更换项目身份。", 409);
-    return structuredClone(current.sessions[sessionId]);
+    let binding = current.sessions[sessionId];
+    if (!binding.worktreeRoot && binding.folders.some(folder => folder.name === "当前工作树" && projectIdentityKey(folder.path) === projectIdentityKey(binding.cwd))) {
+      const info = await resolveProject(binding.cwd);
+      if (info.isWorktree) binding = { ...binding, worktreeRoot: info.projectRoot };
+    }
+    return resolveCurrentProjectScope(binding, file);
   }
   if (!projectId && !current.projects.length) return undefined;
   const owner = projectId ?? current.projects.find(project => project.workspace && projectIdentityKey(project.workspace.path) === projectIdentityKey(cwd))?.id;
@@ -190,9 +213,35 @@ export async function bindProjectSession(sessionId: string, cwd: string, project
     const folders = structuredClone(projectExecutionFolders(latest));
     // linked worktree 仍属于原仓库，但只补入本会话实际选择的工作树，不开放其父目录。
     if (!inRoots) folders.push({ id: randomUUID(), name: "当前工作树", path: canonicalCwd });
-    const snapshot = { projectId: latest.id, projectName: latest.name, cwd: canonicalCwd, folders };
+    const snapshot = { projectId: latest.id, projectName: latest.name, cwd: canonicalCwd, folders, projectRevision: latest.revision, ...(!inRoots && worktreeRoot ? { worktreeRoot } : {}) };
     state.sessions[sessionId] = snapshot;
     return structuredClone(snapshot);
+  });
+}
+
+/** 目录更新只影响执行范围，不更换 SDK cwd、项目配置或历史会话位置。 */
+export function resolveCurrentProjectScope(binding: ProjectSessionScope, file = managedProjectPath(), state?: ManagedProjectState): ProjectSessionScope {
+  const project = (state ?? readManagedProjects(file)).projects.find(item => item.id === binding.projectId);
+  // 已移除整个项目的历史会话沿用既有兼容语义，不根据路径转移到其他项目。
+  if (!project) return structuredClone(binding);
+  let folders = structuredClone(projectExecutionFolders(project));
+  // 兼容旧版已登记的 linked worktree；解除原仓库关联后不继续授权工作树。
+  const legacyWorktree = binding.folders.find(folder => folder.name === "当前工作树" && projectIdentityKey(folder.path) === projectIdentityKey(binding.cwd));
+  const source = binding.worktreeRoot;
+  if (source && folders.some(folder => isPathWithinRoots(source, new Set([folder.path])))) {
+    if (binding.isolatedWorktree) folders = folders.filter(folder => !isPathWithinRoots(source, new Set([folder.path])));
+    folders.push({ id: legacyWorktree?.id ?? "session-worktree", name: "当前工作树", path: binding.cwd });
+  }
+  return { ...binding, projectName: project.name, folders, projectRevision: project.revision };
+}
+
+/** 失效根仅供模型定位时知情，不阻止其他有效根的操作。 */
+export function unavailableProjectFolders(scope: ProjectSessionScope): { path: string; reason: string }[] {
+  return scope.folders.flatMap(folder => {
+    try {
+      if (projectIdentityKey(canonicalProjectFolder(folder.path)) !== projectIdentityKey(folder.path)) throw new ProjectStateError("关联目录真实位置已改变。");
+      return [];
+    } catch (error) { return [{ path: folder.path, reason: error instanceof Error ? error.message : "目录不可用" }]; }
   });
 }
 
@@ -207,7 +256,6 @@ export function assertProjectScopeDirectories(scope: ProjectSessionScope): void 
 
 /** 新文件的父路径也必须在快照范围内，链接不能扩大项目权限。 */
 export function resolveProjectToolPath(scope: ProjectSessionScope, candidate: string): string {
-  assertProjectScopeDirectories(scope);
   // SDK 还支持 ~、@、file URL 和类 Unix 盘符等语法。项目边界仅接收标准路径，
   // 避免校验路径与 SDK 再次展开后的执行路径不一致。
   if (/^(?:~|@|file:)/i.test(candidate) || /[\u00a0\u2000-\u200a\u202f\u205f\u3000]/.test(candidate)
@@ -215,7 +263,11 @@ export function resolveProjectToolPath(scope: ProjectSessionScope, candidate: st
     throw new ProjectStateError("项目工具请使用标准绝对路径或工作目录相对路径。", 403);
   }
   if (hasParentDirectorySegment(candidate)) throw new ProjectStateError("项目路径不能包含上级目录跳转。", 403);
+  if (!isAbsolute(candidate)) throw new ProjectStateError("项目操作必须明确完整绝对路径，不能回退到会话启动目录。", 403);
   const absolute = resolve(scope.cwd, candidate);
+  const owners = scope.folders.filter(folder => isPathWithinRoots(absolute, new Set([folder.path])));
+  if (!owners.length) throw new ProjectScopeAccessError("目标路径不在此会话当前的项目文件夹范围内。");
+  assertProjectScopeDirectories({ ...scope, folders: owners });
   let parent = absolute;
   const suffix: string[] = [];
   while (true) {
@@ -227,13 +279,13 @@ export function resolveProjectToolPath(scope: ProjectSessionScope, candidate: st
     }
   }
   const resolved = join(parent, ...suffix);
-  if (!isPathWithinRoots(resolved, new Set(scope.folders.map(f => f.path)))) throw new ProjectStateError("目标路径不在此会话的项目文件夹范围内。", 403);
+  if (!isPathWithinRoots(resolved, new Set(scope.folders.map(f => f.path)))) throw new ProjectScopeAccessError("目标路径不在此会话的项目文件夹范围内。");
   return resolved;
 }
 
-export async function inheritProjectSession(sourceId: string, targetId: string, file = managedProjectPath()): Promise<void> {
+export async function inheritProjectSession(sourceId: string, targetId: string, file = managedProjectPath(), inherited?: ProjectSessionScope): Promise<void> {
   const sessions = readManagedProjects(file).sessions;
-  const scope = Object.hasOwn(sessions, sourceId) ? sessions[sourceId] : undefined;
+  const scope = inherited ?? (Object.hasOwn(sessions, sourceId) ? sessions[sourceId] : undefined);
   if (!scope) return;
   await edit(file, state => { state.sessions[targetId] ??= structuredClone(scope); });
 }

@@ -37,6 +37,7 @@ import {
   listSubagentProfiles,
   hasSubagentResourceSnapshot,
   readSubagentSessionResources,
+  readSubagentRun,
   subagentExtensionLoaderOptions,
   subagentToolOptions,
   SUBAGENT_CONTROL_TOOL_NAMES,
@@ -54,10 +55,10 @@ import { createPiImaginBuiltinExtensions, createSubagentCodemodeExtension, creat
 import type { McpHost } from "./mcp-host";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension, createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
-import { assertProjectScopeDirectories, bindProjectSession, inheritProjectSession } from "./managed-projects";
+import { bindProjectSession, inheritProjectSession, resolveCurrentProjectScope, resolveProjectToolPath, readManagedProjects } from "./managed-projects";
 import type { ProjectSessionScope } from "./managed-projects-shared";
 import { persistProjectFork } from "./project-session-fork";
-import { createProjectWorkspaceExtension } from "./project-workspace-extension";
+import { createProjectWorkspaceExtension, projectCommandRequestId } from "./project-workspace-extension";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
 import {
@@ -381,6 +382,11 @@ export class AgentSessionWrapper {
 
   get cwd(): string {
     return this.inner.sessionManager.getCwd();
+  }
+
+  /** 所有工具和子代理读取同一当前项目范围，SDK cwd 保持原会话身份。 */
+  getProjectScope(): ProjectSessionScope | undefined {
+    return this.projectScope ? resolveCurrentProjectScope(this.projectScope) : undefined;
   }
 
   get streamingMessage() {
@@ -885,13 +891,13 @@ export class AgentSessionWrapper {
 
       if (type === "prompt" || type === "steer" || type === "follow_up") {
         // SDK 的 before_agent_start 异常只上报通知，必须在运行入口明确拒绝失效目录。
-        if (this.projectScope) assertProjectScopeDirectories(this.projectScope);
+        this.getProjectScope();
         const imageError = validateAgentImages(command.images);
         if (imageError) throw new Error(imageError);
       }
       // 目录在外部删除后历史仍可读，但发送运行必须拒绝。
 // 否则模型请求会成功发出，工具随后失败，write 甚至重新创建目录；与 CLI 和新会话入口一致。
-      if (type === "prompt" && !existsSync(this.cwd)) {
+      if (type === "prompt" && !this.projectScope && !existsSync(this.cwd)) {
         throw new Error(`Directory does not exist: ${this.cwd}`);
       }
 
@@ -976,7 +982,7 @@ export class AgentSessionWrapper {
           let prompt: Promise<void>;
           try {
             // 等待 MCP 等异步准备期间目录也可能被删除，在真正请求前再次确认。
-            if (this.projectScope) assertProjectScopeDirectories(this.projectScope);
+            this.getProjectScope();
             prompt = this.inner.prompt(command.message as string, {
               ...(promptImages?.length ? { images: promptImages } : {}),
               ...(streamingBehavior ? { streamingBehavior } : {}),
@@ -1377,14 +1383,20 @@ export class AgentSessionWrapper {
         if (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
           throw new Error("Cannot run a shell command while the session is busy");
         }
+        const scope = this.getProjectScope();
+        if (scope && scope.folders.length > 1 && typeof command.cwd !== "string") throw new Error("这个项目关联了多个文件夹，无法确定命令执行位置。请通过普通对话说明目标文件夹，例如“在后端运行测试”，或从目标文件夹打开终端。不会使用启动目录代替。");
+        const target = scope ? resolveProjectToolPath(scope, typeof command.cwd === "string" ? command.cwd : scope.folders.length === 1 ? scope.folders[0].path : "") : this.cwd;
+        const operations = createProjectCommandBashOperations({ shellPath: this.inner.settingsManager.getShellPath() });
         const execution = this.inner.executeBash(
           command.command as string,
           undefined,
           {
             excludeFromContext: command.excludeFromContext as boolean | undefined,
-            operations: createProjectCommandBashOperations({
-              shellPath: this.inner.settingsManager.getShellPath(),
-            }),
+            operations: { exec: (text, _cwd, options) => {
+              if (scope) resolveProjectToolPath(this.getProjectScope()!, target);
+              options.onData(Buffer.from(`工作目录：${target}\n`));
+              return operations.exec(text, target, options);
+            } },
           },
         );
         try {
@@ -2174,6 +2186,7 @@ const SUBAGENT_CONTROLLER = createSubagentController({
         ? { exactSystemPrompt: options.exactSystemPrompt }
         : {}),
       chatOnly: options?.chatOnly,
+      projectScope: options?.projectScope,
       suppressCompletionNotifications: true,
       ...(options?.mcpHost ? { mcpHost: options.mcpHost } : {}),
     });
@@ -2445,9 +2458,21 @@ export async function startRpcSession(
     if (!subagentResources && options.projectScopeSourceSessionId) {
       await inheritProjectSession(options.projectScopeSourceSessionId, sessionManager.getSessionId());
     }
+    if (subagentResources && !Object.hasOwn(readManagedProjects().sessions, sessionManager.getSessionId())) {
+      const run = readSubagentRun(sessionEntries, sessionManager.getSessionId(), sessionFile);
+      const parentBinding = run ? readManagedProjects().sessions[run.parentSessionId] : undefined;
+      if (run && parentBinding) await inheritProjectSession(run.parentSessionId, sessionManager.getSessionId(), undefined,
+        { ...parentBinding, cwd: sessionCwd, ...(run.worktreePath ? { worktreeRoot: parentBinding.cwd, isolatedWorktree: true } : {}) });
+    }
     const projectScope = !subagentResources
       ? await bindProjectSession(sessionManager.getSessionId(), sessionCwd, options.projectId)
-      : undefined;
+      : readManagedProjects().sessions[sessionManager.getSessionId()];
+    const currentProjectScope = () => resolveCurrentProjectScope(projectScope!);
+    const parentSessionId = subagentResources ? readSubagentRun(sessionEntries, sessionManager.getSessionId(), sessionFile)?.parentSessionId : undefined;
+    const parentRequestId = parentSessionId ? () => {
+      const parent = getRegistry().get(parentSessionId);
+      return parent ? projectCommandRequestId(parent.inner.sessionManager.getEntries()) : undefined;
+    } : undefined;
 
     // Determine which tools to pass based on requested toolNames.
     // Since v0.68.0, session creation expects string[] tool names instead of Tool[] instances.
@@ -2514,21 +2539,23 @@ export async function startRpcSession(
         ? [...subagentMcp.extensions, createSubagentMcpPolicyExtension(() => subagentResources)]
         : []),
       ...(skillsBinding?.loaderOptions.extensionFactories ?? []),
+      ...(projectScope && !chatOnly ? [createProjectWorkspaceExtension(projectScope, () => subagentResources?.tools, settingsManager, currentProjectScope, true, parentRequestId)] : []),
     ];
+    const subagentLoaderOptions = subagentResources ? subagentExtensionLoaderOptions(subagentResources) : undefined;
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
       settingsManager,
       resourceLoaderOptions: subagentResources
         ? {
-            ...subagentExtensionLoaderOptions(subagentResources),
+            ...subagentLoaderOptions,
             ...skillsBinding!.loaderOptions,
             ...(subagentResources.loadSkills ? { additionalSkillPaths: additionalGlobalSkillPaths(agentDir) } : {}),
             ...(subagentExtensionFactories.length > 0 ? { extensionFactories: subagentExtensionFactories } : {}),
             noPromptTemplates: true,
             noThemes: true,
             noContextFiles: true,
-            extensionsOverride: base => preferUserPowerShellExtension(preferUserBashExtension(base)),
+            extensionsOverride: base => preferUserPowerShellExtension(preferUserBashExtension(subagentLoaderOptions?.extensionsOverride?.(base) ?? base)),
             ...(chatOnly
               ? {
                   systemPrompt: " ",
@@ -2548,7 +2575,7 @@ export async function startRpcSession(
               // 凭证访问保护只注册拦截器，不向模型增加专用工具或额外系统提示。
               createCredentialFileGuardExtension(agentDir),
               createPowerShellOutputExtension(sessionCwd, () => createEnvironmentOperations(settingsManager, "powershell")),
-              ...(projectScope ? [createProjectWorkspaceExtension(projectScope, () => settingsManager.getDefaultTools(), settingsManager)] : []),
+              ...(projectScope ? [createProjectWorkspaceExtension(projectScope, () => settingsManager.getDefaultTools(), settingsManager, currentProjectScope)] : []),
               createProjectCommandBashExtension({
                 cwd: sessionCwd,
                 settings: settingsManager,
@@ -2627,7 +2654,7 @@ export async function startRpcSession(
       ...(initial?.thinkingLevel ? { thinkingLevel: initial.thinkingLevel } : {}),
       ...(scope.scopedModels.length > 0 ? { scopedModels: [...scope.scopedModels] } : {}),
       ...(subagentResources
-        ? subagentToolOptions({ ...subagentResources, tools: resolveEnvironmentTools(subagentResources.tools, settingsManager) })
+        ? subagentToolOptions({ ...subagentResources, projectWorkspace: Boolean(projectScope && !chatOnly), tools: resolveEnvironmentTools(subagentResources.tools, settingsManager) })
         : toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
 

@@ -1,10 +1,10 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { Type } from "typebox";
-import { createBashToolDefinition, createPowerShellToolDefinition, type InlineExtension } from "@earendil-works/pi-coding-agent";
+import { createBashToolDefinition, createPowerShellToolDefinition, type ExtensionContext, type InlineExtension } from "@earendil-works/pi-coding-agent";
 import { createUtf8PowerShellOperations } from "./powershell-operations";
 import type { ProjectSessionScope } from "./managed-projects-shared";
-import { assertProjectScopeDirectories, resolveProjectToolPath } from "./managed-projects";
+import { ProjectScopeAccessError, resolveProjectToolPath, unavailableProjectFolders } from "./managed-projects";
 import { createProjectCommandBashOperations } from "./project-command-env";
 import { readSessionToolSelection } from "./session-tool-selection";
 import { resolveShellTools } from "./powershell-settings";
@@ -15,6 +15,12 @@ import { createEnvironmentOperations } from "./shell-profile-operations";
 
 const FILE_TOOLS = new Set(["read", "write", "edit", "ls", "find", "grep"]);
 const OUTPUT_TOOLS = new Set(["bash", "powershell", "project_command"]);
+const COMMAND_DENIAL_ENTRY = "pi-imagin:project-command-denial";
+
+/** 使用真实用户消息 ID 区分新请求；后台自定义消息不产生新授权边界。 */
+export function projectCommandRequestId(entries: readonly { id: string; type: string; message?: { role: string } }[]): string | undefined {
+  return entries.findLast(entry => entry.type === "message" && entry.message?.role === "user")?.id;
+}
 
 /** 只放行本会话命令实际落盘的完整输出，不把结果正文中的任意路径变成访问授权。 */
 function isCommandOutput(path: string, entries: SessionEntry[]): boolean {
@@ -42,15 +48,38 @@ const parameters = Type.Object({
 });
 
 /** 每个包装器持有独立快照，不修改 process.cwd，也不修改其他会话的 SDK 工具。 */
-export function createProjectWorkspaceExtension(snapshot: ProjectSessionScope, defaultTools: () => string[] | undefined = () => undefined, shellSettings?: ShellSettings): InlineExtension {
-  const scope = structuredClone(snapshot);
+export function createProjectWorkspaceExtension(snapshot: ProjectSessionScope, defaultTools: () => string[] | undefined = () => undefined, shellSettings?: ShellSettings, currentScope?: () => ProjectSessionScope, contextOnly = false, parentRequestId?: () => string | undefined): InlineExtension {
+  let scope = structuredClone(snapshot);
+  const refresh = () => { if (currentScope) scope = currentScope(); return scope; };
   // 工具拒绝后给出实际可用根，避免模型猜测兄弟目录或扫描项目父目录。
-  const folderGuide = "当前会话关联目录（跨目录请直接使用以下绝对路径，不使用 ..）：\n"
+  const folderGuide = () => "当前项目关联目录（操作请使用以下绝对路径，不使用 ..）：\n"
     + scope.folders.map(folder => `${folder.name}: ${folder.path}`).join("\n");
+  const scopeData = () => JSON.stringify({ project: scope.projectName, revision: scope.projectRevision, folders: scope.folders, unavailable: unavailableProjectFolders(scope) });
+  let promptScope = scopeData();
+  const validatedPaths = new Map<string, string>();
+  let commandAccessDenied = false;
+  const commandRefusal = () => "本次请求已发生项目目录访问拒绝，命令执行已暂停，不能改用 Shell 继续访问。仍可使用文件工具处理当前允许目录；需要运行命令时，请先由用户确认目标并发送新的请求。";
   return {
     name: "pi-imagin-project-workspace",
     hidden: true,
     factory(pi) {
+      const requestId = (context: ExtensionContext) => parentRequestId ? parentRequestId() : projectCommandRequestId(context.sessionManager.getEntries());
+      const commandBlocked = (context: ExtensionContext) => {
+        const entries = context.sessionManager?.getEntries() ?? [];
+        const saved = entries.findLast(entry => entry.type === "custom" && entry.customType === COMMAND_DENIAL_ENTRY);
+        if (saved?.type === "custom") {
+          const data = saved.data as { requestId?: string } | undefined;
+          const current = parentRequestId ? parentRequestId() : projectCommandRequestId(entries);
+          // 父请求不可读时保持拒绝；换一个子任务提示或重开子会话不能解除它。
+          commandAccessDenied = !current || !data?.requestId || current === data.requestId;
+        }
+        return commandAccessDenied;
+      };
+      const recordDenial = (error: unknown, context: ExtensionContext) => {
+        if (!(error instanceof ProjectScopeAccessError)) return;
+        if (!commandBlocked(context)) pi.appendEntry?.(COMMAND_DENIAL_ENTRY, { version: 1, requestId: requestId(context) });
+        commandAccessDenied = true;
+      };
       const commandEnvironment = shellSettings?.getGlobalSettings ? selectedShellProfile(shellSettings.getGlobalSettings() as Record<string, unknown>) : undefined;
       const environmentOperations = commandEnvironment ? createEnvironmentOperations(commandEnvironment) : undefined;
       pi.registerTool({
@@ -61,17 +90,20 @@ export function createProjectWorkspaceExtension(snapshot: ProjectSessionScope, d
           const selection = readSessionToolSelection(context.sessionManager.getEntries() as unknown as SessionEntry[]);
           const available = selection ? shellSettings?.getGlobalSettings ? resolveEnvironmentTools(selection, { getGlobalSettings: () => shellSettings.getGlobalSettings!() }) : resolveShellTools(selection, defaultTools()) : pi.getActiveTools();
           if (!available.includes("read") || !available.includes("write")) throw new Error("当前工具预设需要同时允许 read 和 write，才能复制文件。");
-          const result = await copyProjectFile(scope, args.source, args.destination, args.overwrite, signal);
+          let result;
+          try { result = await copyProjectFile(refresh(), args.source, args.destination, args.overwrite, signal, refresh); }
+          catch (error) { recordDenial(error, context); throw error; }
           return { content: [{ type: "text" as const, text: `文件已按字节复制：${JSON.stringify(result)}` }], details: result };
         },
       });
       pi.registerTool({
-        name: "project_command", label: "项目目录命令", description: "Run a command in an explicit project folder. Use for repository-specific tests and git operations. Command processes run with the current OS account permissions; this is not an OS sandbox.",
+        name: "project_command", label: "项目目录命令", description: "Run a command in an explicit project folder. Use for repository-specific tests and git operations. When reading UTF-8 text in PowerShell, specify -Encoding UTF8. Command processes run with the current OS account permissions; this is not an OS sandbox.",
         parameters,
         async execute(id, args, signal, onUpdate, context) {
+          if (commandBlocked(context)) throw new Error(commandRefusal());
           let cwd: string;
-          try { cwd = resolveProjectToolPath(scope, args.cwd); }
-          catch (error) { throw new Error(`${error instanceof Error ? error.message : "无效的工作目录。"}\n${folderGuide}`); }
+          try { cwd = resolveProjectToolPath(refresh(), args.cwd); }
+          catch (error) { recordDenial(error, context); throw new Error(`${error instanceof Error ? error.message : "无效的工作目录。"}\n${folderGuide()}`); }
           if (!statSync(cwd).isDirectory()) throw new Error("命令工作目录必须是有效文件夹。");
           const selection = readSessionToolSelection(context.sessionManager.getEntries() as unknown as SessionEntry[]);
           const environmentSettings = shellSettings?.getGlobalSettings ? { getGlobalSettings: () => shellSettings.getGlobalSettings!() } : undefined;
@@ -87,17 +119,21 @@ export function createProjectWorkspaceExtension(snapshot: ProjectSessionScope, d
             });
           // SDK 优先使用 ctx.cwd；只更换工厂参数会让命令错误地仍在主目录运行。
           const result = await definition.execute(id, { command: args.command, timeout: args.timeout }, signal, onUpdate, { ...context, cwd });
-          return { ...result, content: [{ type: "text" as const, text: `工作目录：${cwd}${commandEnvironment ? `\n执行环境：${commandEnvironment.label}` : ""}\n` }, ...result.content] };
+          return { ...result, details: { ...result.details, cwd, shell }, content: [{ type: "text" as const, text: `工作目录：${cwd}${commandEnvironment ? `\n执行环境：${commandEnvironment.label}` : ""}\n` }, ...result.content] };
         },
       });
       pi.on("before_agent_start", event => {
-        // 防止重启或链接更换将原快照目录静默映射到新目标。
-        assertProjectScopeDirectories(scope);
-        return { systemPrompt: event.systemPrompt + "\n\n<pi_imagin_project_workspace>\n"
-          + JSON.stringify({ project: scope.projectName, defaultCwd: scope.cwd, folders: scope.folders })
-          + "\n当前项目名、默认目录和关联目录以本会话的目录快照为准。defaultCwd 只是默认工作目录，不代表完整项目范围；跨关联目录使用清单中的完整路径，文件夹显示名不代表相对路径。不得通过 Shell 绕过文件工具的访问拒绝。项目设置变化不会扩展已有会话的目录清单，使用新增目录需新建会话；关联目录不会自动加载其中的 .pi 资源。\n</pi_imagin_project_workspace>" };
+        refresh();
+        if (contextOnly) return;
+        promptScope = scopeData();
+        // SDK 的结构化 cwd 段会让模型把内部启动根误当作用户选定的目标。
+        const systemPrompt = event.systemPrompt.replace(`<cwd>\n${snapshot.cwd.replaceAll("\\", "/")}\n</cwd>`, "<cwd>\nInternal SDK startup location only. This project has no default operation folder. Select an explicit folder from the current project list for each operation.\n</cwd>");
+        return { systemPrompt: systemPrompt + "\n\n<pi_imagin_project_workspace>\n"
+          + promptScope
+          + "\n以上为当前项目范围。SDK 启动 cwd 仅用于内部初始化，不是默认操作位置；清单排序没有操作优先级，关联名不是相对路径。根据用户明确指向、关联名、路径和已读文件定位目标，能确定时直接执行；必要读取后仍有影响结果的歧义才询问。多个目录有同名文件时，只有用户要求或已有对话明确了目标才能修改；否则必须先询问。不得按启动 cwd、所谓当前目录、目录排序或自行先读到哪个文件决定修改谁。文件工具必须使用完整绝对路径（搜索也须明确根）；命令使用 project_command 并明确 cwd。允许一个任务跨多个关联目录。清单随项目设置自动更新，后续上下文中的最新清单替代旧清单，无需新建会话。根失效时说明原因，不重建根，也不妨碍其他有效根的任务。不得通过 Shell 绕过文件工具的访问拒绝；关联目录不会自动加载其中的 .pi 资源。\n</pi_imagin_project_workspace>" };
       });
       pi.on("context", event => {
+        refresh();
         // 仅在发给模型的副本中补充来源；原始工具结果、图像和会话文件保持不变。
         // 从本次上下文的调用 ID 建立对应关系，避免并行读取串源，也避免重启丢失内存映射。
         const sources = new Map<string, string>();
@@ -119,23 +155,42 @@ export function createProjectWorkspaceExtension(snapshot: ProjectSessionScope, d
             ...message.content,
           ] };
         });
+        // 每次模型请求重新读取版本；运行中编辑项目也能获知新范围，不写入历史用户消息。
+        const latest = scopeData();
+        if (contextOnly || latest !== promptScope) {
+          messages.push({ role: "user", content: [{ type: "text", text: `<pi_imagin_project_workspace_update>\n${latest}\n这是应用提供的当前目录状态，替代此前目录清单；按最新关联名和范围定位，不使用已解除关联的旧路径。没有默认操作目录。文件使用绝对路径，命令使用 project_command 并指定 cwd。同名文件无法从用户要求或已有对话判断目标时先询问，不按启动 cwd 或排序选择。\n</pi_imagin_project_workspace_update>` }], timestamp: Date.now() });
+          changed = true;
+        }
         if (changed) return { messages };
       });
       pi.on("tool_call", (event, context) => {
+        if (["project_command", "bash", "powershell", "Agent", "steer_subagent"].includes(event.toolName) && commandBlocked(context)) return { block: true, reason: commandRefusal() };
+        if (event.toolName === "bash" || event.toolName === "powershell") return { block: true, reason: `项目命令必须使用 project_command 并显式指定 cwd，不能回退启动目录。\n${folderGuide()}` };
         if (!FILE_TOOLS.has(event.toolName)) return;
         try {
           const input = event.input as { path?: unknown };
           if (input.path !== undefined && typeof input.path !== "string") throw new Error("无效的文件路径。");
-          const path = resolveProjectToolPath(scope, typeof input.path === "string" ? input.path : scope.cwd);
+          const path = resolveProjectToolPath(refresh(), typeof input.path === "string" ? input.path : "");
           if (event.toolName !== "write" && !existsSync(path)) throw new Error("目标路径不存在，请使用项目中的实际路径。");
+          if (event.toolCallId) validatedPaths.set(event.toolCallId, path);
         } catch (error) {
           const input = event.input as { path?: unknown };
           // SDK 将过长命令输出放到临时文件；允许读取精确文件，仍禁止编辑和目录遍历。
           if (event.toolName === "read" && typeof input.path === "string"
             && isCommandOutput(input.path, context.sessionManager.getEntries() as unknown as SessionEntry[])) return;
-          return { block: true, reason: `${error instanceof Error ? error.message : "项目目录访问被拒绝。"}\n${folderGuide}\n清单是固定快照；新增关联目录需新建会话，刷新不会扩展范围。请纠正文件路径，不要改用 Shell 绕过。` };
+          recordDenial(error, context);
+          return { block: true, reason: `${error instanceof Error ? error.message : "项目目录访问被拒绝。"}\n${folderGuide()}\n请按最新清单纠正文件路径，不要改用 Shell 绕过。` };
         }
       });
+      pi.on("tool_result", event => {
+        const path = validatedPaths.get(event.toolCallId);
+        validatedPaths.delete(event.toolCallId);
+        if (!path || event.isError || event.toolName === "read") return;
+        return { content: [{ type: "text" as const, text: `实际路径：${path}\n` }, ...event.content], details: { ...(event.details && typeof event.details === "object" ? event.details : {}), path }, ...(event.structuredContent !== undefined ? { structuredContent: event.structuredContent } : {}) };
+      });
+      pi.on("agent_end", () => { validatedPaths.clear(); });
+      // 后台通知和模型自动续轮不能解除拒绝；新输入开启新的执行请求。
+      pi.on("input", event => { if (event.source !== "extension") commandAccessDenied = false; });
     },
   };
 }

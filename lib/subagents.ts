@@ -731,7 +731,11 @@ const MCP_TOOL_PATTERNS = ["mcp__*", "list_mcp_resources", "list_mcp_resource_te
  * (`noTools: "builtin"`) and the rest excluded, so no extension can switch them on. `ext:`
  * selectors keep the allowlist, since the SDK admits tools by name, not by source.
  */
-export function subagentToolOptions(resources: { tools: readonly string[]; allExtensionTools?: boolean; mcp?: boolean }) {
+export function subagentToolOptions(resources: { tools: readonly string[]; allExtensionTools?: boolean; mcp?: boolean; projectWorkspace?: boolean }) {
+  const projectTools = resources.projectWorkspace ? [
+    ...(resources.tools.some(name => name === "bash" || name === "powershell") ? ["project_command"] : []),
+    ...(resources.tools.includes("read") && resources.tools.includes("write") ? ["project_copy_file"] : []),
+  ] : [];
   const excludeTools: string[] = [...SUBAGENT_CONTROL_TOOL_NAMES];
   if (!resources.allExtensionTools && resources.mcp) {
     // MCP tools register as their servers connect, long after the allowlist is fixed, so it
@@ -739,7 +743,7 @@ export function subagentToolOptions(resources: { tools: readonly string[]; allEx
     // profile did not select. Without Code mode, `codemode` servers register as `deferred`,
     // which only `tool_search` declares to the model.
     const discovery = resources.tools.includes("codemode") ? [] : ["tool_search"];
-    return { tools: [...new Set([...resources.tools, ...discovery, ...MCP_TOOL_PATTERNS])], excludeTools };
+    return { tools: [...new Set([...resources.tools, ...projectTools, ...discovery, ...MCP_TOOL_PATTERNS])], excludeTools };
   }
   if (!resources.allExtensionTools) {
     // An allowlist that names no MCP tool keeps every MCP tool registered for codemode scripts
@@ -747,7 +751,7 @@ export function subagentToolOptions(resources: { tools: readonly string[]; allEx
     // profile did not select registers. A child's allowlist is its whole scope: exclude them.
     const namesMcp = resources.tools.some((name) => name.startsWith("mcp__"));
     return {
-      tools: [...resources.tools],
+      tools: [...resources.tools, ...projectTools],
       excludeTools: namesMcp
         ? excludeTools
         : [...excludeTools, ...MCP_TOOL_PATTERNS.filter((name) => !resources.tools.includes(name))],

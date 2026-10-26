@@ -206,7 +206,7 @@ export const zhTWLocale: LocalePlugin = {
     "project.folderPath": "資料夾路徑",
     "project.pathPlaceholder": "輸入完整目錄路徑",
     "project.addPath": "新增",
-    "project.scopeHint": "新工作階段可跨關聯目錄工作。現有工作階段保留原目錄快照；命令以目前系統帳戶權限執行。",
+    "project.scopeHint": "工作階段自動同步關聯資料夾，由智慧體依任務選擇操作位置，無須設定預設目錄。",
     "project.directoryUnavailable": "無法存取目錄",
     "project.alreadyLinked": "此資料夾已關聯。",
     "project.select": "選取專案",

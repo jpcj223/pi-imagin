@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { chooseDesktopDirectory } from "@/lib/desktop-bridge";
 import { listenForStackedDialogEscape } from "@/lib/stacked-dialog";
-import { defaultProjectFolder, projectExecutionFolders, type ManagedProject, type ManagedProjectState, type ProjectChange } from "@/lib/managed-projects-shared";
+import { defaultProjectFolder, type ManagedProject, type ManagedProjectState, type ProjectChange } from "@/lib/managed-projects-shared";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FolderIcon, PlusIcon } from "./SidebarIcons";
 import { InlineResourcePath } from "./ResourcePath";
@@ -23,8 +23,7 @@ export function ProjectEditor({ project, initialPath, initialName, mode = "edit"
   const { t } = useI18n();
   const [name, setName] = useState(project?.name ?? initialName ?? (initialPath?.split(/[\\/]/).filter(Boolean).pop() || ""));
   const [folders, setFolders] = useState(project?.folders.map(f => ({ path: f.path, name: f.name })) ?? (initialPath ? [{ path: initialPath, name: initialPath.split(/[\\/]/).pop() || initialPath }] : []));
-  const [defaultPath, setDefaultPath] = useState((project && defaultProjectFolder(project)?.path) ?? initialPath ?? "");
-  const [startPath, setStartPath] = useState(defaultPath);
+  const startPath = (project && defaultProjectFolder(project)?.path) ?? initialPath ?? "";
   const [picking, setPicking] = useState(false);
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
@@ -87,7 +86,6 @@ export function ProjectEditor({ project, initialPath, initialName, mode = "edit"
       if (folders.some(f => key(f.path) === key(data.cwd))) throw new Error(t("project.alreadyLinked"));
       const folderName = data.cwd.split(/[\\/]/).filter(Boolean).pop() || data.cwd;
       setFolders(previous => [...previous, { path: data.cwd, name: folderName }]);
-      if (!folders.length || !defaultPath) { setDefaultPath(data.cwd);setStartPath(data.cwd); }
       if (!name.trim()) setName(folderName);
       setPicking(false);setPath("");
     } catch (error) { if (active.current) setError(error instanceof Error ? error.message : String(error)); }
@@ -103,7 +101,7 @@ export function ProjectEditor({ project, initialPath, initialName, mode = "edit"
     setBusy(true);setError(null);
     try {
       await onChange(remove && project ? { action: "remove", id: project.id, revision: project.revision }
-        : { action: "save", ...(project ? { id: project.id, revision: project.revision } : {}), name: name.trim() || folderDisplayName(defaultPath || folders[0]?.path || ""), folders, defaultPath });
+        : { action: "save", ...(project ? { id: project.id, revision: project.revision } : {}), name: name.trim() || folderDisplayName(folders[0]?.path || ""), folders });
       if (active.current) onClose();
     } catch (error) { if (active.current) setError(error instanceof Error ? error.message : String(error)); }
     finally { if (active.current) setBusy(false); }
@@ -127,8 +125,7 @@ export function ProjectEditor({ project, initialPath, initialName, mode = "edit"
       <header><div><h2 id="project-editor-title">{start ? t("project.startSession") : confirmRemove ? t("project.remove") : project ? t("project.edit") : t("project.create")}</h2><p>{start ? project?.name : t("project.description")}</p></div><button type="button" aria-label={t("project.close")} disabled={busy} onClick={onClose}>×</button></header>
       <div className="project-editor-body">
         {confirmRemove ? <p>{t("project.removeHint")}</p> : start ? <>
-          <label>{t("project.sessionDirectory")}<select aria-label={t("project.sessionDirectory")} value={startPath} onChange={event => setStartPath(event.target.value)}>{(project ? projectExecutionFolders(project) : folders).map(f => <option key={f.path} value={f.path}>{project?.workspace?.path === f.path ? t("project.workspace") : f.name}{f.path === defaultPath ? ` · ${t("i18n.default")}` : ""}</option>)}</select></label>
-          <p className="project-editor-hint">{startPath}</p><p className="project-editor-hint">{t("project.sessionScopeHint")}</p>
+          <p className="project-editor-hint">{t("project.sessionScopeHint")}</p>
         </> : <>
           <label>{t("sidebar.projectName")}<input ref={input} value={name} maxLength={80} disabled={busy} placeholder={t("project.namePlaceholder")} onChange={event => setName(event.target.value)} /></label>
           <div><div className="project-editor-label">{t("project.linkedFolders")}<span>{folders.length} / 16</span></div>
@@ -149,9 +146,8 @@ export function ProjectEditor({ project, initialPath, initialName, mode = "edit"
               onKeyDown={event => { if (event.altKey && ["ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); moveFolder(folder.path, index + (event.key === "ArrowUp" ? -1 : 1)); } }}>
               <FolderIcon size={16} /><div><input aria-label={t("project.folderName", { name: folder.name || folderDisplayName(folder.path) })} placeholder={folderDisplayName(folder.path)} disabled={busy} value={folder.name} onChange={event => setFolders(previous => previous.map(f => f.path === folder.path ? { ...f, name: event.target.value } : f))} />{dragging === folder.path && <span className="project-folder-drag-name" aria-hidden="true">{folder.name || folderDisplayName(folder.path)}</span>}<InlineResourcePath path={folder.path} disabled={dragging !== null} copy={false} /></div>
               <div className="project-folder-actions"><CopyButton value={folder.path} label={t("resourcePath.copy")} />
-              <button type="button" disabled={busy} aria-pressed={defaultPath === folder.path} onClick={() => setDefaultPath(folder.path)}>{defaultPath === folder.path ? t("i18n.default") : t("project.setDefault")}</button>
               {project && <button type="button" disabled={busy} aria-label={t("project.browseFolder", { name: folder.name })} onClick={() => { onBrowse(folder.path);onClose(); }}>{t("project.browse")}</button>}
-              <button type="button" disabled={busy} aria-label={t("project.unlinkFolder", { name: folder.name })} onClick={() => { setFolders(previous => previous.filter(f => f.path !== folder.path));if (defaultPath === folder.path) setDefaultPath(folders.find(f => f.path !== folder.path)?.path ?? ""); }}>×</button>
+              <button type="button" disabled={busy} aria-label={t("project.unlinkFolder", { name: folder.name })} onClick={() => setFolders(previous => previous.filter(f => f.path !== folder.path))}>×</button>
               </div>
             </div>)}
             {!folders.length && <p className="project-editor-empty">{t("project.noFolders")}</p>}

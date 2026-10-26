@@ -206,7 +206,7 @@ export const zhCNLocale: LocalePlugin = {
     "project.folderPath": "文件夹路径",
     "project.pathPlaceholder": "输入完整目录路径",
     "project.addPath": "添加",
-    "project.scopeHint": "新会话可以跨关联目录工作。已有会话保留原目录快照；命令进程按当前系统账户权限执行。",
+    "project.scopeHint": "会话自动同步关联文件夹，由智能体根据任务选择操作位置，无需设置默认目录。",
     "project.directoryUnavailable": "无法访问目录",
     "project.alreadyLinked": "此文件夹已经关联。",
     "project.select": "选择项目",

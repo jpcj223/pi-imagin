@@ -1,10 +1,11 @@
-/** 项目身份独立于路径；会话快照独立于项目后续编辑，两端共用这些定义。 */
+/** 项目身份独立于路径；历史目录记录不冻结项目当前的关联范围。 */
 export interface ProjectFolder { id: string; name: string; path: string }
 export interface ManagedProject {
   id: string;
   name: string;
   revision: number;
   folders: ProjectFolder[];
+  /** 兼容旧数据的内部启动／资源定位点，不是 Agent 的默认操作目标。 */
   defaultFolderId: string;
   /** 未关联文件夹时的独立工作区；预留路径在首次使用时才创建。 */
   workspace?: ProjectFolder & { initialized: boolean };
@@ -14,6 +15,10 @@ export interface ProjectSessionScope {
   projectName: string;
   folders: ProjectFolder[];
   cwd: string;
+  projectRevision?: number;
+  /** 仅保留本会话明确创建或选择的工作树，不授权其父目录。 */
+  worktreeRoot?: string;
+  isolatedWorktree?: boolean;
 }
 export interface ManagedProjectState {
   version: 1;
@@ -23,7 +28,7 @@ export interface ManagedProjectState {
   removedRoots?: string[];
 }
 export type ProjectChange =
-  | { action: "save"; id?: string; revision?: number; name: string; folders: { path: string; name?: string }[]; defaultPath: string }
+  | { action: "save"; id?: string; revision?: number; name: string; folders: { path: string; name?: string }[]; defaultPath?: string }
   | { action: "remove"; id: string; revision: number };
 
 export function emptyManagedProjects(): ManagedProjectState {

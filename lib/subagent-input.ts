@@ -2,6 +2,8 @@ import { readFileSync, realpathSync, statSync } from "fs";
 import { relative, resolve } from "path";
 import { isPathWithinRoots } from "./path-security";
 import { toSlashPath } from "./paths";
+import type { ProjectSessionScope } from "./managed-projects-shared";
+import { resolveProjectToolPath } from "./managed-projects";
 
 export const MAX_SUBAGENT_INPUT_FILES = 8;
 export const MAX_SUBAGENT_INPUT_BYTES = 512 * 1024;
@@ -11,7 +13,7 @@ export interface SubagentInputFile {
   content: string;
 }
 
-export function loadSubagentInputFiles(cwd: string, requestedPaths: readonly string[]): SubagentInputFile[] {
+export function loadSubagentInputFiles(cwd: string, requestedPaths: readonly string[], projectScope?: ProjectSessionScope): SubagentInputFile[] {
   if (requestedPaths.length > MAX_SUBAGENT_INPUT_FILES) {
     throw new Error(`Agent input_files accepts at most ${MAX_SUBAGENT_INPUT_FILES} files`);
   }
@@ -28,11 +30,11 @@ export function loadSubagentInputFiles(cwd: string, requestedPaths: readonly str
 
     let filePath: string;
     try {
-      filePath = realpathSync(resolve(cwd, requestedPath));
+      filePath = realpathSync(projectScope ? resolveProjectToolPath(projectScope, requestedPath) : resolve(cwd, requestedPath));
     } catch {
       throw new Error(`Agent input file does not exist: ${requestedPath}`);
     }
-    if (!isPathWithinRoots(filePath, allowedRoots)) {
+    if (!projectScope && !isPathWithinRoots(filePath, allowedRoots)) {
       throw new Error(`Agent input file is outside the session cwd: ${requestedPath}`);
     }
     if (!statSync(filePath).isFile()) {
@@ -54,7 +56,7 @@ export function loadSubagentInputFiles(cwd: string, requestedPaths: readonly str
       throw new Error(`Agent input file is not valid UTF-8 text: ${requestedPath}`);
     }
     files.push({
-      path: toSlashPath(relative(realCwd, filePath)),
+      path: toSlashPath(projectScope ? filePath : relative(realCwd, filePath)),
       content,
     });
   }

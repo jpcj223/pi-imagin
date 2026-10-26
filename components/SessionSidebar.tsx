@@ -1392,12 +1392,12 @@ export function SessionSidebar({ selectedSessionId, selectedManagedProjectId, on
       && projectChoiceListRef.current.some(project => project.root === selectedCwd || project.key === selectedProject?.key)) {
       void startNewSessionInRef.current({ cwd: selectedCwd }); return;
     }
-    const target = preferredNewSessionProject(managed.state.projects, selectedCwd, selectedManagedProject?.id ?? null, loadNewSessionProject());
+    const target = preferredNewSessionProject(managed.state.projects, selectedCwd, selectedManagedProject?.id ?? null, loadNewSessionProject(), worktreeState?.forCwd === selectedCwd ? worktreeState.projectRoot : undefined);
     if (target) { void startNewSessionInRef.current(target); return; }
     folderPickRef.current = (target) => startNewSessionInRef.current(target);
     folderReturnFocusRef.current = null;
     void handleDefaultCwdRef.current("new-session");
-  }, [defaultCwdParent, managed.loaded, managed.state.projects, selectedCwd, selectedManagedProject, selectedProject, uiState]);
+  }, [defaultCwdParent, managed.loaded, managed.state.projects, selectedCwd, selectedManagedProject, selectedProject, uiState, worktreeState]);
   const preferredNewSessionRef = useRef(handleNewSession);
   preferredNewSessionRef.current = handleNewSession;
   const initialProjectAttempted = useRef(false);

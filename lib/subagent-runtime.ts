@@ -49,6 +49,9 @@ import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-sett
 import { SubagentQueue } from "./subagent-queue";
 import { addWorktree, removeWorktree } from "./worktree";
 import { randomUUID } from "node:crypto";
+import { inheritProjectSession, readManagedProjects, resolveCurrentProjectScope, resolveProjectToolPath } from "./managed-projects";
+import type { ProjectSessionScope } from "./managed-projects-shared";
+import { createProjectWorkspaceExtension, projectCommandRequestId } from "./project-workspace-extension";
 
 interface HostSession {
   readonly inner: AgentSessionLike;
@@ -57,6 +60,7 @@ interface HostSession {
   isAlive(): boolean;
   isRunning(): boolean;
   waitUntilReady(): Promise<void>;
+  getProjectScope?(): ProjectSessionScope | undefined;
   /**
    * Connect the session's MCP servers before a run prompts the SDK session directly, past the
    * wrapper's `send()`; false when Stop or `signal` ended the wait and the run must not start.
@@ -68,7 +72,7 @@ export interface SubagentRuntimeDependencies {
   getSession(sessionId: string): HostSession | undefined;
   registerSession(
     inner: AgentSessionLike,
-    options?: { exactSystemPrompt?: () => string; chatOnly?: boolean; mcpHost?: McpHost },
+    options?: { exactSystemPrompt?: () => string; chatOnly?: boolean; mcpHost?: McpHost; projectScope?: ProjectSessionScope },
   ): HostSession | void;
   reopenSession(sessionId: string, sessionFile: string): Promise<HostSession>;
   resolveSessionPath(sessionId: string): Promise<string | null>;
@@ -259,16 +263,23 @@ export function createSubagentController(
     if (!parent.sessionFile) throw new Error("Parent session must be persisted before starting a subagent");
 
     let isolatedWorktree: { path: string; branch: string } | undefined;
+    let worktreeCwd = parent.cwd;
     try {
       const profile = resolveSubagentProfile(parent.cwd, request.profile);
       if (!profile) throw new Error(`Unknown or disabled subagent profile: ${request.profile}`);
 
       const runInBackground = request.runInBackground ?? profile.runInBackground;
       const isolation = profile.isolation === "off" ? undefined : request.isolation ?? profile.isolation;
+      if (request.cwd && isolation !== "worktree") throw new Error("cwd only applies to worktree isolation. For task locations use explicit paths in the prompt. To continue an existing subagent, call Agent with resume set to its existing session ID, plus prompt and description; omit cwd and subagent_type.");
+      const parentBinding = parent.getProjectScope?.() ?? readManagedProjects().sessions[parentSessionId];
+      const parentScope = parentBinding ? resolveCurrentProjectScope(parentBinding) : undefined;
       if (isolation === "worktree") {
-        isolatedWorktree = await addWorktree(parent.cwd, `pi-imagin-agent-${randomUUID()}`);
+        if (parentScope && parentScope.folders.length > 1 && !request.cwd) throw new Error("多目录项目创建隔离工作树必须通过 cwd 明确指定目标仓库。");
+        worktreeCwd = request.cwd ? resolveProjectToolPath(parentScope ?? { projectId: "", projectName: "", cwd: parent.cwd, folders: [{ id: "cwd", name: "cwd", path: parent.cwd }] }, request.cwd) : parentScope?.folders[0]?.path ?? parent.cwd;
+        isolatedWorktree = await addWorktree(worktreeCwd, `pi-imagin-agent-${randomUUID()}`);
       }
       const childCwd = isolatedWorktree?.path ?? parent.cwd;
+      const childScope = parentScope ? { ...parentScope, cwd: childCwd, ...(isolatedWorktree ? { worktreeRoot: worktreeCwd, isolatedWorktree: true } : {}) } : undefined;
       const inheritContext = profile.inheritContext;
       // `parseProfileFile` already floors a positive profile `max_turns`, so it is an integer or absent.
       const turnLimit = profile.maxTurns;
@@ -279,7 +290,7 @@ export function createSubagentController(
       const inheritedParentContext = inheritContext
         ? `The following is the active conversation context from the parent session. Use it only as background for the delegated task:\n${parentContextText(parent)}`
         : undefined;
-      const inputFiles = loadSubagentInputFiles(parent.cwd, request.inputFiles ?? []);
+      const inputFiles = loadSubagentInputFiles(parent.cwd, request.inputFiles ?? [], parentScope);
       const promptPlan = buildSubagentPromptPlan({
         profileSystemPrompt: profile.systemPrompt,
         tools: profile.tools,
@@ -333,22 +344,25 @@ export function createSubagentController(
         ...(codemodeExtension ? [codemodeExtension] : []),
         ...(mcp ? [...mcp.extensions, createSubagentMcpPolicyExtension(() => mcpScope)] : []),
         ...(skillsBinding.loaderOptions.extensionFactories ?? []),
+        ...(childScope && !chatOnly ? [createProjectWorkspaceExtension(childScope, () => resolveEnvironmentTools(profile.tools, settingsManager), settingsManager, () => resolveCurrentProjectScope(childScope), true,
+          () => { const current = dependencies.getSession(parentSessionId); return current ? projectCommandRequestId(current.inner.sessionManager.getEntries()) : undefined; })] : []),
       ];
       if (!chatOnly) initTheme();
+      const extensionLoaderOptions = subagentExtensionLoaderOptions({ ...profile, mcp: mcpEnabled });
       const services = await createAgentSessionServices({
         cwd: childCwd,
         agentDir,
         modelRuntime: parentModelRuntime,
         settingsManager,
         resourceLoaderOptions: {
-          ...subagentExtensionLoaderOptions({ ...profile, mcp: mcpEnabled }),
+          ...extensionLoaderOptions,
           ...skillsBinding.loaderOptions,
           ...(profile.loadSkills ? { additionalSkillPaths: additionalGlobalSkillPaths(agentDir) } : {}),
           ...(extensionFactories.length > 0 ? { extensionFactories } : {}),
           noPromptTemplates: true,
           noThemes: true,
           noContextFiles: true,
-          extensionsOverride: base => preferUserPowerShellExtension(preferUserBashExtension(base)),
+          extensionsOverride: base => preferUserPowerShellExtension(preferUserBashExtension(extensionLoaderOptions.extensionsOverride?.(base) ?? base)),
           ...(chatOnly || promptPlan.exactSystemPrompt !== undefined
             ? {
                 systemPrompt: " ",
@@ -388,6 +402,7 @@ export function createSubagentController(
       const sessionManager = isolatedWorktree
         ? SessionManager.create(childCwd, undefined, { parentSession: parent.sessionFile })
         : SessionManager.create(parent.cwd, undefined, { parentSession: parent.sessionFile });
+      if (childScope) await inheritProjectSession(parentSessionId, sessionManager.getSessionId(), undefined, childScope);
       const createdAt = new Date().toISOString();
       const metadata: SubagentMetadata = {
         version: 1,
@@ -435,7 +450,7 @@ export function createSubagentController(
         sessionManager,
         model: (callModel ?? profileModel)?.model ?? parentModel,
         ...(thinking ? { thinkingLevel: thinking as ThinkingLevel } : {}),
-        ...subagentToolOptions({ tools: activeTools, allExtensionTools, mcp: mcpEnabled }),
+        ...subagentToolOptions({ tools: activeTools, allExtensionTools, mcp: mcpEnabled, projectWorkspace: Boolean(childScope && !chatOnly) }),
       });
       skillsBinding.setActiveToolsGetter(() => inner.getActiveToolNames());
       const childSession = dependencies.registerSession(inner, {
@@ -443,6 +458,7 @@ export function createSubagentController(
           ? { exactSystemPrompt: skillsBinding.getExactSystemPrompt }
           : {}),
         chatOnly,
+        ...(childScope ? { projectScope: childScope } : {}),
         ...(mcp?.mcpHost ? { mcpHost: mcp.mcpHost } : {}),
       });
 
@@ -483,7 +499,7 @@ export function createSubagentController(
         if (stored.abortRequested) {
           const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
           sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: result.completedAt });
-          await cleanupWorktree(parent.cwd, isolatedWorktree);
+          await cleanupWorktree(worktreeCwd, isolatedWorktree);
           stored.run = result;
           request.onUpdate?.(result);
           getSubagentRuns().delete(initialRun.sessionId);
@@ -571,7 +587,7 @@ export function createSubagentController(
           request.signal?.removeEventListener("abort", handleParentAbort);
         }
 
-        const cleanupError = await cleanupWorktree(parent.cwd, isolatedWorktree);
+        const cleanupError = await cleanupWorktree(worktreeCwd, isolatedWorktree);
         if (cleanupError) result = { ...result, worktreeCleanupError: cleanupError };
         const persisted: SubagentResultMetadata = {
           version: 1,
@@ -592,7 +608,7 @@ export function createSubagentController(
       const finishQueuedAbort = async () => {
         if (stored.run.status !== "queued") return;
         const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
-        const cleanupError = await cleanupWorktree(parent.cwd, isolatedWorktree);
+        const cleanupError = await cleanupWorktree(worktreeCwd, isolatedWorktree);
         const finalResult = cleanupError ? { ...result, worktreeCleanupError: cleanupError } : result;
         sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: finalResult.completedAt, ...(cleanupError ? { worktreeCleanupError: cleanupError } : {}) });
         stored.run = finalResult;
@@ -623,7 +639,7 @@ export function createSubagentController(
       return { run: stored.run, completion: stored.completion };
     } catch (error) {
       if (isolatedWorktree) {
-        try { await removeWorktree(parent.cwd, isolatedWorktree.path); } catch { /* preserve setup failure and avoid force deletion */ }
+        try { await removeWorktree(worktreeCwd, isolatedWorktree.path); } catch { /* preserve setup failure and avoid force deletion */ }
       }
       throw error;
     }
@@ -767,7 +783,7 @@ export function createSubagentController(
 
   async function steer(sessionId: string, message: string): Promise<void> {
     const wrapper = dependencies.getSession(sessionId);
-    if (!wrapper?.isAlive() || !wrapper.isRunning()) throw new Error("Subagent is not running");
+    if (!wrapper?.isAlive() || !wrapper.isRunning()) throw new Error(`Subagent is not running. Continue the same session with Agent({resume: ${JSON.stringify(sessionId)}, prompt: "your next task", description: "activity label"}). Do not use steer_subagent for a completed session or replace it with a new subagent.`);
     if (getSubagentRuns().get(sessionId)?.turnLimitReached) throw new Error("Subagent reached its turn limit and is stopping; resume it to continue");
     if (!message.trim()) throw new Error("Steering message is required");
     await wrapper.inner.steer(message.trim());

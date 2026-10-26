@@ -49,10 +49,11 @@ export function rememberNewSessionProject(value: RememberedNewSessionProject, st
 export function preferredNewSessionProject(
   projects: ManagedProject[], currentCwd: string | null, currentProjectId: string | null,
   remembered: RememberedNewSessionProject | null,
+  currentWorktreeRoot?: string,
 ): NewSessionTarget | null {
   const current = currentProjectId ? projects.find(project => project.id === currentProjectId)
     : currentCwd ? createProjectSessionResolver({ version: 1, revision: 0, projects, sessions: {} }).byPath(currentCwd) : undefined;
-  if (current && currentCwd) return { cwd: currentCwd, managedProjectId: current.id };
+  if (current && currentCwd) return { cwd: projectContainsCwd(current, currentCwd) || (currentWorktreeRoot && projectContainsCwd(current, currentWorktreeRoot)) ? currentCwd : defaultProjectFolder(current)!.path, managedProjectId: current.id };
   const previous = remembered && projects.find(project => project.id === remembered.projectId);
   const chosen = previous || (projects.length === 1 ? projects[0] : undefined);
   if (!chosen) return null;

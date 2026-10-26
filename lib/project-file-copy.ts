@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { link, mkdir, open, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { assertProjectScopeDirectories, resolveProjectToolPath } from "./managed-projects";
+import { resolveProjectToolPath } from "./managed-projects";
 import type { ProjectSessionScope } from "./managed-projects-shared";
 import { projectIdentityKey } from "./project-identity";
 import { serializeByKey } from "./key-serializer";
@@ -10,15 +10,15 @@ export const MAX_PROJECT_COPY_BYTES = 16 * 1024 * 1024;
 const COPY_QUEUE = Symbol.for("pi-imagin:project-file-copy");
 
 /** 原样复制按字节执行；临时文件与目标同目录，失败或取消不破坏旧目标。 */
-export async function copyProjectFile(scope: ProjectSessionScope, sourcePath: string, destinationPath: string, overwrite = false, signal?: AbortSignal) {
+export async function copyProjectFile(scope: ProjectSessionScope, sourcePath: string, destinationPath: string, overwrite = false, signal?: AbortSignal, currentScope: () => ProjectSessionScope = () => scope) {
   signal?.throwIfAborted();
-  assertProjectScopeDirectories(scope);
+  scope = currentScope();
   const source = resolveProjectToolPath(scope, sourcePath);
   const destination = resolveProjectToolPath(scope, destinationPath);
   if (projectIdentityKey(source) === projectIdentityKey(destination)) throw new Error("源文件与目标文件不能相同。");
   return serializeByKey(COPY_QUEUE, projectIdentityKey(destination), async () => {
     signal?.throwIfAborted();
-    assertProjectScopeDirectories(scope);
+    scope = currentScope();
     if (resolveProjectToolPath(scope, source) !== source || resolveProjectToolPath(scope, destination) !== destination) throw new Error("文件路径已变化，请重新选择。");
     const existing = await stat(destination).catch(error => { if (error.code === "ENOENT") return undefined; throw error; });
     if (existing && (!existing.isFile() || !overwrite)) throw new Error("目标已存在；覆盖普通文件需显式设置 overwrite=true。");
@@ -49,13 +49,17 @@ export async function copyProjectFile(scope: ProjectSessionScope, sourcePath: st
       mode = (existing?.mode ?? before.mode) & 0o777;
     } finally { await handle.close(); }
     signal?.throwIfAborted();
+    scope = currentScope();
+    resolveProjectToolPath(scope, source);
+    resolveProjectToolPath(scope, destination);
     await mkdir(dirname(destination), { recursive: true });
-    assertProjectScopeDirectories(scope);
+    scope = currentScope();
     if (resolveProjectToolPath(scope, destination) !== destination) throw new Error("目标路径已变化，请重新选择。");
     const temporary = join(dirname(destination), `.${basename(destination)}-${randomUUID()}.tmp`);
     try {
       await writeFile(temporary, data, { flag: "wx", mode, signal });
       signal?.throwIfAborted();
+      resolveProjectToolPath(currentScope(), destination);
       if (overwrite) await rename(temporary, destination);
       // 原子创建硬链接，避免“先检查不存在再重命名”覆盖并发创建的文件。
       else await link(temporary, destination);

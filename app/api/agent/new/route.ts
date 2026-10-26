@@ -5,7 +5,8 @@ import { randomUUID } from "crypto";
 import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
-import { prepareProjectWorkspace, ProjectStateError } from "@/lib/managed-projects";
+import { prepareProjectWorkspace, ProjectStateError, readManagedProjects } from "@/lib/managed-projects";
+import { defaultProjectFolder } from "@/lib/managed-projects-shared";
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
@@ -25,7 +26,13 @@ export async function POST(req: Request) {
   let promptAccepted = false;
   try {
     const body = await req.json() as { cwd?: string; [key: string]: unknown };
-    const { cwd, ...command } = body;
+    const { cwd: requestedCwd, ...command } = body;
+    let cwd = requestedCwd;
+    if (!cwd && typeof command.projectId === "string") {
+      const project = readManagedProjects().projects.find(item => item.id === command.projectId);
+      if (!project) throw new ProjectStateError("所选项目不存在。", 404);
+      cwd = defaultProjectFolder(project)?.path;
+    }
     commandType = typeof command.type === "string" ? command.type : undefined;
 
     if (!cwd || typeof cwd !== "string") {
