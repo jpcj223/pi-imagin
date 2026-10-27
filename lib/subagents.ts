@@ -225,6 +225,8 @@ const BUILTIN_PROFILES: SubagentProfile[] = [
     displayName: "Explore",
     description: "Quickly inspect a codebase without modifying it",
     systemPrompt: "Explore the codebase to answer the delegated question. Do not modify files. Report concrete findings with file paths and relevant symbols.",
+    // 快速探索复用现有轮数收尾机制；自定义同名配置仍完整覆盖此默认值。
+    maxTurns: 8,
     tools: [...PRESET_READ_ONLY],
     loadSkills: false,
     loadExtensions: false,

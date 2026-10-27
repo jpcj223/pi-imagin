@@ -113,7 +113,25 @@ export function subagentToolDetails(run: SubagentRunInfo): SubagentToolDetails {
   };
 }
 
-export function subagentFinalText(run: SubagentRunInfo): string {
+export const SUBAGENT_RESULT_PAGE_CHARS = 8_000;
+
+/** 只裁剪发回父代理的这一页，完整报告与子会话记录保持不变。 */
+function subagentResultPage(run: SubagentRunInfo, offset: number): string | undefined {
+  const result = run.result?.trim();
+  if (!result) return undefined;
+  let start = Math.max(0, Math.min(Number.isFinite(offset) ? Math.trunc(offset) : 0, result.length));
+  // 不在 UTF-16 代理对中间分页，避免 Emoji 变成乱码。
+  if (start > 0 && /[\uDC00-\uDFFF]/.test(result[start] ?? "") && /[\uD800-\uDBFF]/.test(result[start - 1])) start--;
+  let end = Math.min(start + SUBAGENT_RESULT_PAGE_CHARS, result.length);
+  if (end < result.length && /[\uD800-\uDBFF]/.test(result[end - 1]) && /[\uDC00-\uDFFF]/.test(result[end])) end--;
+  if (start === 0 && end === result.length) return result;
+  const more = end < result.length
+    ? `To read the next excerpt, call get_subagent_result with agent_id=${JSON.stringify(run.sessionId)} and offset=${end}.`
+    : "End of report.";
+  return `[Report excerpt ${start}-${end} of ${result.length} characters; full report is retained in the subagent session.]\n\n${result.slice(start, end)}\n\n${more}`;
+}
+
+export function subagentFinalText(run: SubagentRunInfo, offset = 0): string {
   // details 不进入模型上下文；运行时清理告警也必须出现在前后台共用的正文中。
   const withCleanupWarning = (text: string) => run.worktreeCleanupError
     ? `${text}\n\nWorktree cleanup warning: ${run.worktreeCleanupError}`
@@ -123,13 +141,13 @@ export function subagentFinalText(run: SubagentRunInfo): string {
   }
   // Keep the session ID in the text: the model only sees `content`, never `details`, and needs it for `resume` / `get_subagent_result`.
   if (run.status === "completed") {
-    const result = run.result?.trim();
+    const result = subagentResultPage(run, offset);
     return withCleanupWarning(result ? `Subagent ${run.sessionId} completed.\n\n${result}` : `Subagent ${run.sessionId} completed without text output.`);
   }
   if (run.status === "aborted") return withCleanupWarning(`Subagent ${run.sessionId} was stopped.`);
   if (run.status === "interrupted") return withCleanupWarning(`Subagent ${run.sessionId} was interrupted before completion.`);
   const failure = `Subagent ${run.sessionId} failed: ${run.error ?? "Unknown error"}`;
-  const partial = run.result?.trim();
+  const partial = subagentResultPage(run, offset);
   return withCleanupWarning(partial ? `${failure}\n\nPartial output:\n\n${partial}` : failure);
 }
 
@@ -172,6 +190,7 @@ export function createSubagentExtension(
         exposure: SUBAGENT_TOOL_EXPOSURE,
         promptGuidelines: [
           "Use Agent for a focused task that benefits from an isolated context.",
+          "For ordinary explanations or comparisons, inspect a few relevant sources directly before delegating. Give a subagent one bounded question and the needed deliverable, not an exhaustive documentation inventory unless the user requests that depth.",
           "Use multiple background Agent calls in the same response for independent parallel work.",
           "Do not duplicate work already delegated to a running subagent.",
           "When asked to continue the same subagent, use Agent with its existing session ID in resume. A completed or closed session can be resumed; do not start a replacement or take over its task.",
@@ -273,11 +292,12 @@ export function createSubagentExtension(
       pi.registerTool(defineTool({
         name: "get_subagent_result",
         label: "Get agent result",
-        description: "Check an inspectable subagent session and retrieve its latest result.",
+        description: "Check an inspectable subagent session and retrieve its latest result. Long reports are returned in bounded excerpts; use offset from the response to read more without starting or resuming a task.",
         exposure: SUBAGENT_TOOL_EXPOSURE,
         parameters: Type.Object({
           agent_id: Type.String({ description: "Subagent session ID." }),
           wait: Type.Optional(Type.Boolean({ description: "Wait until the subagent finishes." })),
+          offset: Type.Optional(Type.Integer({ minimum: 0, description: "Character offset from a previous report excerpt; omitted starts at the beginning." })),
         }),
         async execute(_toolCallId, params, signal) {
           let run = await runtime.get(params.agent_id);
@@ -302,7 +322,7 @@ export function createSubagentExtension(
           // deliver the same text again and wake a duplicate turn.
           if (run.runInBackground && TERMINAL_SUBAGENT_STATUSES.has(run.status)) runtime.markResultConsumed(run);
           return {
-            content: [{ type: "text", text: subagentFinalText(run) }],
+            content: [{ type: "text", text: subagentFinalText(run, params.offset) }],
             details: subagentToolDetails(run),
             ...(run.status === "failed" ? { isError: true } : {}),
           };
