@@ -359,9 +359,8 @@ export interface McpTestResult {
   /** At most `MCP_TEST_MAX_TOOLS`, in the server's order; `toolCount` counts all of them. */
   tools: McpTestTool[];
   toolCount: number;
-  /** Present when the server offers resources. */
-  resources?: number;
-  resourceTemplates?: number;
+  /** 服务端支持资源时存在；SDK 仅在资源工具请求时列举资源。 */
+  resources?: true;
   serverInfo?: { name: string; version: string; title?: string };
   /** The folder a stdio server ran in. */
   cwd?: string;

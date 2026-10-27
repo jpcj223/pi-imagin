@@ -1,13 +1,4 @@
-/**
- * Remembers which tool-call cards the user has expanded, keyed by toolCallId.
- *
- * A streaming assistant message is rendered from the streaming store, then re-rendered
- * from `messages` after `message_end`, and re-keyed again once `entryIds` arrive
- * from the session file. Each of those hops remounts `ToolCallBlock`, so plain
- * component state would collapse a card the user just opened. Keeping the set
- * outside React lets the remounted card start expanded without threading state
- * through every message component.
- */
+/** 按 toolCallId 保存工具卡片展开状态，使流式结束、文件重读和移入过程详情时保持用户选择。 */
 const expandedToolCalls = new Set<string>();
 
 export function isToolCallExpanded(toolCallId: string | undefined): boolean {

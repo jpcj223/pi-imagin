@@ -1,5 +1,7 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "./models-cache";
+import { getAgentDir } from "./agent-dir";
+import { readModelsConfig } from "./models-config-store";
 
 type RuntimeModel = Awaited<ReturnType<ModelRuntime["getAvailable"]>>[number];
 
@@ -8,23 +10,47 @@ type RuntimeModel = Awaited<ReturnType<ModelRuntime["getAvailable"]>>[number];
  * 每次列表查询建立新运行时，但部分扩展仅首次注册，并将后续注册推迟到 session_start。
  * 列表不启动会话，此缓存避免模型在第一次查询之后从选择器消失。
  */
+interface DeferredCatalog {
+  agentDir: string;
+  models: Map<string, RuntimeModel[]>;
+  customProviders: Set<string>;
+}
+
 declare global {
-  var __piImaginProviderModelCatalog: Map<string, RuntimeModel[]> | undefined;
+  var __piImaginDeferredProviderCatalog: DeferredCatalog | undefined;
 }
 
 function catalog(): Map<string, RuntimeModel[]> {
-  globalThis.__piImaginProviderModelCatalog ??= new Map();
-  return globalThis.__piImaginProviderModelCatalog;
+  const agentDir = getAgentDir();
+  let state = globalThis.__piImaginDeferredProviderCatalog;
+  if (!state || state.agentDir !== agentDir) {
+    state = { agentDir, models: new Map(), customProviders: new Set() };
+    globalThis.__piImaginDeferredProviderCatalog = state;
+  }
+  try {
+    const providers = readModelsConfig().providers;
+    if (providers && typeof providers === "object" && !Array.isArray(providers)) {
+      for (const provider of Object.keys(providers)) state.customProviders.add(provider);
+    }
+  } catch {
+    // 配置损坏时保留已知来源，不能把旧自定义模型伪装为延迟注册的扩展模型。
+  }
+  for (const provider of state.customProviders) state.models.delete(provider);
+  return state.models;
 }
 
 /** Record what a runtime offers, so later runtimes can show a provider they have not registered yet. */
 export async function rememberProviderModels(runtime: ModelRuntime): Promise<void> {
+  const remembered = catalog();
+  const customProviders = globalThis.__piImaginDeferredProviderCatalog!.customProviders;
   const byProvider = new Map<string, RuntimeModel[]>();
   for (const model of await runtime.getAvailable()) {
+    // models.json 每次由 SDK 重新读取，不需要延迟补回；旧会话也不能复活已改名的服务商。
+    if (customProviders.has(model.provider)) continue;
     byProvider.set(model.provider, [...(byProvider.get(model.provider) ?? []), model]);
   }
-  const added = [...byProvider.keys()].some((provider) => !catalog().has(provider));
-  for (const [provider, models] of byProvider) catalog().set(provider, models);
+  const added = [...byProvider.keys()].some((provider) => !remembered.has(provider));
+  for (const [provider, models] of byProvider) remembered.set(provider, models);
   // A listing cached before this provider was known would hide it for the cache lifetime.
   if (added) invalidateModelsCache();
 }

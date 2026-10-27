@@ -36,7 +36,7 @@ import {
 import type { SessionEntry } from "./types";
 import { buildSubagentPromptPlan } from "./subagent-prompt";
 import { createSubagentSkillsBinding } from "./subagent-skills";
-import { appendSubagentInputFiles, loadSubagentInputFiles } from "./subagent-input";
+import { appendSubagentInputFiles, loadSubagentInputFiles, subagentInputLimits } from "./subagent-input";
 import { projectTrustReloadOptions } from "./project-trust";
 import { createSubagentCodemodeExtension, createSubagentMcpExtensions } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
@@ -52,6 +52,7 @@ import { randomUUID } from "node:crypto";
 import { inheritProjectSession, readManagedProjects, resolveCurrentProjectScope, resolveProjectToolPath } from "./managed-projects";
 import type { ProjectSessionScope } from "./managed-projects-shared";
 import { createProjectWorkspaceExtension, projectCommandRequestId } from "./project-workspace-extension";
+import { existsSync, writeFileSync } from "node:fs";
 
 interface HostSession {
   readonly inner: AgentSessionLike;
@@ -231,11 +232,36 @@ function parseSubagentModel(runtime: ModelRuntime, value: string | undefined) {
   throw new Error(`Subagent model not found: ${requested}`);
 }
 
+/** 在创建工作树或子会话前按调用、配置、父会话顺序预估模型容量；最终模型解析仍由刷新后的子运行时负责，预估失败沿用固定限额。 */
+function expectedSubagentModel(
+  runtime: ModelRuntime,
+  callModel: string | undefined,
+  profileModel: string | undefined,
+  parentModel: AgentSessionLike["model"],
+) {
+  try {
+    const reference = callModel?.trim() || profileModel?.trim();
+    return reference ? parseSubagentModel(runtime, reference)?.model : parentModel;
+  } catch {
+    return undefined;
+  }
+}
+
 function parentContextText(parent: HostSession): string {
   const messages = parent.inner.sessionManager.buildSessionContext().messages;
   const serialized = JSON.stringify(messages);
   if (serialized.length <= SUBAGENT_CONTEXT_LIMIT) return serialized;
   return `${serialized.slice(0, SUBAGENT_CONTEXT_LIMIT)}\n[Parent context truncated]`;
+}
+
+/** SDK 通常在首条用户或助手消息后才落盘；提前保存子会话元数据，使排队中止、MCP 失败或缺少凭据的任务仍可查询与恢复。setSessionFile 重新加载后继续正常追加。 */
+function persistChildSession(sessionManager: SessionManager): void {
+  const sessionFile = sessionManager.getSessionFile();
+  const header = sessionManager.getHeader();
+  if (!sessionFile || !header || existsSync(sessionFile)) return;
+  const lines = [header, ...sessionManager.getEntries()].map((entry) => JSON.stringify(entry));
+  writeFileSync(sessionFile, `${lines.join("\n")}\n`, { flag: "wx" });
+  sessionManager.setSessionFile(sessionFile);
 }
 
 async function cleanupWorktree(
@@ -273,6 +299,11 @@ export function createSubagentController(
       if (request.cwd && isolation !== "worktree") throw new Error("cwd only applies to worktree isolation. For task locations use explicit paths in the prompt. To continue an existing subagent, call Agent with resume set to its existing session ID, plus prompt and description; omit cwd and subagent_type.");
       const parentBinding = parent.getProjectScope?.() ?? readManagedProjects().sessions[parentSessionId];
       const parentScope = parentBinding ? resolveCurrentProjectScope(parentBinding) : undefined;
+      const parentModelRuntime = (parent.inner as unknown as { modelRuntime: ModelRuntime }).modelRuntime;
+      // 在创建工作树和子会话之前校验输入，保留当前项目范围。
+      const inputFiles = loadSubagentInputFiles(parent.cwd, request.inputFiles ?? [], parentScope, subagentInputLimits(
+        expectedSubagentModel(parentModelRuntime, request.model, profile.model, parent.inner.model),
+      ));
       if (isolation === "worktree") {
         if (parentScope && parentScope.folders.length > 1 && !request.cwd) throw new Error("多目录项目创建隔离工作树必须通过 cwd 明确指定目标仓库。");
         worktreeCwd = request.cwd ? resolveProjectToolPath(parentScope ?? { projectId: "", projectName: "", cwd: parent.cwd, folders: [{ id: "cwd", name: "cwd", path: parent.cwd }] }, request.cwd) : parentScope?.folders[0]?.path ?? parent.cwd;
@@ -285,12 +316,10 @@ export function createSubagentController(
       const turnLimit = profile.maxTurns;
 
       const agentDir = getAgentDir();
-      const parentModelRuntime = (parent.inner as unknown as { modelRuntime: ModelRuntime }).modelRuntime;
       const settingsManager = SettingsManager.create(childCwd, agentDir, isAppDefaultWorkspace(childCwd, agentDir) ? { projectTrusted: false } : undefined);
       const inheritedParentContext = inheritContext
         ? `The following is the active conversation context from the parent session. Use it only as background for the delegated task:\n${parentContextText(parent)}`
         : undefined;
-      const inputFiles = loadSubagentInputFiles(parent.cwd, request.inputFiles ?? [], parentScope);
       const promptPlan = buildSubagentPromptPlan({
         profileSystemPrompt: profile.systemPrompt,
         tools: profile.tools,
@@ -452,6 +481,7 @@ export function createSubagentController(
         ...(thinking ? { thinkingLevel: thinking as ThinkingLevel } : {}),
         ...subagentToolOptions({ tools: activeTools, allExtensionTools, mcp: mcpEnabled, projectWorkspace: Boolean(childScope && !chatOnly) }),
       });
+      persistChildSession(sessionManager);
       skillsBinding.setActiveToolsGetter(() => inner.getActiveToolNames());
       const childSession = dependencies.registerSession(inner, {
         ...(skillsBinding.getExactSystemPrompt !== undefined

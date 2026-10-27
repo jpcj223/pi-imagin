@@ -1,14 +1,10 @@
-// Cache session-list metadata without building the SDK's unused allMessagesText.
-// Normal listings rescan only new/changed files; summary listings reuse whatever
-// the index already holds and fall back to header/stat metadata for the files
-// that changed, which a later normal listing hydrates.
-// ponytail: size/mtime fingerprints miss same-size edits with restored mtime;
-// use content hashes if detecting those edits becomes necessary.
-import { closeSync, createReadStream, existsSync, openSync, readFileSync, readSync } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+// 缓存列表元数据而不构建无用的全文文本；普通列表仅扫描新增或变化文件，摘要先复用索引。仅追加的文件验证前缀后从上次偏移继续扫描。
+import { createHash } from "node:crypto";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { open, readdir, stat } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { basename, join } from "node:path";
-import { createInterface } from "node:readline";
 import { getAgentDir } from "./agent-dir";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 
@@ -33,9 +29,21 @@ interface Fingerprint {
 
 const SUMMARY_HEADER_MAX_BYTES = 64 * 1024;
 
+/** 追加扫描恢复点：offset 位于最后完整换行后，行元数据保留累计值；check 覆盖头部与偏移前抽样，文件改写时回退完整扫描。未终止行改变统计时不保存恢复点。 */
+interface ResumePoint {
+	ino: number;
+	offset: number;
+	headerEnd: number;
+	check: string;
+	/** 尚无非空用户文本时为 false，列表显示无消息占位。 */
+	hasFirstMessage: boolean;
+	lastActivityTime?: number;
+}
+
 interface IndexEntry {
 	fp: Fingerprint;
 	info: ScannedSessionInfo;
+	resume?: ResumePoint;
 }
 
 type RawEntry = Record<string, unknown>;
@@ -44,12 +52,24 @@ function isRecord(value: unknown): value is RawEntry {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+// foldEntry 统计规则变更时递增版本，避免沿用旧累计值。
 const INDEX_FORMAT_VERSION = 1;
+/** 尾随节流，使运行期间的索引改写每个时间窗口最多一次。 */
+const INDEX_PERSIST_DELAY_MS = 5_000;
+const RESUME_SAMPLE_BYTES = 512;
+const NEWLINE = Buffer.from("\n");
 
 declare global {
 	var __piImaginScanIndex: Map<string, IndexEntry> | undefined;
 	var __piImaginScanIndexLoaded: boolean | undefined;
-	var __piImaginScanIndexSaveQueued: boolean | undefined;
+	var __piImaginScanIndexSave: PendingIndexSave | undefined;
+}
+
+/** 待写索引的位置和内容由最后一次改变索引的扫描确定。 */
+interface PendingIndexSave {
+	path: string;
+	entries: Array<[string, IndexEntry]>;
+	timer: NodeJS.Timeout;
 }
 
 function parseLine(line: string): RawEntry | null {
@@ -63,11 +83,12 @@ function parseLine(line: string): RawEntry | null {
 }
 
 /** Read only the first physical line needed to identify a session file. */
-function readSessionHeaderSummary(filePath: string): RawEntry | null {
-	const fd = openSync(filePath, "r");
+async function readSessionHeaderSummary(filePath: string): Promise<RawEntry | null> {
+	let handle: FileHandle | undefined;
 	try {
+		handle = await open(filePath, "r");
 		const buffer = Buffer.allocUnsafe(SUMMARY_HEADER_MAX_BYTES);
-		const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+		const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
 		if (bytesRead <= 0) return null;
 		const source = buffer.subarray(0, bytesRead).toString("utf8");
 		for (const line of source.split("\n")) {
@@ -79,7 +100,7 @@ function readSessionHeaderSummary(filePath: string): RawEntry | null {
 	} catch {
 		return null;
 	} finally {
-		closeSync(fd);
+		await handle?.close().catch(() => undefined);
 	}
 }
 
@@ -94,12 +115,21 @@ function hasMatchingFingerprint(
 	);
 }
 
+/** 仅文件比上次更大时允许从旧偏移继续扫描。 */
+function hasGrown(cached: IndexEntry | undefined, fingerprint: Fingerprint): cached is IndexEntry {
+	return Boolean(
+		cached?.resume
+		&& fingerprint.size > cached.fp.size
+		&& fingerprint.size >= cached.resume.offset,
+	);
+}
+
 /** Build a session row from the header alone, without parsing the transcript. */
-function deferredSessionInfo(
+async function deferredSessionInfo(
 	filePath: string,
 	fingerprint: Fingerprint,
-): ScannedSessionInfo | null {
-	const header = readSessionHeaderSummary(filePath);
+): Promise<ScannedSessionInfo | null> {
+	const header = await readSessionHeaderSummary(filePath);
 	if (
 		!header
 		|| typeof header.id !== "string"
@@ -154,93 +184,252 @@ function activityTimeOf(entry: RawEntry): number | undefined {
 	return Number.isNaN(t) ? undefined : t;
 }
 
-// Uses the SDK's buildSessionInfo() semantics for displayed metadata.
-export async function scanSessionFileInfo(
+interface SessionHeader {
+	id: string;
+	cwd: string;
+	created: Date;
+	parentSessionPath?: string;
+	/** 头部时间戳不是字符串时为 NaN。 */
+	time: number;
+	/** 保存含换行的头部原文，供后续追加扫描校验。 */
+	head?: Buffer;
+}
+
+interface ScanTotals {
+	name?: string;
+	messageCount: number;
+	firstMessage: string;
+	lastActivityTime?: number;
+}
+
+function readHeader(entry: RawEntry, head: Buffer | undefined): SessionHeader {
+	return {
+		id: entry.id as string,
+		cwd: typeof entry.cwd === "string" ? entry.cwd : "",
+		created: new Date(entry.timestamp as string),
+		parentSessionPath: typeof entry.parentSession === "string" ? entry.parentSession : undefined,
+		time: typeof entry.timestamp === "string" ? new Date(entry.timestamp).getTime() : NaN,
+		// 仅字符串 ID 和时间戳可从列表行准确还原头部。
+		head: typeof entry.id === "string" && typeof entry.timestamp === "string" ? head : undefined,
+	};
+}
+
+// 列表展示遵循 SDK buildSessionInfo 语义；统计规则变化必须递增 INDEX_FORMAT_VERSION。
+function foldEntry(totals: ScanTotals, entry: RawEntry): void {
+	if (entry.type === "session_info") {
+		totals.name =
+			typeof entry.name === "string" && entry.name.trim()
+				? entry.name.trim()
+				: undefined;
+	}
+	if (entry.type !== "message") return;
+	totals.messageCount++;
+
+	const activityTime = activityTimeOf(entry);
+	if (typeof activityTime === "number") {
+		totals.lastActivityTime = Math.max(totals.lastActivityTime ?? 0, activityTime);
+	}
+
+	if (totals.firstMessage) return;
+	const message = entry.message as RawEntry | undefined;
+	if (
+		!message ||
+		typeof message.role !== "string" ||
+		!("content" in message)
+	)
+		return;
+	if (message.role !== "user") return;
+	totals.firstMessage = extractTextContent(message);
+}
+
+function sampleCheck(head: Buffer, tail: Buffer): string {
+	return createHash("sha1").update(head).update(tail).digest("base64");
+}
+
+/** 丢弃末尾 RESUME_SAMPLE_BYTES 之前不再需要的片段。 */
+function keepLastBytes(parts: Buffer[]): Buffer[] {
+	let total = 0;
+	for (const part of parts) total += part.length;
+	let first = 0;
+	while (first < parts.length - 1 && total - parts[first].length >= RESUME_SAMPLE_BYTES) {
+		total -= parts[first].length;
+		first++;
+	}
+	return first > 0 ? parts.slice(first) : parts;
+}
+
+/** 按 Node 22 的逐行语义解析：CRLF 和单独 CR 均换行；U+2028、U+2029 保留在 JSON 行内，与 SDK 加载器一致。 */
+function linesOf(bytes: Buffer): string[] {
+	const text = bytes.toString("utf8");
+	return text.includes("\r") ? text.split("\r") : [text];
+}
+
+interface LineScan {
+	/** 最后一次读到的换行之后的位置。 */
+	offset: number;
+	/** offset 前的 RESUME_SAMPLE_BYTES 字节，文件开头附近可更少。 */
+	sample: Buffer;
+	/** 最后换行之后的字节，写入方可能还在追加同一行。 */
+	rest: Buffer;
+}
+
+/** 从 start 开始把完整行及换行后偏移交给 onLine；回调返回 false 时返回 null。 */
+async function readLines(
 	filePath: string,
-): Promise<ScannedSessionInfo | null> {
+	start: number,
+	sample: Buffer,
+	onLine: (bytes: Buffer, end: number) => boolean,
+): Promise<LineScan | null> {
+	let offset = start;
+	let pending: Buffer[] = [];
+	// 按块裁剪校验样本，避免短行完整扫描时逐行分配。
+	let read = [sample];
+	for await (const chunk of createReadStream(filePath, { start }) as AsyncIterable<Buffer>) {
+		let newline = chunk.indexOf(0x0a);
+		if (newline === -1) {
+			pending.push(chunk);
+			continue;
+		}
+		const carried = pending;
+		let lineStart = 0;
+		while (newline !== -1) {
+			const piece = chunk.subarray(lineStart, newline);
+			const bytes = pending.length > 0 ? Buffer.concat([...pending, piece]) : piece;
+			pending = [];
+			offset += bytes.length + 1;
+			if (!onLine(bytes, offset)) return null;
+			lineStart = newline + 1;
+			newline = chunk.indexOf(0x0a, lineStart);
+		}
+		read = keepLastBytes([...read, ...carried, chunk.subarray(0, lineStart)]);
+		if (lineStart < chunk.length) pending.push(chunk.subarray(lineStart));
+	}
+	const joined = Buffer.concat(read);
+	return {
+		offset,
+		sample: joined.subarray(Math.max(0, joined.length - RESUME_SAMPLE_BYTES)),
+		rest: Buffer.concat(pending),
+	};
+}
+
+/** 头部与恢复偏移前样本仍匹配才继续；返回 null 时完整扫描。 */
+async function readResumeSample(
+	filePath: string,
+	resume: ResumePoint,
+): Promise<{ head: Buffer; tail: Buffer } | null> {
+	const handle = await open(filePath, "r");
+	try {
+		const tailStart = Math.max(0, resume.offset - RESUME_SAMPLE_BYTES);
+		const head = Buffer.alloc(resume.headerEnd);
+		const tail = Buffer.alloc(resume.offset - tailStart);
+		const headRead = await handle.read(head, 0, head.length, 0);
+		const tailRead = await handle.read(tail, 0, tail.length, tailStart);
+		if (headRead.bytesRead !== head.length || tailRead.bytesRead !== tail.length) return null;
+		return sampleCheck(head, tail) === resume.check ? { head, tail } : null;
+	} finally {
+		await handle.close();
+	}
+}
+
+/** 仅文件首行头部用于恢复抽样；追加扫描与完整读取应生成同一列表行。 */
+async function scanSessionFile(
+	filePath: string,
+	previous?: IndexEntry,
+): Promise<Omit<IndexEntry, "fp"> | null> {
 	try {
 		const stats = await stat(filePath);
-		let header: RawEntry | null = null;
-		let name: string | undefined;
-		let messageCount = 0;
-		let firstMessage = "";
-		let lastActivityTime: number | undefined;
-
-		const rl = createInterface({
-			input: createReadStream(filePath, { encoding: "utf8" }),
-			crlfDelay: Infinity,
-		});
-
-		for await (const line of rl) {
-			const entry = parseLine(line);
-			if (!entry) continue;
-
-			if (!header) {
-				if (entry.type !== "session") return null;
-				header = entry;
-				continue;
-			}
-
-			if (entry.type === "session_info") {
-				name =
-					typeof entry.name === "string" && entry.name.trim()
-						? entry.name.trim()
-						: undefined;
-			}
-			if (entry.type !== "message") continue;
-			messageCount++;
-
-			const activityTime = activityTimeOf(entry);
-			if (typeof activityTime === "number") {
-				lastActivityTime = Math.max(lastActivityTime ?? 0, activityTime);
-			}
-
-			const message = entry.message as RawEntry | undefined;
-			if (
-				!message ||
-				typeof message.role !== "string" ||
-				!("content" in message)
-			)
-				continue;
-			if (message.role !== "user" && message.role !== "assistant") continue;
-
-			const textContent = extractTextContent(message);
-			if (!textContent) continue;
-			if (!firstMessage && message.role === "user") firstMessage = textContent;
+		const resumed = previous?.resume && previous.resume.ino === stats.ino
+			? await readResumeSample(filePath, previous.resume)
+			: null;
+		let header: SessionHeader | null = null;
+		let headerEnd = 0;
+		let start = 0;
+		let sample: Buffer = Buffer.alloc(0);
+		const totals: ScanTotals = { messageCount: 0, firstMessage: "" };
+		if (previous?.resume && resumed) {
+			const { info, resume } = previous;
+			start = resume.offset;
+			sample = resumed.tail;
+			header = {
+				id: info.id,
+				cwd: info.cwd,
+				created: new Date(info.created.getTime()),
+				parentSessionPath: info.parentSessionPath,
+				time: info.created.getTime(),
+				head: resumed.head,
+			};
+			headerEnd = resume.headerEnd;
+			totals.name = info.name;
+			totals.messageCount = info.messageCount;
+			totals.firstMessage = resume.hasFirstMessage ? info.firstMessage : "";
+			totals.lastActivityTime = resume.lastActivityTime;
 		}
 
-		if (!header) return null;
+		let restCounted = false;
+		const parseLines = (bytes: Buffer, end: number | null): boolean => {
+			for (const line of linesOf(bytes)) {
+				const entry = parseLine(line);
+				if (!entry) continue;
+				if (end === null) restCounted = true;
+				if (!header) {
+					if (entry.type !== "session") return false;
+					// 只为文件第一行的头部建立恢复样本。
+					const firstLine = end !== null && end === bytes.length + 1;
+					header = readHeader(entry, firstLine ? Buffer.concat([bytes, NEWLINE]) : undefined);
+					headerEnd = firstLine ? end : 0;
+					continue;
+				}
+				foldEntry(totals, entry);
+			}
+			return true;
+		};
 
-		const cwd = typeof header.cwd === "string" ? header.cwd : "";
-		const parentSessionPath =
-			typeof header.parentSession === "string"
-				? header.parentSession
-				: undefined;
-		const headerTime =
-			typeof header.timestamp === "string"
-				? new Date(header.timestamp).getTime()
-				: NaN;
+		const scan = await readLines(filePath, start, sample, parseLines);
+		// 未终止尾行仍参与本次统计；仅其不改变结果时保留恢复点。
+		if (!scan || (scan.rest.length > 0 && !parseLines(scan.rest, null))) return null;
+		if (!header) return null;
+		const { id, cwd, created, parentSessionPath, time, head } = header;
+
 		const modified =
-			typeof lastActivityTime === "number" && lastActivityTime > 0
-				? new Date(lastActivityTime)
-				: !Number.isNaN(headerTime)
-					? new Date(headerTime)
+			typeof totals.lastActivityTime === "number" && totals.lastActivityTime > 0
+				? new Date(totals.lastActivityTime)
+				: !Number.isNaN(time)
+					? new Date(time)
 					: stats.mtime;
 
 		return {
-			path: filePath,
-			id: header.id as string,
-			cwd,
-			name,
-			parentSessionPath,
-			created: new Date(header.timestamp as string),
-			modified,
-			messageCount,
-			firstMessage: firstMessage || "(no messages)",
+			info: {
+				path: filePath,
+				id,
+				cwd,
+				name: totals.name,
+				parentSessionPath,
+				created,
+				modified,
+				messageCount: totals.messageCount,
+				firstMessage: totals.firstMessage || "(no messages)",
+			},
+			// 文件系统不提供稳定 inode 时不做追加恢复。
+			resume: head && headerEnd > 0 && !restCounted && stats.ino > 0
+				? {
+					ino: stats.ino,
+					offset: scan.offset,
+					headerEnd,
+					check: sampleCheck(head, scan.sample),
+					hasFirstMessage: totals.firstMessage !== "",
+					...(totals.lastActivityTime !== undefined ? { lastActivityTime: totals.lastActivityTime } : {}),
+				}
+				: undefined,
 		};
 	} catch {
 		return null;
 	}
+}
+
+export async function scanSessionFileInfo(
+	filePath: string,
+): Promise<ScannedSessionInfo | null> {
+	return (await scanSessionFile(filePath))?.info ?? null;
 }
 
 async function enumerateSessionFiles(sessionsDir: string): Promise<string[]> {
@@ -288,8 +477,30 @@ function getIndex(): Map<string, IndexEntry> {
 	return globalThis.__piImaginScanIndex;
 }
 
-function indexFilePath(): string {
-	return join(getAgentDir(), "pi-web-session-index.json");
+function indexFilePath(agentDir = getAgentDir()): string {
+	return join(agentDir, "pi-web-session-index.json");
+}
+
+/** 解析持久化恢复点；缺失或异常时保留索引条目但不恢复偏移。 */
+function readResumePoint(value: unknown): ResumePoint | undefined {
+	if (!isRecord(value)) return undefined;
+	const { ino, offset, headerEnd, check, hasFirstMessage, lastActivityTime } = value;
+	if (
+		typeof ino !== "number" || !Number.isFinite(ino) || ino <= 0 ||
+		typeof headerEnd !== "number" || !Number.isSafeInteger(headerEnd) || headerEnd <= 0 ||
+		typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < headerEnd ||
+		typeof check !== "string" ||
+		typeof hasFirstMessage !== "boolean" ||
+		(lastActivityTime !== undefined && (typeof lastActivityTime !== "number" || !Number.isFinite(lastActivityTime)))
+	) return undefined;
+	return {
+		ino,
+		offset,
+		headerEnd,
+		check,
+		hasFirstMessage,
+		...(lastActivityTime !== undefined ? { lastActivityTime } : {}),
+	};
 }
 
 function loadPersistedIndex(): void {
@@ -332,6 +543,8 @@ function loadPersistedIndex(): void {
 					created,
 					modified,
 				},
+				// 旧索引没有恢复点，文件首次变化时完整扫描一次。
+				resume: readResumePoint(entry.resume),
 			});
 		}
 	} catch {
@@ -339,22 +552,34 @@ function loadPersistedIndex(): void {
 	}
 }
 
-function queueIndexPersist(): void {
-	if (globalThis.__piImaginScanIndexSaveQueued) return;
-	globalThis.__piImaginScanIndexSaveQueued = true;
-	queueMicrotask(() => {
-		globalThis.__piImaginScanIndexSaveQueued = undefined;
-		try {
-			const entries: Record<string, IndexEntry> = {};
-			for (const [pathKey, entry] of getIndex()) entries[pathKey] = entry;
-			writePrivateFileAtomicSync(
-				indexFilePath(),
-				JSON.stringify({ version: INDEX_FORMAT_VERSION, entries }),
-			);
-		} catch {
-			// persistence is best-effort; the in-memory index remains authoritative
-		}
-	});
+function persistIndex(): void {
+	const pending = globalThis.__piImaginScanIndexSave;
+	if (!pending) return;
+	clearTimeout(pending.timer);
+	globalThis.__piImaginScanIndexSave = undefined;
+	try {
+		writePrivateFileAtomicSync(
+			pending.path,
+			JSON.stringify({ version: INDEX_FORMAT_VERSION, entries: Object.fromEntries(pending.entries) }),
+		);
+	} catch {
+		// persistence is best-effort; the in-memory index remains authoritative
+	}
+}
+
+/** 等待 INDEX_PERSIST_DELAY_MS 后写入当前索引；同目录后续扫描更新待写内容，切换目录前先提交原待写项。 */
+function queueIndexPersist(path: string): void {
+	const entries = [...getIndex()];
+	const pending = globalThis.__piImaginScanIndexSave;
+	if (pending?.path === path) {
+		pending.entries = entries;
+		return;
+	}
+	persistIndex();
+	const timer = setTimeout(persistIndex, INDEX_PERSIST_DELAY_MS);
+	// 待写定时器不阻止进程退出；丢失写入只会导致下次重扫。
+	timer.unref?.();
+	globalThis.__piImaginScanIndexSave = { path, entries, timer };
 }
 
 /**
@@ -368,7 +593,8 @@ export async function listSessionsIncremental(
 	loadPersistedIndex();
 	const deferDetails = options.deferDetails ?? false;
 
-	const sessionsDir = join(getAgentDir(), "sessions");
+	const agentDir = getAgentDir();
+	const sessionsDir = join(agentDir, "sessions");
 	const files = await enumerateSessionFiles(sessionsDir);
 	globalThis.__piSessionMembership = { files: new Set(files) };
 
@@ -394,7 +620,8 @@ export async function listSessionsIncremental(
 		}),
 	);
 
-	const changed: Array<{ filePath: string; fp: Fingerprint; resultIndex: number }> = [];
+	const deferred: Array<{ filePath: string; fp: Fingerprint; resultIndex: number }> = [];
+	const changed: Array<{ filePath: string; fp: Fingerprint; resultIndex: number; previous?: IndexEntry }> = [];
 	const results: (ScannedSessionInfo | null)[] = new Array(files.length).fill(null);
 	const mtimes: number[] = new Array(files.length).fill(Number.NEGATIVE_INFINITY);
 	for (const [resultIndex, { filePath, fp }] of fingerprints.entries()) {
@@ -415,25 +642,30 @@ export async function listSessionsIncremental(
 		if (deferDetails) {
 			// Header and stat only: a later normal listing fills in the transcript
 			// details, so a first paint does not wait on parsing every file.
-			const summary = deferredSessionInfo(filePath, fp);
-			if (summary) results[resultIndex] = summary;
-			else index.delete(filePath);
+			deferred.push({ filePath, fp, resultIndex });
 			continue;
 		}
-		changed.push({ filePath, fp, resultIndex });
+		// 会话文件仅追加时只解析尾部。
+		changed.push({ filePath, fp, resultIndex, previous: hasGrown(cached, fp) ? cached : undefined });
 	}
 
-	await runPool(changed, async ({ filePath, fp, resultIndex }) => {
-		const info = await scanSessionFileInfo(filePath);
-		if (info) {
-			index.set(filePath, { fp, info });
-			results[resultIndex] = info;
+	await runPool(deferred, async ({ filePath, fp, resultIndex }) => {
+		const summary = await deferredSessionInfo(filePath, fp);
+		if (summary) results[resultIndex] = summary;
+		else index.delete(filePath);
+	});
+
+	await runPool(changed, async ({ filePath, fp, resultIndex, previous }) => {
+		const scanned = await scanSessionFile(filePath, previous);
+		if (scanned) {
+			index.set(filePath, { fp, ...scanned });
+			results[resultIndex] = scanned.info;
 		} else {
 			index.delete(filePath);
 		}
 	});
 
-	if (changed.length > 0 || stale.length > 0) queueIndexPersist();
+	if (changed.length > 0 || stale.length > 0) queueIndexPersist(indexFilePath(agentDir));
 
 	// Preserve catalogue order for timestamp ties, independently of cache hits
 	// and the order in which concurrent file reads complete. Since pi 0.86 the
@@ -450,11 +682,17 @@ export async function listSessionsIncremental(
 		.map(({ info }) => info);
 }
 
-/** Test seam: drop all in-memory index state. */
+/** 测试入口：立即提交待写索引。 */
+export function flushSessionScanIndexForTests(): void {
+	persistIndex();
+}
+
+/** 测试入口：清空内存索引及待写任务。 */
 export function resetSessionScanIndexForTests(): void {
+	clearTimeout(globalThis.__piImaginScanIndexSave?.timer);
 	globalThis.__piImaginScanIndex = undefined;
 	globalThis.__piImaginScanIndexLoaded = undefined;
-	globalThis.__piImaginScanIndexSaveQueued = undefined;
+	globalThis.__piImaginScanIndexSave = undefined;
 	globalThis.__piSessionMembership = undefined;
 	globalThis.__piSessionMembershipCheck = undefined;
 }

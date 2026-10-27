@@ -1,9 +1,4 @@
-// One promise chain per key, kept on globalThis under `storeKey`: route
-// handlers are bundled separately and hot reload re-evaluates modules, so a
-// module-level map would give each copy its own chain. Used by the `mcp.json`
-// writer (one chain per file) and by trusting a fresh folder (one per folder);
-// each keeps its own `Symbol.for` name, so a process that already holds a
-// chain under it keeps using it.
+// 按 storeKey 在 globalThis 保存各键的串行队列，使独立路由包与热更新共享同一队列。
 
 /**
  * Runs `task` after every earlier task for the same key under `storeKey` has

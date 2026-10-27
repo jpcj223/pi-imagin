@@ -1,7 +1,12 @@
 interface TimingEntry {
   type: string;
+  id?: string;
   timestamp: string;
   message?: { role?: string };
+}
+
+interface TimingEntriesSource {
+  getEntries(): readonly TimingEntry[];
 }
 
 /**
@@ -23,6 +28,8 @@ export function computeSessionTotalActiveMs(entries: readonly TimingEntry[]): nu
     if (!Number.isFinite(timestamp)) continue;
 
     const role = entry.type === "message" ? entry.message?.role : undefined;
+    // 恢复会话会在用户消息前补系统快照；它是元数据，不能把此前空闲算成工作时间。
+    if (role === "system") continue;
     if (role === "user" || role === "bashExecution") {
       previousTimestamp = timestamp;
       continue;
@@ -42,4 +49,20 @@ function isTimingEntry(type: string): boolean {
     || type === "compaction"
     || type === "branch_summary"
     || type === "custom_message";
+}
+
+const activeMsBySession = new WeakMap<TimingEntriesSource, { entryCount: number; lastEntryId: string | undefined; totalActiveMs: number }>();
+
+/** 缓存实时会话的活跃时间，条目变化才重算，避免频繁状态轮询反复遍历全部历史。 */
+export function computeLiveSessionTotalActiveMs(manager: TimingEntriesSource): number {
+  const entries = manager.getEntries();
+  const lastEntryId = entries[entries.length - 1]?.id;
+  const cached = activeMsBySession.get(manager);
+  if (cached && cached.entryCount === entries.length && cached.lastEntryId === lastEntryId) {
+    return cached.totalActiveMs;
+  }
+
+  const totalActiveMs = computeSessionTotalActiveMs(entries);
+  activeMsBySession.set(manager, { entryCount: entries.length, lastEntryId, totalActiveMs });
+  return totalActiveMs;
 }

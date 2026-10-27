@@ -54,6 +54,15 @@ export function setCompatBool<T extends CompatEntry>(entry: T, key: string, valu
   };
 }
 
+/** 兼容标志默认关闭；仅保留与服务商继承值不同的覆盖，切回继承值时移除覆盖。 */
+export function setCompatFlag<T extends CompatEntry>(entry: T, key: string, value: boolean, inherited = false): T {
+  if (value !== inherited) return setCompatBool(entry, key, value);
+  if (!entry.compat || !Object.prototype.hasOwnProperty.call(entry.compat, key)) return entry;
+  const rest = { ...entry.compat };
+  delete rest[key];
+  return { ...entry, compat: Object.keys(rest).length ? rest : undefined };
+}
+
 export function updateHeaderRow(
   rows: readonly HeaderRow[],
   id: number,

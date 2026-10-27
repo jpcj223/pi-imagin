@@ -51,7 +51,7 @@ const PROMPT_WAIT_MS = 10_000;
  * extension's own runtime load is a cache hit.
  */
 const REPLACE_WAIT_MS = 5_000;
-const LIST_METHODS = new Set(["tools/list", "resources/list", "resources/templates/list"]);
+const LIST_METHODS = new Set(["tools/list"]);
 
 /**
  * PI_WEB_MCP_IDLE_MS: how long a session's MCP servers stay connected after its
@@ -185,16 +185,7 @@ interface ObservedTransport {
   readonly stderr?: unknown;
 }
 
-/**
- * Report when a connection is ready, meaning the extension has registered its
- * tools, or when its transport closed first. The client sends `initialize`,
- * then `notifications/initialized`, then lists tools and resources when the
- * server's capabilities offer them, a page at a time; the extension registers
- * the tools in the same microtask chain that settles the last list. So once
- * every list request is answered and a macrotask passed without another one,
- * the tools are registered. Listening adds a listener and an own `send` on the
- * instance; the transport keeps its class, which the SDK checks.
- */
+/** 连接完成工具注册后报告就绪；SDK 1.2 仅在连接阶段分页列举工具，资源延后读取。等待全部列表应答及一个宏任务，保留原传输实例类型。 */
 export function watchConnection(transport: ObservedTransport, done: (outcome: "ready" | "closed") => void): void {
   let finished = false;
   let initialized = false;
@@ -230,8 +221,8 @@ export function watchConnection(transport: ObservedTransport, done: (outcome: "r
     if (!isRecord(message) || message.method !== undefined || message.id === undefined) return;
     if (expectsLists === undefined && isRecord(message.result) && isRecord(message.result.capabilities)) {
       const { capabilities } = message.result;
-      // As the SDK decides: tools when the capability is set, resources when it is present.
-      expectsLists = Boolean(capabilities.tools) || capabilities.resources !== undefined;
+      // 依照 SDK，仅声明工具能力时等待工具列表。
+      expectsLists = Boolean(capabilities.tools);
       check();
       return;
     }

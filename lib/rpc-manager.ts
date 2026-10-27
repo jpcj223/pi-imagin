@@ -8,6 +8,7 @@ import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
+import { invalidateModelRuntimeWithExtensions } from "./model-runtime";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
 import { findDeferredModel, rememberProviderModels } from "./deferred-provider-models";
 import { isBlockingExtensionUiRequest } from "./extension-ui-queue";
@@ -17,6 +18,7 @@ import {
   preferUserBashExtension,
 } from "./project-command-env";
 import { cacheSessionPath, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
+import { computeLiveSessionTotalActiveMs } from "./session-timing";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { notifySessionComplete } from "./web-push";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
@@ -61,6 +63,7 @@ import { persistProjectFork } from "./project-session-fork";
 import { createProjectWorkspaceExtension, projectCommandRequestId } from "./project-workspace-extension";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
+import { collectLiveAssistantNotices, readShowCacheMissNotices, withSessionPrices } from "./transcript-notices-server";
 import {
   appendClearedSessionToolSelection,
   appendSessionToolSelection,
@@ -530,11 +533,32 @@ export class AgentSessionWrapper {
       }
       this.trackActiveToolEvent(event);
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
-      this.emit(event);
+      this.emit(event.type === "message_end" ? this.withTranscriptNotices(event) : event);
       if (event.type === "agent_settled") this.notifyAgentRunCompleteIfIdle();
       if (event.type === "agent_settled") this.drainMcpRuntimeRefresh();
     });
     this.resetIdleTimer();
+  }
+
+  /** 在助手 message_end 事件旁附加 TUI 同口径通知；不修改将由 SDK 写入磁盘的消息对象。 */
+  private withTranscriptNotices(event: AgentEvent): AgentEvent {
+    const message = event.message as { role?: unknown } | undefined;
+    if (this.listeners.size === 0 || message?.role !== "assistant") return event;
+    try {
+      const manager = this.inner.sessionManager;
+      if (!readShowCacheMissNotices(manager.getCwd())) return event;
+      const entries = manager.getEntries() as unknown as SessionEntry[];
+      const notices = collectLiveAssistantNotices(
+        entries,
+        manager.getBranch() as unknown as SessionEntry[],
+        message,
+        withSessionPrices(entries, this.inner.modelRuntime),
+      );
+      return notices.length > 0 ? { ...event, transcriptNotices: notices } : event;
+    } catch (error) {
+      console.warn("[pi-web] transcript notices failed:", error instanceof Error ? error.message : error);
+      return event;
+    }
   }
 
   /**
@@ -1077,6 +1101,8 @@ export class AgentSessionWrapper {
           contextUsage: contextUsage
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
+          // 每次状态读取都从实时条目计算活跃时间，避免运行过程中统计面板停留在旧快照。
+          totalActiveMs: computeLiveSessionTotalActiveMs(this.inner.sessionManager),
           // An exact prompt is projected onto each run by the inline extension. Every other
           // session reports `agent.state.systemPrompt`, which replays the transcript: that is
           // what the model actually saw, including sections a `before_agent_start` handler
@@ -1356,6 +1382,7 @@ export class AgentSessionWrapper {
         // A reload invalidates the extension ctx the running turn still holds,
         // and the turn dies at its next extension hook (#1172). pi refuses too.
         await this.reloadResources();
+        invalidateModelRuntimeWithExtensions();
         return { success: true };
       }
 
@@ -2121,6 +2148,8 @@ export class AgentSessionWrapper {
             this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
           },
         });
+        // 资源重载后同步使服务商列表运行时失效。
+        invalidateModelRuntimeWithExtensions();
       },
     };
   }

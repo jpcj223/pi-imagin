@@ -52,11 +52,17 @@ export function loadBrowserSkillDetail(skill: CatalogSkill, signal?: AbortSignal
     return data;
   }, signal, force);
 }
-export function loadInstalledSkillContent(cwd: string | null, filePath: string, signal?: AbortSignal, force = false) {
-  return contents.load(JSON.stringify([cwd ?? "", filePath]), async signal => {
-    const data = await json<SkillContentResponse>("/api/skills/content?" + new URLSearchParams({ ...(cwd ? { cwd } : {}), filePath }), signal);
+export function loadInstalledSkillContent(cwd: string | null, filePath: string, signal?: AbortSignal, force = false, document?: string) {
+  return contents.load(JSON.stringify(document ? [cwd ?? "", filePath, document] : [cwd ?? "", filePath]), async signal => {
+    const data = await json<SkillContentResponse>("/api/skills/content?" + new URLSearchParams({ ...(cwd ? { cwd } : {}), filePath, ...(document ? { document } : {}) }), signal);
     if (typeof data.content !== "string" || data.content.length > 1048576) throw new Error("Invalid skill content");
     return data;
   }, signal, force);
 }
-export function invalidateInstalledSkillContent(cwd: string | null, filePath: string) { contents.entries.delete(JSON.stringify([cwd ?? "", filePath])); }
+export function invalidateInstalledSkillContent(cwd: string | null, filePath: string) {
+  // 技能更新后同时失效关联文档，避免正文与相对引用版本不同。
+  for (const key of contents.entries.keys()) {
+    const [scope, file] = JSON.parse(key) as string[];
+    if (scope === (cwd ?? "") && file === filePath) contents.entries.delete(key);
+  }
+}

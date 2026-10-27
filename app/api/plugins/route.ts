@@ -18,6 +18,7 @@ import { appPluginSources, recordAppPlugin } from "@/lib/plugin-install-origin";
 import { samePath } from "@/lib/paths";
 import {pluginLogoUrl} from "@/lib/plugin-presentation";
 import { isPluginSourceCheckable } from "@/lib/plugin-updates";
+import { invalidateModelRuntimeWithExtensions } from "@/lib/model-runtime";
 import type {
   PluginDiagnostic,
   PluginPackageInfo,
@@ -532,5 +533,8 @@ export async function POST(req: Request) {
     return NextResponse.json(await readPlugins(body.cwd ?? null));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  } finally {
+    // 插件变动或失败的半次更新都可能改变服务商；下次列表读取须重新构建运行时。
+    invalidateModelRuntimeWithExtensions();
   }
 }

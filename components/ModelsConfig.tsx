@@ -15,6 +15,7 @@ import {
   savedModelIds,
   serializeHeaderRows,
   setCompatBool,
+  setCompatFlag,
   trackAddedModels,
   collectModelRenames,
   renameProviderEntry,
@@ -92,6 +93,7 @@ interface ModelEntry {
   id: string;
   name?: string;
   api?: string;
+  baseUrl?: string;
   reasoning?: boolean;
   thinkingLevelMap?: Record<string, string | null>;
   input?: string[];
@@ -307,10 +309,10 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 // ── Provider detail ───────────────────────────────────────────────────────────
 
-function ProviderDetail({ name, editingName, provider, onChange, onEditingNameChange, onRename, onDelete, onAddModels, enabledModels }: {
+function ProviderDetail({ name, editingName, provider, onChange, onEditingNameChange, onDelete, onAddModels, enabledModels }: {
   name: string; editingName: string; provider: ProviderEntry;
   onChange: (p: ProviderEntry) => void; onEditingNameChange: (n: string) => void;
-  onRename: (n: string) => void; onDelete: () => void;
+  onDelete: () => void;
   onAddModels: (models: DiscoveredModel[]) => void; enabledModels: EnabledModelsController;
 }) {
   const { t } = useI18n();
@@ -412,12 +414,7 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
 
        <Field label={t("i18n.providerName")}>
         <TextInput value={editingName} onChange={onEditingNameChange} placeholder="provider-name" mono />
-        {editingName !== name && editingName.trim() && (
-          <button onClick={() => onRename(editingName.trim())}
-            style={{ marginTop: 4, padding: "3px 10px", background: "var(--accent)", border: "none", borderRadius: 4, color: "var(--accent-contrast)", cursor: "pointer", fontSize: 11, alignSelf: "flex-start" }}>
-             {t("i18n.rename")}
-          </button>
-        )}
+
       </Field>
 
       <Field label="Base URL">
@@ -841,6 +838,8 @@ function ModelDetail({
   const [costDraft, setCostDraft] = useState<ModelCostDraft>(() => modelCostToDraft(model.cost));
   const costDraftRef = useRef(costDraft);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const testRequestIdRef = useRef(0);
+  const effectiveBaseUrl = model.baseUrl ?? provider.baseUrl;
   const catalogRequestIdRef = useRef(0);
   const catalogUndoRef = useRef<ModelEntry | null>(null);
   const costTemplateRef = useRef(model.cost);
@@ -884,17 +883,21 @@ function ModelDetail({
   })();
 
   useEffect(() => {
+    testRequestIdRef.current += 1;
     setTestState({ phase: "idle" });
-  }, [providerName, provider.baseUrl, provider.api, provider.apiKey, model.id, model.api]);
+    // 草稿变化或组件卸载后，旧请求结果不再属于当前草稿。
+    return () => { testRequestIdRef.current += 1; };
+  }, [providerName, provider, model]);
 
   useEffect(() => {
     catalogRequestIdRef.current += 1;
     setCatalogState({ phase: "idle" });
     catalogUndoRef.current = null;
-  }, [providerName, provider.baseUrl, model.id]);
+  }, [providerName, effectiveBaseUrl, model.id]);
 
   const handleTest = useCallback(async () => {
     if (!model.id.trim() || testState.phase === "testing") return;
+    const requestId = ++testRequestIdRef.current;
     setTestState({ phase: "testing" });
     try {
       const res = await fetch("/api/models-config/test", {
@@ -909,6 +912,7 @@ function ModelDetail({
         status?: number;
         responseText?: string;
       };
+      if (requestId !== testRequestIdRef.current) return;
       if (!res.ok || !d.ok) {
         setTestState({
           phase: "error",
@@ -925,6 +929,7 @@ function ModelDetail({
         responseText: d.responseText,
       });
     } catch (e) {
+      if (requestId !== testRequestIdRef.current) return;
       setTestState({ phase: "error", message: e instanceof Error ? e.message : String(e) });
     }
   }, [model, provider, providerName, testState.phase]);
@@ -936,7 +941,7 @@ function ModelDetail({
     setCatalogState({ phase: "loading" });
     try {
       const params = new URLSearchParams({ q: query, provider: providerName, limit: "50" });
-      if (provider.baseUrl?.trim()) params.set("baseUrl", provider.baseUrl.trim());
+      if (effectiveBaseUrl?.trim()) params.set("baseUrl", effectiveBaseUrl.trim());
       const res = await fetch(`/api/models-config/catalog?${params}`);
       const data = await res.json() as { recommendation?: ModelCatalogRecommendation; error?: string };
       if (requestId !== catalogRequestIdRef.current) return;
@@ -959,7 +964,7 @@ function ModelDetail({
       if (requestId !== catalogRequestIdRef.current) return;
       setCatalogState({ phase: "error", message: error instanceof Error ? error.message : String(error) });
     }
-  }, [catalogState.phase, model, onChange, provider.baseUrl, providerName]);
+  }, [catalogState.phase, model, onChange, effectiveBaseUrl, providerName]);
 
   const undoCatalogFill = () => {
     const previous = catalogUndoRef.current;
@@ -1022,6 +1027,7 @@ function ModelDetail({
   }
   compatibilityOverrideCount += remainingCompatKeys.size;
   const advancedSummaryParts = [
+    model.baseUrl ? t("models.baseUrlOverride") : null,
     model.api ? `API: ${model.api}` : null,
     Object.keys(model.headers ?? {}).length
       ? t("models.headersSummary", { count: Object.keys(model.headers ?? {}).length })
@@ -1246,6 +1252,14 @@ function ModelDetail({
 
         {advancedOpen && (
           <div id="model-advanced-settings" style={{ display: "flex", flexDirection: "column", gap: 14, padding: "4px 0 16px" }}>
+            <Field label={t("models.baseUrlOverride")}>
+              <TextInput value={model.baseUrl ?? ""} onChange={(v) => set("baseUrl", v.trim() || undefined)}
+                placeholder={provider.baseUrl ?? t("models.providerDefaults")} mono />
+              <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
+                {t("models.baseUrlHelp")}
+              </span>
+            </Field>
+
             <Field label={t("models.apiOverride")}>
               <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
             </Field>
@@ -1273,6 +1287,18 @@ function ModelDetail({
                   checked={effectiveCompat(provider, model)["supportsDeveloperRole"] !== false}
                   onChange={(v) => onChange(setCompatBool(model, "supportsDeveloperRole", v))}
                 />
+                {(model.api ?? provider.api) === "anthropic-messages" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <Check
+                      label={t("models.adaptiveThinking")}
+                      checked={effectiveCompat(provider, model)["forceAdaptiveThinking"] === true}
+                      onChange={(v) => onChange(setCompatFlag(model, "forceAdaptiveThinking", v, provider.compat?.["forceAdaptiveThinking"] === true))}
+                    />
+                    <code style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", paddingLeft: 19 }}>
+                      compat.forceAdaptiveThinking
+                    </code>
+                  </div>
+                )}
                 <div style={{ marginTop: 4 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
                     <SectionTitle>{t("models.thinkingLevelMap")}</SectionTitle>
@@ -1865,7 +1891,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   const savedModelIdsRef = useRef<Map<string, (string | null)[]>>(new Map());
   /**
    * The provider name field while it differs from the provider's id. Save
-   * applies it like every other visible edit; Rename applies it right away.
+   * 在统一保存时与其他字段一起应用，不提供单独的重命名入口。
    */
   const [providerNameDraft, setProviderNameDraft] = useState<{ provider: string; name: string } | null>(null);
 
@@ -1939,11 +1965,6 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
     });
     return next;
   }, []);
-
-  const renameProvider = useCallback((oldName: string, newName: string) => {
-    if (applyProviderRename(config, oldName, newName)) setSaveError(null);
-    else setSaveError(t("models.providerNameTaken", { name: newName }));
-  }, [applyProviderRename, config, t]);
 
   const deleteProvider = useCallback((name: string) => {
     savedModelIdsRef.current.delete(name);
@@ -2020,8 +2041,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
     setSaving(true);
     setSaveError(null);
     setSavedOk(false);
-    // A provider name typed but not applied with Rename is still a visible
-    // edit: move the provider before writing, like every other field.
+    // 名称与其他草稿统一保存，按原身份移动条目，不能复制出第二个服务商。
     let draft = config;
     const pendingName = providerNameDraft?.name.trim();
     if (providerNameDraft && pendingName && config.providers?.[providerNameDraft.provider]) {
@@ -2052,14 +2072,15 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
         savedProvidersRef.current = new Set(Object.keys(draft.providers ?? {}));
         savedModelIdsRef.current = savedModelIds(draft);
         renamesRef.current.clear();
-        enabledModels.resync(renames, modelRenames);
+        await enabledModels.resync(renames, modelRenames);
+        refreshAuthProviders();
       }
     } catch (e) {
       setSaveError(String(e));
     } finally {
       setSaving(false);
     }
-  }, [applyProviderRename, config, enabledModels, loadError, providerNameDraft, t]);
+  }, [applyProviderRename, config, enabledModels, loadError, providerNameDraft, refreshAuthProviders, t]);
 
   const providers = Object.entries(config.providers ?? {});
   // `12/40` next to a provider makes a narrowed selector visible at a glance.
@@ -2094,7 +2115,6 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
           provider={provider}
           onChange={(p) => updateProvider(selection.name, p)}
           onEditingNameChange={(n) => setProviderNameDraft(n === selection.name ? null : { provider: selection.name, name: n })}
-          onRename={(n) => renameProvider(selection.name, n)}
           onDelete={() => deleteProvider(selection.name)}
           onAddModels={(models) => addDiscoveredModels(selection.name, models)}
           enabledModels={enabledModels}

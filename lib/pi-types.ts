@@ -18,6 +18,8 @@ export interface ContextUsage {
 export interface ModelLike {
   id: string;
   provider: string;
+  /** 每百万 token 的美元价格。 */
+  cost?: { input: number; output: number; cacheRead: number; cacheWrite: number };
 }
 
 export interface ToolInfo {

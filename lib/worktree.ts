@@ -65,6 +65,17 @@ async function git(cwd: string, args: string[], timeoutMs = 10_000): Promise<str
   return stdout.trim();
 }
 
+/** 文件句柄、进程或内存不足等可恢复的启动失败。 */
+const TRANSIENT_SPAWN_CODES = new Set(["EMFILE", "ENFILE", "EAGAIN", "ENOMEM"]);
+
+/** 资源不足或超时终止表示 Git 未给出有效结果，不缓存；Git 正常退出的失败及缺少 Git 程序仍按当前目录身份处理。 */
+function isTransientGitError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const { code, killed, signal } = error as { code?: unknown; killed?: unknown; signal?: unknown };
+  return killed === true || (typeof signal === "string" && signal !== "")
+    || (typeof code === "string" && TRANSIENT_SPAWN_CODES.has(code));
+}
+
 function realPathOrSelf(filePath: string): string {
   try {
     return realpathSync(filePath);
@@ -117,16 +128,7 @@ export function inferRemovedWorktree(cwd: string): ProjectInfo | null {
   return { projectRoot: realPathOrSelf(repoRoot), branch: basename(cwd), isWorktree: true, isTopLevel: true };
 }
 
-/**
- * Resolve a cwd's project identity with stale-while-revalidate caching.
- *
- * Within PROJECT_CACHE_TTL_MS the cached value is returned directly. After
- * that the stale value is still returned immediately while a background
- * refresh re-runs git; callers (chiefly the session list, which fans out over
- * every project cwd) therefore never wait on git subprocesses once a cwd has
- * been resolved once. Concurrent refreshes for the same cwd share one promise.
- * add/removeWorktree invalidate eagerly via invalidateProjectCache().
- */
+/** 项目身份使用过期后后台刷新的缓存；临时 Git 失败不覆盖已解析身份，无缓存时只为当前请求返回目录回退值。 */
 export async function resolveProject(cwd: string): Promise<ProjectInfo> {
   const cache = getProjectCache();
   const cached = cache.get(cwd);
@@ -139,7 +141,14 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
     return cached.info;
   }
 
-  const info = await resolveProjectUncached(cwd);
+  let info: ProjectInfo;
+  try {
+    info = await resolveProjectUncached(cwd);
+  } catch (error) {
+    // 临时 Git 失败只为本次请求返回目录回退值，不写入缓存，下次继续重试。
+    console.error(`[pi-web] resolveProject: git failed for ${cwd}, not cached: ${error instanceof Error ? error.message : String(error)}`);
+    return { projectRoot: cwd, branch: null, isWorktree: false, isTopLevel: false };
+  }
   cache.set(cwd, { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS });
   return info;
 }
@@ -195,7 +204,9 @@ async function resolveProjectUncached(cwd: string): Promise<ProjectInfo> {
       isWorktree: isWorktreeTopLevel,
       isTopLevel,
     };
-  } catch {
+  } catch (error) {
+    // 将临时失败向上传递以避开缓存；Git 自身返回的结果仍作为当前目录身份。
+    if (isTransientGitError(error)) throw error;
     info = { projectRoot: cwd, branch: null, isWorktree: false, isTopLevel: false };
   }
 

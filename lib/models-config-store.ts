@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
@@ -111,6 +111,15 @@ export function writeModelsConfig(
   const dir = dirname(modelsPath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const normalized = normalizeModelsConfigCosts(sanitizeModelsConfig(data));
-  writePrivateFileAtomicSync(modelsPath, JSON.stringify(normalized, null, 2));
+  // models.json 为符号链接时向真实目标原子写入，保留链接本身；断链必须拒绝，不能静默替换。
+  let writePath = modelsPath;
+  if (lstatSync(modelsPath, { throwIfNoEntry: false })?.isSymbolicLink()) {
+    try {
+      writePath = realpathSync(modelsPath);
+    } catch {
+      throw new ModelsConfigReadError(`Failed to write ${modelsPath}: dangling symbolic link`);
+    }
+  }
+  writePrivateFileAtomicSync(writePath, JSON.stringify(normalized, null, 2));
   invalidateModelsCache();
 }

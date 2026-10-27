@@ -13,7 +13,8 @@ export async function loadSkillsWithInstallInfo(projectCwd?: string | null): Pro
   if (projectCwd && isAppDefaultWorkspace(projectCwd, agentDir)) projectCwd = null;
   // 无项目时仅加载全局配置，不能采用服务进程所在目录或信任 agentDir 下的项目资源。
   const cwd = projectCwd || agentDir;
-  const loader = new DefaultResourceLoader({ cwd, agentDir, additionalSkillPaths: additionalGlobalSkillPaths(agentDir), ...(!projectCwd ? { settingsManager: SettingsManager.create(cwd, agentDir, { projectTrusted: false }) } : {}) });
+  // 列表不触发 session_start 的技能发现事件，无需加载扩展工厂。
+  const loader = new DefaultResourceLoader({ cwd, agentDir, noExtensions: true, additionalSkillPaths: additionalGlobalSkillPaths(agentDir), ...(!projectCwd ? { settingsManager: SettingsManager.create(cwd, agentDir, { projectTrusted: false }) } : {}) });
   await loader.reload(projectCwd ? projectTrustReloadOptions(cwd, agentDir) : undefined);
   const { skills, diagnostics } = loader.getSkills();
   const trusted = Boolean(projectCwd && getProjectTrustStatus(cwd, agentDir).trusted);

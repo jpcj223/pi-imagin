@@ -1855,12 +1855,7 @@ function McpStatusStateWord({ view }: { view: { key: string; tone: McpStateTone 
   return <><span className={`mcp-config-state is-${view.tone}`}>{t(view.key)}</span>{" "}</>;
 }
 
-/**
- * What the last test found: when and how long, the error and stderr, and what
- * the server said about itself; its resources only when it offers any, and
- * the folder a stdio server ran in unless the Working directory row names
- * that very folder.
- */
+/** 显示最近连接测试的时间、耗时、错误、标准错误、服务端信息、资源能力及运行目录。 */
 function McpTestStatusLines({
   status,
   showState,
@@ -1886,11 +1881,7 @@ function McpTestStatusLines({
           {t("mcp.test.serverInfo", { name: revealHiddenCharacters(info.title ?? info.name), version: revealHiddenCharacters(info.version) })}
         </span>
       )}
-      {(status.resources ?? 0) + (status.resourceTemplates ?? 0) > 0 && (
-        <span className="mcp-config-line is-dim">
-          {t("mcp.test.resources", { resources: status.resources ?? 0, templates: status.resourceTemplates ?? 0 })}
-        </span>
-      )}
+      {status.resources && <span className="mcp-config-line is-dim">{t("mcp.test.resources")}</span>}
       {status.cwd !== undefined && status.cwd !== entryCwd && (
         <span className="mcp-config-line is-dim">{t("mcp.test.ranIn", { path: displayPath(status.cwd) })}</span>
       )}

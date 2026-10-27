@@ -7,13 +7,44 @@ import { resolveProjectToolPath } from "./managed-projects";
 
 export const MAX_SUBAGENT_INPUT_FILES = 8;
 export const MAX_SUBAGENT_INPUT_BYTES = 512 * 1024;
+/** 沿用 SDK 压缩模块约四个字符一个 token 的估算。 */
+const CHARS_PER_TOKEN = 4;
+/** 内联文件最多约占子代理上下文窗口的十分之一。 */
+const CONTEXT_WINDOW_SHARE = 10;
 
 export interface SubagentInputFile {
   path: string;
   content: string;
 }
 
-export function loadSubagentInputFiles(cwd: string, requestedPaths: readonly string[], projectScope?: ProjectSessionScope): SubagentInputFile[] {
+export interface SubagentInputLimits {
+  /** 文件总字节上限；未指定时使用 MAX_SUBAGENT_INPUT_BYTES。 */
+  maxBytes?: number;
+  /** 由上下文窗口限制预算时，在错误中显示子代理模型。 */
+  model?: string;
+}
+
+/** 内联文件进入首条用户消息，固定上限可能挤满小模型窗口；按字节和模型窗口共同限额，模型容量未知时沿用固定上限。 */
+export function subagentInputLimits(
+  model: { provider: string; id: string; contextWindow?: number } | undefined,
+): SubagentInputLimits {
+  const contextWindow = model?.contextWindow;
+  if (!model || !contextWindow || contextWindow < 0) return {};
+  const maxBytes = Math.floor((contextWindow * CHARS_PER_TOKEN) / CONTEXT_WINDOW_SHARE);
+  return maxBytes < MAX_SUBAGENT_INPUT_BYTES ? { maxBytes, model: `${model.provider}/${model.id}` } : {};
+}
+
+function formatInputLimit(bytes: number): string {
+  return bytes < 1024 ? `${bytes}-byte` : `${Math.floor(bytes / 1024)} KB`;
+}
+
+export function loadSubagentInputFiles(
+  cwd: string,
+  requestedPaths: readonly string[],
+  projectScope?: ProjectSessionScope,
+  limits: SubagentInputLimits = {},
+): SubagentInputFile[] {
+  const maxBytes = limits.maxBytes ?? MAX_SUBAGENT_INPUT_BYTES;
   if (requestedPaths.length > MAX_SUBAGENT_INPUT_FILES) {
     throw new Error(`Agent input_files accepts at most ${MAX_SUBAGENT_INPUT_FILES} files`);
   }
@@ -45,8 +76,12 @@ export function loadSubagentInputFiles(cwd: string, requestedPaths: readonly str
 
     const buffer = readFileSync(filePath);
     totalBytes += buffer.byteLength;
-    if (totalBytes > MAX_SUBAGENT_INPUT_BYTES) {
-      throw new Error(`Agent input_files exceeds the ${MAX_SUBAGENT_INPUT_BYTES}-byte total limit`);
+    if (totalBytes > maxBytes) {
+      const scope = limits.model ? ` for ${limits.model}, about a tenth of its context window` : "";
+      throw new Error(
+        `Agent input_files exceeds the ${formatInputLimit(maxBytes)} total limit${scope}. `
+        + "Pass fewer or smaller files, or name the paths in prompt if the subagent can read them.",
+      );
     }
 
     let content: string;

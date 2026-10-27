@@ -13,7 +13,7 @@ import {
 import { guardedCredentialStore, mcpOAuthUrl, mcpSignInKey, mcpSignOutCount, mcpSignOutGuard, type McpSignInWriteGuard } from "./mcp-sign-out";
 import { recordMcpStatus } from "./mcp-status";
 import { createPiImaginMcpTransportFactory, resolvedConfigValues } from "./mcp-transport";
-import { createModelRuntimeWithExtensions } from "./model-runtime";
+import { getModelRuntimeWithExtensions } from "./model-runtime";
 import type {
   McpClient,
   McpOAuthCredentialStore,
@@ -359,19 +359,12 @@ export function openTestConnection(
   return { connection, transports };
 }
 
-/**
- * Reads a pi provider's token for an entry with `auth.provider`, as a
- * session's MCP extension does (`modelRegistry.getApiKeyForProvider()`), with
- * the providers extensions register: the runtime is built at the first request
- * that asks, once per connection, and asked again on every request, so a
- * provider's refresh applies. Undefined when it cannot be read, as in a
- * session; the server then answers 401.
- */
+/** 每条连接首次需要令牌时获取共享运行时，之后逐次读取服务商令牌以反映刷新；读取失败返回 undefined，由服务端响应 401。 */
 function providerTokenReader(): (provider: string) => Promise<string | undefined> {
   let registry: Promise<ModelRegistry> | undefined;
   return async (provider) => {
     try {
-      registry ??= createModelRuntimeWithExtensions().then((runtime) => new ModelRegistry(runtime));
+      registry ??= getModelRuntimeWithExtensions().then((runtime) => new ModelRegistry(runtime));
       return await (await registry).getApiKeyForProvider(provider);
     } catch {
       return undefined;
@@ -447,9 +440,7 @@ export async function observeTestConnection(
     toolCount: tools.length,
     durationMs,
     ...cwd,
-    ...(state === "connected" && connection.hasResources
-      ? { resources: connection.resources.length, resourceTemplates: connection.resourceTemplates.length }
-      : {}),
+    ...(state === "connected" && connection.hasResources ? { resources: true as const } : {}),
     ...(client?.serverInfo ? { serverInfo: describeServerInfo(client.serverInfo, redact) } : {}),
   };
   if (state === "failed") {

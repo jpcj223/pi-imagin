@@ -19,6 +19,7 @@ import type { SessionEntry } from "@/lib/types";
 import { readSubagentRun, readSubagentSessionResources } from "@/lib/subagents";
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
 import { jsonResponse } from "@/lib/json-response";
+import { attachTranscriptNotices, readSessionTranscriptNotices } from "@/lib/transcript-notices-server";
 
 export async function GET(
   req: Request,
@@ -61,12 +62,19 @@ export async function GET(
     const deferToolResultImages = searchParams.has("deferMedia");
     const rawTail = Number(searchParams.get("tail"));
     const tail = Number.isFinite(rawTail) && rawTail > 0 ? Math.min(rawTail, 1000) : 50;
-    const context = buildSessionContext(entries as never, leafId, {
+    // 按 showCacheMissNotices 为对应消息附加缓存、费用及服务商通知。
+    const transcriptNotices = readSessionTranscriptNotices({
+      entries: entries as unknown as SessionEntry[],
+      cwd: sm.getHeader()?.cwd ?? "",
+      leafId: leafId,
+      models: liveRpc?.inner.modelRuntime,
+    });
+    const context = attachTranscriptNotices(buildSessionContext(entries as never, leafId, {
       deferThinking,
       deferToolResultImages,
       tail,
       sessionId: id, // local: lazy URLs for historical tool-result images
-    });
+    }), transcriptNotices);
     perf?.span("context");
     const totalActiveMs = computeSessionTotalActiveMs(entries);
     // Cumulative usage over ALL entries, including history compacted away —
@@ -80,7 +88,8 @@ export async function GET(
     const latestEntry = entries[entries.length - 1] as { id?: string } | undefined;
     const snapshotRevision = computeSessionRevision({
       filePath,
-      sourceId: liveRpc ? `runtime:${String(liveRpc.inner.sessionId)}` : "disk",
+      // 通知开关只改变展示副本，不改会话文件。
+      sourceId: `${liveRpc ? `runtime:${String(liveRpc.inner.sessionId)}` : "disk"}${transcriptNotices ? "+notices" : ""}`,
       entryCount: entries.length,
       latestEntryId: typeof latestEntry?.id === "string" ? latestEntry.id : null,
       leafId: leafId ?? null,

@@ -1,4 +1,5 @@
 import type { Content, Link, Parent, Root } from "mdast";
+import type { Element as HastElement, Root as HastRoot, RootContent as HastContent } from "hast";
 import { defaultUrlTransform, type Options as ReactMarkdownOptions } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -9,6 +10,23 @@ import remarkCjkFriendly from "remark-cjk-friendly/parseOnly";
 import remarkMath from "remark-math";
 import type { Plugin } from "unified";
 import type { Extension } from "micromark-util-types";
+import { resolveLocalFileHref } from "./file-links";
+import { encodeFilePathForApi } from "./file-paths";
+
+// 盘符路径会被清洗器当作未知协议丢弃；先转为既有受权限校验的文件路由。
+const rehypeWindowsImagePaths: Plugin<[], HastRoot> = () => (tree) => {
+  function visit(node: HastRoot | HastContent) {
+    if (node.type === "element" && node.tagName === "img") {
+      const src = node.properties.src;
+      if (typeof src === "string" && /^[a-z]:[\\/]/i.test(src)) {
+        const filePath = resolveLocalFileHref(src);
+        if (filePath) node.properties.src = `/api/files/${encodeFilePathForApi(filePath)}?type=read`;
+      }
+    }
+    if ("children" in node) node.children.forEach(visit);
+  }
+  visit(tree);
+};
 
 // Link schemes of desktop apps that open a note, a file or a meeting (#1108).
 // A fixed list, not "any scheme but javascript:": the text comes from the model
@@ -626,7 +644,44 @@ export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"]
 
 export const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
+  rehypeWindowsImagePaths,
   [rehypeSanitize, markdownSanitizeSchema],
+  [rehypeKatex, { throwOnError: false, strict: false }],
+];
+
+function hastText(node: HastContent): string {
+  return node.type === "text" ? node.value : node.type === "element" ? node.children.map(hastText).join("") : "";
+}
+
+/** 按 GitHub 规则生成标题锚点数据属性，避免不同文档共用 DOM ID。 */
+function markdownHeadingAnchors() {
+  return (tree: HastRoot) => {
+    const seen = new Map<string, number>();
+    const visit = (node: HastRoot | HastElement) => node.children.forEach((child) => {
+      if (child.type !== "element") return;
+      if (/^h[1-6]$/.test(child.tagName)) {
+        const base = hastText(child).toLowerCase().replace(/[^\p{L}\p{M}\p{N}_\- ]/gu, "").replace(/ /g, "-");
+        // 重复标题按 github-slugger 规则编号，例如 a、a-1、a-1-1。
+        let slug = base;
+        while (seen.has(slug)) {
+          seen.set(base, seen.get(base)! + 1);
+          slug = `${base}-${seen.get(base)}`;
+        }
+        seen.set(slug, 0);
+        child.properties.dataHeadingAnchor = slug;
+      }
+      visit(child);
+    });
+    visit(tree);
+  };
+}
+
+// 文档锚点处理先于 KaTeX，避免公式文本重复影响标题标识。
+export const markdownDocumentRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
+  rehypeRaw,
+  rehypeWindowsImagePaths,
+  [rehypeSanitize, markdownSanitizeSchema],
+  markdownHeadingAnchors,
   [rehypeKatex, { throwOnError: false, strict: false }],
 ];
 

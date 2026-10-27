@@ -16,6 +16,15 @@ export interface SessionFileStats {
   cost: number;
 }
 
+/** 代理列表使用的单会话用量汇总，对应 POST /api/sessions/stats。 */
+export interface SessionUsageSummary {
+  tokens: SessionFileStats["tokens"];
+  cost: number;
+  toolCalls: number;
+  /** 所有条目的估计活跃时间，与统计面板口径一致。 */
+  totalActiveMs: number;
+}
+
 function emptyStats(): SessionFileStats {
   return {
     userMessages: 0,

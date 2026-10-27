@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
@@ -62,4 +62,24 @@ test("无项目模式不能加载 agentDir 的项目技能或读取任意 Markdo
   await writeFile(hidden, "---\nname: hidden\ndescription: Must not load\n---\nPRIVATE");
   const response = await GET(new Request(`http://localhost/api/skills/content?filePath=${encodeURIComponent(hidden)}`));
   assert.equal(response.status, 404);
+});
+
+test("技能引用可打开嵌套文档，拒绝路径跳转、非 Markdown 和越界链接", async () => {
+  const skillDir = join(skillsDir, "preview");
+  await mkdir(join(skillDir, "references"), { recursive: true });
+  await writeFile(join(skillDir, "references", "说明.md"), "# 引用正文");
+  const request = document => GET(new Request("http://localhost/api/skills/content?" + new URLSearchParams({ filePath: skillPath, document })));
+  const response = await request("references/说明.md");
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { content: "# 引用正文" });
+  for (const document of ["../outside.md", "/outside.md", "C:/outside.md", "references\\说明.md"]) {
+    assert.equal((await request(document)).status, 400, document);
+  }
+  assert.equal((await request("missing.md")).status, 404);
+  assert.equal((await request("references/说明.txt")).status, 415);
+  const outside = join(root, "outside-docs");
+  await mkdir(outside);
+  await writeFile(join(outside, "private.md"), "PRIVATE");
+  await symlink(outside, join(skillDir, "escape"), process.platform === "win32" ? "junction" : "dir");
+  assert.equal((await request("escape/private.md")).status, 403);
 });

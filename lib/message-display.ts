@@ -8,6 +8,46 @@ export function getThinkingPreview(thinking: string): string {
   return thinking.trimStart().match(/^[^\r\n]{0,240}/u)?.[0].trimEnd() ?? "";
 }
 
+export const THINKING_PIECE_CHARS = 8_000;
+
+/** 一段思考文本；lineBreak 表示段后存在未包含在文本中的换行。 */
+export interface ThinkingPiece {
+  text: string;
+  lineBreak: boolean;
+}
+
+/** 在超过 THINKING_PIECE_CHARS 后的首个换行处分段；不切掉空行，超长单行到两倍阈值时硬切，末尾短段合并。 */
+export function splitThinkingPieces(thinking: string): ThinkingPiece[] {
+  const pieces: ThinkingPiece[] = [];
+  let start = 0;
+  while (thinking.length - start > THINKING_PIECE_CHARS) {
+    const from = start + THINKING_PIECE_CHARS;
+    const hardCut = from + THINKING_PIECE_CHARS;
+    // 只搜索到硬切点，避免对每段重复扫描整条长行。
+    const window = thinking.slice(from, hardCut + 1);
+    let found = window.indexOf("\n");
+    // 不在空行结尾切分，否则块元素会吞掉末尾换行对应的空行。
+    while (found >= 0 && /\n\r?$/.test(thinking.slice(from + found - 2, from + found))) {
+      found = window.indexOf("\n", found + 1);
+    }
+    if (found >= 0) {
+      const lineBreak = from + found;
+      if (lineBreak === thinking.length - 1) break;
+      pieces.push({ text: thinking.slice(start, lineBreak), lineBreak: true });
+      start = lineBreak + 1;
+    } else if (thinking.length > hardCut) {
+      const last = thinking.charCodeAt(hardCut - 1);
+      const cut = last >= 0xd800 && last <= 0xdbff ? hardCut - 1 : hardCut;
+      pieces.push({ text: thinking.slice(start, cut), lineBreak: false });
+      start = cut;
+    } else {
+      break;
+    }
+  }
+  pieces.push({ text: thinking.slice(start), lineBreak: false });
+  return pieces;
+}
+
 /**
  * pi's TUI renders a custom message only when `display` is set; `display: false`
  * is how an extension keeps a message for the model alone. The chat skips it too.

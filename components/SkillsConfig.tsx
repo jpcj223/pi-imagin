@@ -103,6 +103,21 @@ export function skillInstructionsBody(content: string): string {
   return parseFrontmatter(content).rest.trim();
 }
 
+/** 相对链接从当前文档目录解析；绝对路径或越出技能目录的路径交由服务端拒绝。 */
+export function resolveSkillLink(href: string, fromDocument: string): { document: string; anchor: string } {
+  const hash = href.indexOf("#");
+  const [linkPath, anchor] = [hash < 0 ? href : href.slice(0, hash), hash < 0 ? "" : href.slice(hash + 1)]
+    .map((part) => { try { return decodeURIComponent(part); } catch { return part; } });
+  if (!linkPath) return { document: fromDocument, anchor };
+  if (linkPath.startsWith("/")) return { document: linkPath, anchor };
+  const parts = fromDocument.split("/").slice(0, -1);
+  for (const part of linkPath.split("/")) {
+    if (part === ".." && parts.length && parts[parts.length - 1] !== "..") parts.pop();
+    else if (part && part !== ".") parts.push(part);
+  }
+  return { document: parts.join("/"), anchor };
+}
+
 function SkillDetail({
   skill,
   cwd,
@@ -133,6 +148,30 @@ function SkillDetail({
   const enabled = !skill.disableModelInvocation;
   const [instructions, setInstructions] = useState<string | null>(null);
   const [instructionsError, setInstructionsError] = useState<string | null>(null);
+  // 通过说明链接打开的文档栈，最后一项是当前文档。
+  const rootDocument = skill.filePath.split(/[\\/]/).pop()!;
+  const [documents, setDocuments] = useState<string[]>([]);
+  const documentPath = documents.at(-1) ?? rootDocument;
+  const instructionsRef = useRef<HTMLDivElement>(null);
+  // 文档显示后定位目标标题；空字符串表示顶部。
+  const pendingAnchor = useRef<string | null>(null);
+  const [anchorRequest, setAnchorRequest] = useState(0);
+
+  const openLink = useCallback((href: string) => {
+    const link = resolveSkillLink(href, documentPath);
+    pendingAnchor.current = link.anchor;
+    if (link.document === documentPath) setAnchorRequest((request) => request + 1);
+    else setDocuments((open) => [...open, link.document]);
+  }, [documentPath, setDocuments, setAnchorRequest]);
+
+  useLayoutEffect(() => {
+    const anchor = pendingAnchor.current;
+    const root = instructionsRef.current;
+    if (anchor === null || (instructions === null && !instructionsError) || !root) return;
+    pendingAnchor.current = null;
+    const heading = anchor ? root.querySelector(`[data-heading-anchor="${CSS.escape(anchor)}"]`) : null;
+    (heading ?? root).scrollIntoView({ block: "start" });
+  }, [instructions, instructionsError, anchorRequest]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -141,7 +180,7 @@ function SkillDetail({
 
     const load = async () => {
       try {
-        const data = await loadInstalledSkillContent(cwd, skill.filePath, controller.signal);
+        const data = await loadInstalledSkillContent(cwd, skill.filePath, controller.signal, false, documentPath === rootDocument ? undefined : documentPath);
         if (controller.signal.aborted) return;
         setInstructions(skillInstructionsBody(data.content));
       } catch (error) {
@@ -152,7 +191,7 @@ function SkillDetail({
 
     void load();
     return () => controller.abort();
-  }, [cwd, skill.filePath]);
+  }, [cwd, skill.filePath, documentPath, rootDocument]);
 
   return (
     <ConfigDetailStack>
@@ -271,13 +310,23 @@ function SkillDetail({
         </span>
       </ConfigField>
 
-      <ConfigField label={t("skills.instructions")}>
+      <ConfigField label={t("skills.instructions")} ref={instructionsRef}>
+        {documents.length > 0 && (
+          <ConfigDetailHeader>
+            <ConfigDetailHeaderInfo>
+              <ConfigButton size="small" onClick={() => { pendingAnchor.current = ""; setDocuments((open) => open.slice(0, -1)); }}>
+                {t("skills.documentBack")}
+              </ConfigButton>
+              <span className="config-detail-path" title={documentPath}>{documentPath}</span>
+            </ConfigDetailHeaderInfo>
+          </ConfigDetailHeader>
+        )}
         {instructionsError ? (
           <span role="alert" className="skill-instructions-status is-error">{instructionsError}</span>
         ) : instructions === null ? (
           <span role="status" className="skill-instructions-status">{t("i18n.loading")}</span>
         ) : instructions ? (
-          <MarkdownBody className="skill-instructions" cwd={skill.baseDir}>
+          <MarkdownBody className="skill-instructions" cwd={[skill.baseDir, ...documentPath.split("/").slice(0, -1)].join("/")} onNavigateLink={openLink}>
             {instructions}
           </MarkdownBody>
         ) : (
