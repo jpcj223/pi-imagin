@@ -9,6 +9,7 @@ const { installBackground } = require("./background.cjs");
 const { createStartupView } = require("./startup-view.cjs");
 const { installWorkspaceNavigation, pruneStartupHistory } = require("./workspace-navigation.cjs");
 const { titlebarOptions } = require("./titlebar.cjs");
+const { prepareWritableServer } = require("./writable-server.cjs");
 
 const launchStarted = Date.now();
 
@@ -84,6 +85,7 @@ async function startWorkspace() {
     } else {
       const runtime = pathsFor(app, process.resourcesPath);
       if (!fs.existsSync(runtime.node) || !fs.existsSync(path.join(runtime.server, "server.js"))) throw new Error("运行文件不完整，请重新安装 Pi Imagin。");
+      if (app.isPackaged && process.platform !== "win32") runtime.server = prepareWritableServer(runtime.server, profile);
       const port = await choosePort(app.getPath("userData"));
       if (quitting) return;
       origin = `http://127.0.0.1:${port}`;
@@ -94,8 +96,9 @@ async function startWorkspace() {
       backend = spawn(runtime.node, [runtime.launcher, path.join(runtime.server, "server.js")], {
         cwd: runtime.server,
         windowsHide: true,
+        detached: process.platform !== "win32",
         stdio: ["ignore", "pipe", "pipe", "ipc"],
-        env: { ...process.env, NODE_ENV: "production", PORT: String(port), HOSTNAME: "127.0.0.1", PI_WEB_HOSTNAME: "127.0.0.1", PI_WEB_PASSWORD: password, PI_WEB_NO_OPEN: "1", PI_IMAGIN_DESKTOP: "1", NODE_COMPILE_CACHE: path.join(profile, "node-compile-cache"), PATH: `${nodeDir};${process.env.PATH || ""}` },
+        env: { ...process.env, NODE_ENV: "production", PORT: String(port), HOSTNAME: "127.0.0.1", PI_WEB_HOSTNAME: "127.0.0.1", PI_WEB_PASSWORD: password, PI_WEB_NO_OPEN: "1", PI_IMAGIN_DESKTOP: "1", NODE_COMPILE_CACHE: path.join(profile, "node-compile-cache"), PATH: `${nodeDir}${path.delimiter}${process.env.PATH || ""}` },
       });
       record(`本地服务启动 pid=${backend.pid} origin=${origin}`);
       for (const stream of [backend.stdout, backend.stderr]) stream.on("data", chunk => {

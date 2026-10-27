@@ -35,10 +35,10 @@ test("生产清单只裁剪框架开发资源和非目标终端二进制，保�
   const removed = ["next/dist/build/compiler.js", "@next/swc-win32-x64-msvc/compiler.node", "node-pty/prebuilds/linux-x64/pty.node", "node-pty/prebuilds/win32-arm64/conpty.node", "node-pty/prebuilds/win32-x64/conpty.pdb"];
   const kept = ["next/LICENSE.md", "next/dist/compiled/example/NOTICE", "@next/swc-win32-x64-msvc/LICENSE", "@earendil-works/pi-coding-agent/dist/index.js", "@earendil-works/pi-coding-agent/docs/extensions.md", "@earendil-works/pi-coding-agent/dist/index.d.ts", "npm/bin/npm-cli.js", "@esbuild/win32-x64/esbuild.exe", "node-pty/prebuilds/linux-x64/LICENSE", "node-pty/prebuilds/win32-x64/conpty.node", "node-pty/prebuilds/win32-x64/conpty/conpty.dll", "node-pty/prebuilds/win32-x64/conpty/OpenConsole.exe"];
   for (const name of [...removed, ...kept]) write(`node_modules/${name}`);
-  assert.equal(pruneRuntimeResources(directory, manifest).files, removed.length);
+  assert.equal(pruneRuntimeResources(directory, manifest, "win32-x64").files, removed.length);
   for (const name of removed) assert.equal(fs.existsSync(path.join(directory, "node_modules", name)), false, name);
   for (const name of [...kept, ...Object.keys(manifest.files)]) assert.ok(fs.existsSync(path.join(directory, "node_modules", name)), name);
-  assert.deepEqual(pruneRuntimeResources(directory, manifest), { files: 0, bytes: 0 });
+  assert.deepEqual(pruneRuntimeResources(directory, manifest, "win32-x64"), { files: 0, bytes: 0 });
 });
 
 test("构建标识、校验值或清单路径错误时停止，不先删除资源", t => {

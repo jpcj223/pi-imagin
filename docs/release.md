@@ -1,6 +1,28 @@
 # Pi Imagin 发布说明
 
-源码仓库为 [pi-imagin](https://github.com/jpcj223/pi-imagin)，包名为 `pi-imagin`。`package.json` 设置了 `private: true`，目前未发布到 npm；Windows 安装包由本地构建流程生成。自动更新保持关闭。
+源码仓库为 [pi-imagin](https://github.com/jpcj223/pi-imagin)，包名为 `pi-imagin`。`package.json` 设置了 `private: true`，目前未发布到 npm。桌面构建按宿主系统生成对应安装包，自动更新保持关闭。
+
+## 桌面安装包
+
+在目标平台和架构的机器上执行：
+
+```bash
+npm ci
+npm ci --prefix desktop
+npm run desktop:pack
+```
+
+产物在 `dist-desktop/`：Windows x64 为 NSIS 安装器，macOS 分 Apple Silicon（arm64）及 Intel（x64）的 DMG、ZIP，Linux 为 AppImage、DEB。脚本不混用不同平台的原生依赖，随包准备对应平台的 Node 22 运行时并校验官方 SHA256。Linux 初次构建建议 Ubuntu 22.04 或兼容环境；macOS 使用 Xcode 命令行工具。开发与发布构建目录规则仍适用。
+
+`.github/workflows/desktop-packages.yml` 使用三台原生构建机生成 macOS 两种架构及 Linux x64 产物。桌面代码推送触发或手动执行；仅上传 Actions 构建产物，不创建 Release。每个平台运行桌面回归及生产包启动、文件操作、终端、退出和再次启动检查，跳过所有付费模型请求。macOS 手动命令例子：
+
+```bash
+node desktop/smoke.cjs "dist-desktop/mac-arm64/Pi Imagin.app/Contents/MacOS/Pi Imagin" --skip-model
+```
+
+Linux 在有桌面会话时执行 `node desktop/smoke.cjs dist-desktop/linux-unpacked/pi-imagin --skip-model`；无显示器构建机使用 `xvfb-run -a`。可写的 Next 运行副本位于应用用户目录 `server-runtime/`，安装目录和签名包不被修改；依赖与静态资源保持只读复用。
+
+未配置 Apple Developer ID 及公证凭据时，macOS 产物属于未公证测试包，不视作可无提示公开分发的正式签名版。正式发布应按 electron-builder 的签名与公证配置提供仓库密钥，不把证书、密码提交到源码。Linux 首轮自动构建仅覆盖 x64；arm64 构建入口已兼容，但没有对应产物和验证时不标记为已支持发布。
 
 ## 本地开发与验证
 

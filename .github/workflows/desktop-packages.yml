@@ -1,0 +1,82 @@
+name: Desktop packages
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/desktop-packages.yml'
+      - 'desktop/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: darwin
+            arch: arm64
+            executable: 'dist-desktop/mac-arm64/Pi Imagin.app/Contents/MacOS/Pi Imagin'
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
+            executable: 'dist-desktop/mac/Pi Imagin.app/Contents/MacOS/Pi Imagin'
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x64
+            executable: 'dist-desktop/linux-unpacked/pi-imagin'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+      - name: Check native build target
+        run: node -e "if(process.platform!=='${{ matrix.platform }}'||process.arch!=='${{ matrix.arch }}')process.exit(1)"
+      - run: npm ci
+      - run: npm ci --prefix desktop
+      - name: Desktop regression tests
+        run: npm run test:desktop
+      - name: Prepare and package
+        run: npm run desktop:pack
+      - name: Smoke test macOS payload without model requests
+        if: runner.os == 'macOS'
+        run: node desktop/smoke.cjs "${{ matrix.executable }}" --skip-model
+      - name: Smoke test Linux payload without model requests
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node desktop/smoke.cjs "${{ matrix.executable }}" --skip-model
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi-imagin-${{ matrix.platform }}-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist-desktop/*.dmg
+            dist-desktop/*.zip
+            dist-desktop/*.AppImage
+            dist-desktop/*.deb
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-failure-${{ matrix.platform }}-${{ matrix.arch }}
+          retention-days: 7
+          path: |
+            test-results/desktop-smoke-*/desktop.log
+            dist-desktop/builder-debug.yml

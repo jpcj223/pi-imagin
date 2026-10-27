@@ -10,7 +10,12 @@ const rotation = require(rotationModule).rotatePreviewSecrets(path.join(path.dir
 if (!rotation.ok) throw new Error("应用运行文件无法准备，请安装到当前用户可写的目录后重试。");
 // 主进程意外退出时，IPC 断开也回收本服务及其后代，不留下隐藏服务。
 process.on("disconnect", () => {
-  execFile("taskkill.exe", ["/PID", String(process.pid), "/T", "/F"], { windowsHide: true }, () => process.exit(0));
+  if (process.platform === "win32") {
+    execFile("taskkill.exe", ["/PID", String(process.pid), "/T", "/F"], { windowsHide: true }, () => process.exit(0));
+  } else {
+    // 服务以独立进程组启动，只回收自身组，不触及桌面或其他应用。
+    try { process.kill(-process.pid, "SIGKILL"); } catch { process.exit(0); }
+  }
 });
 // Node 编译缓存放在桌面配置目录；明确刷盘，避免强制回收服务时丢失本次缓存。
 process.on("message", message => {

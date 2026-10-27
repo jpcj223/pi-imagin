@@ -2,6 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { buildTarget, packageResources } = require("./platform.cjs");
 
 const manifestName = ".desktop-framework-manifest.json";
 const frameworkRoots = ["next", "@next"];
@@ -61,7 +62,7 @@ function validateFrameworkManifest(server, manifest) {
   }
 }
 
-function pruneRuntimeResources(server, manifest) {
+function pruneRuntimeResources(server, manifest, nativeTarget = `${process.platform}-${process.arch}`) {
   validateFrameworkManifest(server, manifest);
   const modules = path.join(server, "node_modules");
   assertResourceWithin(server, modules);
@@ -78,8 +79,8 @@ function pruneRuntimeResources(server, manifest) {
   assertResourceWithin(modules, prebuilds);
   for (const file of filesWithin(prebuilds)) {
     const relative = path.relative(prebuilds, file).split(path.sep);
-    // 此安装目标为 win32-x64；PDB 只用于原生调试，保留 x64 的 NODE、DLL 与 EXE。
-    if (!isLicense(file) && (relative[0] !== "win32-x64" || file.toLowerCase().endsWith(".pdb"))) remove.push(file);
+    // 保留本次目标的原生模块与辅助程序，PDB 只用于 Windows 原生调试。
+    if (!isLicense(file) && (relative[0] !== nativeTarget || file.toLowerCase().endsWith(".pdb"))) remove.push(file);
   }
   const result = { files: 0, bytes: 0 };
   for (const file of remove) {
@@ -130,13 +131,14 @@ function pruneSourceMaps(directory) {
   return result;
 }
 
-function optimizePackage(appOutDir) {
+function optimizePackage(appOutDir, platform = process.platform, arch = process.arch, productName = "Pi Imagin") {
   const output = path.resolve(appOutDir);
   const repo = path.resolve(__dirname, "..");
   const relative = path.relative(repo, output);
   if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error("只允许整理仓库内的桌面构建产物");
-  const resources = path.join(output, "resources");
-  for (const file of ["app.asar", "server/server.js", "node/node.exe"]) {
+  const target = buildTarget(platform, arch);
+  const resources = packageResources(output, platform, productName);
+  for (const file of ["app.asar", "server/server.js", path.join("node", target.nodeRelative)]) {
     if (!fs.existsSync(path.join(resources, file))) throw new Error(`桌面构建资源不完整：${file}`);
   }
   const actualOutput = path.relative(fs.realpathSync(repo), fs.realpathSync(resources));
@@ -145,11 +147,12 @@ function optimizePackage(appOutDir) {
   assertResourceWithin(resources, server);
   assertResourceWithin(resources, path.join(resources, "node/node_modules"));
   const manifest = JSON.parse(fs.readFileSync(path.join(server, manifestName), "utf8"));
-  const result = pruneRuntimeResources(server, manifest);
-  const locales = pruneElectronLocales(output);
+  const result = pruneRuntimeResources(server, manifest, target.nativeTarget);
+  // macOS 的语言资源在 Framework 的 lproj 中，由 electronLanguages 处理。
+  const locales = platform === "darwin" ? { files: 0, bytes: 0 } : pruneElectronLocales(output);
   result.files += locales.files;
   result.bytes += locales.bytes;
-  for (const relative of ["server/node_modules", "node/node_modules"]) {
+  for (const relative of ["server/node_modules", platform === "win32" ? "node/node_modules" : "node/lib/node_modules"]) {
     const pruned = pruneSourceMaps(path.join(resources, relative));
     result.files += pruned.files;
     result.bytes += pruned.bytes;
@@ -159,7 +162,7 @@ function optimizePackage(appOutDir) {
 }
 
 // 正常打包通过 afterPack 调用；已有生产资源可直接整理后重新生成安装器。
-module.exports = context => optimizePackage(context.appOutDir);
+module.exports = context => optimizePackage(context.appOutDir, context.electronPlatformName, ({ 1: "x64", 3: "arm64" })[context.arch], context.packager.appInfo.productFilename);
 module.exports.optimizePackage = optimizePackage;
 module.exports.pruneSourceMaps = pruneSourceMaps;
 module.exports.createFrameworkManifest = createFrameworkManifest;

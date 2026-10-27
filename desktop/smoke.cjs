@@ -14,7 +14,7 @@ const cwd = path.join(profile, "workspace");
 fs.mkdirSync(cwd);
 const executable = path.resolve(process.argv[2] || path.join(root, "dist-desktop/win-unpacked/Pi Imagin.exe"));
 const password = crypto.randomBytes(32).toString("hex");
-const env = { ...process.env, PI_IMAGIN_DESKTOP_SMOKE: "1", PI_IMAGIN_DESKTOP_TEST_DIR: profile, PI_IMAGIN_DESKTOP_TEST_PASSWORD: password };
+const env = { ...process.env, PI_IMAGIN_DESKTOP_SMOKE: "1", PI_IMAGIN_DESKTOP_TEST_DIR: profile, PI_IMAGIN_DESKTOP_TEST_PASSWORD: password, PI_CODING_AGENT_DIR: path.join(profile, "agent") };
 delete env.ELECTRON_RUN_AS_NODE;
 const headers = { Authorization: `Basic ${Buffer.from(`pi:${password}`).toString("base64")}` };
 let child;
@@ -61,14 +61,15 @@ async function request(endpoint, body, method) {
 
 async function verifyTerminal() {
   const id = crypto.randomBytes(16).toString("hex");
-  await request("/api/terminal", { id, cwd, cols: 80, rows: 24 });
+  await request("/api/terminal", { id, cwd, cols: 80, rows: 24, shell: process.platform === "win32" ? "cmd.exe" : "/bin/sh" });
   const controller = new AbortController();
   const stream = await fetch(`${ready.origin}/api/terminal/${id}/events`, { headers, signal: controller.signal });
   assert.equal(stream.status, 200);
   const reader = stream.body.getReader();
   const decoder = new TextDecoder();
   let pending = "", output = "";
-  await request(`/api/terminal/${id}`, { type: "input", data: "echo DESKTOP_TERMINAL_%RANDOM%\r" });
+  const command = process.platform === "win32" ? "echo DESKTOP_TERMINAL_%RANDOM%\r" : `printf 'DESKTOP_%s\\n' 'TERMINAL_${crypto.randomInt(100000, 999999)}'\r`;
+  await request(`/api/terminal/${id}`, { type: "input", data: command });
   try {
     await bounded((async () => {
       while (!/DESKTOP_TERMINAL_\d+/.test(output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, ""))) {

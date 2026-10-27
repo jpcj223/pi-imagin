@@ -4,6 +4,7 @@ const path = require("node:path");
 const net = require("node:net");
 const http = require("node:http");
 const { execFile } = require("node:child_process");
+const { buildTarget } = require("./platform.cjs");
 
 function isOwnedUrl(url, origin) {
   try { return new URL(url).origin === origin; } catch { return false; }
@@ -13,12 +14,14 @@ function isExternalUrl(url) {
   try { return ["https:", "http:", "mailto:"].includes(new URL(url).protocol); } catch { return false; }
 }
 
-function pathsFor(app, resourcesPath) {
+function pathsFor(app, resourcesPath, platform = process.platform, arch = process.arch) {
   const base = app.isPackaged ? resourcesPath : path.resolve(__dirname, "../build");
+  const target = buildTarget(platform, arch);
+  const icon = platform === "win32" ? "icon.ico" : "icon.png";
   return {
     server: path.join(base, app.isPackaged ? "server" : "desktop-server"),
-    node: path.join(base, app.isPackaged ? "node" : "desktop-node", "node.exe"),
-    icon: app.isPackaged ? path.join(base, "icons", "icon.ico") : path.resolve(__dirname, "../public/icons/icon-cosmic-ocean.ico"),
+    node: path.join(base, app.isPackaged ? "node" : "desktop-node", target.nodeRelative),
+    icon: app.isPackaged ? path.join(base, "icons", icon) : path.resolve(__dirname, "../public/icons", platform === "win32" ? "icon-cosmic-ocean.ico" : "icon-cosmic-ocean-512.png"),
     launcher: app.isPackaged ? path.join(resourcesPath, "server-launcher.cjs") : path.join(__dirname, "server.cjs"),
   };
 }
@@ -120,6 +123,12 @@ function loadWorkspacePage(window, origin, timeout = 30000, waitForInterface = f
 
 function killTree(pid) {
   if (!pid) return Promise.resolve();
+  if (process.platform !== "win32") {
+    try { process.kill(-pid, "SIGKILL"); } catch (error) {
+      if (error.code !== "ESRCH") throw error;
+    }
+    return Promise.resolve();
+  }
   return new Promise(resolve => {
     execFile("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, timeout: 10000 }, () => resolve());
   });

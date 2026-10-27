@@ -19,7 +19,7 @@ test("内置服务意外退出时不无限等待", async () => {
 });
 
 test("打包后的 Node 与服务放在资源目录，启动器位于归档外", () => {
-  const files = pathsFor({ isPackaged: true }, "C:/app/resources");
+  const files = pathsFor({ isPackaged: true }, "C:/app/resources", "win32", "x64");
   assert.match(files.node.replace(/\\/g, "/"), /resources\/node\/node.exe$/);
   assert.match(files.launcher.replace(/\\/g, "/"), /resources\/server-launcher.cjs$/);
 });

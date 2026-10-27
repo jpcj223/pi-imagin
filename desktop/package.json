@@ -3,13 +3,14 @@
   "productName": "Pi Imagin",
   "version": "0.1.0",
   "description": "Pi Imagin 本地智能体桌面工作区",
+  "homepage": "https://github.com/jpcj223/pi-imagin",
   "author": "Pi Imagin",
   "license": "MIT",
   "private": true,
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "pack": "electron-builder --win nsis --x64 --publish never"
+    "pack": "node prepare.cjs"
   },
   "devDependencies": {
     "electron": "44.7.2",
@@ -32,6 +33,8 @@
       "startup-view.cjs",
       "workspace-navigation.cjs",
       "runtime.cjs",
+      "platform.cjs",
+      "writable-server.cjs",
       "background.cjs",
       "package.json"
     ],
@@ -65,6 +68,20 @@
       "target": "nsis",
       "icon": "../build/desktop-icons/icon.ico",
       "signAndEditExecutable": true
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "icon": "../build/desktop-icons/icon.png",
+      "category": "public.app-category.developer-tools",
+      "artifactName": "Pi-Imagin-${version}-mac-${arch}.${ext}"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "../build/desktop-icons/icon.png",
+      "category": "Development",
+      "maintainer": "Pi Imagin",
+      "artifactName": "Pi-Imagin-${version}-linux-${arch}.${ext}",
+      "executableName": "pi-imagin"
     },
     "nsis": {
       "useZip": true,
