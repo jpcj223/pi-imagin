@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const os = require("node:os");
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
+const { buildTarget } = require("./platform.cjs");
 
 const root = path.resolve(__dirname, "..");
 const artifactRoot = path.join(root, "test-results");
@@ -120,8 +121,8 @@ async function verifyModel() {
 
 async function run() {
   assert.ok(fs.existsSync(executable), "桌面可执行文件应已生成");
-  const resources = path.join(path.dirname(executable), "resources");
-  for (const required of ["server/node_modules/next/package.json", "server/node_modules/node-pty/package.json", "server/node_modules/@earendil-works/pi-coding-agent/package.json", "node/node_modules/npm/bin/npm-cli.js"]) assert.ok(fs.existsSync(path.join(resources, required)), `安装资源缺失：${required}`);
+  const resources = process.platform === "darwin" ? path.resolve(path.dirname(executable), "../Resources") : path.join(path.dirname(executable), "resources");
+  for (const required of ["server/node_modules/next/package.json", "server/node_modules/node-pty/package.json", "server/node_modules/@earendil-works/pi-coding-agent/package.json", path.join("node", buildTarget().npmRelative)]) assert.ok(fs.existsSync(path.join(resources, required)), `安装资源缺失：${required}`);
   const initial = launch(); child = initial.processHandle; exit = initial.completion;
   ready = await waitReady();
   assert.equal(ready.packaged, true);

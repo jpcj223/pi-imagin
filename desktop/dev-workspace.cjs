@@ -28,14 +28,15 @@ function synchronizeApplication(source, target) {
 function watchApplication(root, directory, onError) {
   const pending = new Map();
   const source = path.join(root, "app"), target = path.join(directory, "app");
-  const watcher = fs.watch(source, { recursive: true }, (_event, filename) => {
+  const watcher = fs.watch(source, { recursive: true }, (event, filename) => {
     const relative = String(filename || "");
     // 文件系统通知也先验证边界；只更新本启动器生成的页面镜像。
     if (path.isAbsolute(relative) || relative.split(/[\\/]/).includes("..")) return;
     clearTimeout(pending.get(relative));
     pending.set(relative, setTimeout(() => {
       pending.delete(relative);
-      try { synchronizeApplication(path.join(source, relative), path.join(target, relative)); }
+      // Linux 原子替换后可能仍上报旧 inode 的临时文件名；结构变更核对完整镜像。
+      try { if (event === "rename") synchronizeApplication(source, target); else synchronizeApplication(path.join(source, relative), path.join(target, relative)); }
       catch (error) { onError(error); }
     }, 25));
   });
