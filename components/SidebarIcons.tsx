@@ -240,6 +240,11 @@ export function MessageIcon(props: SidebarIconProps) {
   return <SidebarIcon {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></SidebarIcon>;
 }
 
+/** 回复分节标记：沿用应用的线性图标，不猜测标题含义。 */
+export function SectionIcon(props: SidebarIconProps) {
+  return <SidebarIcon {...props}><rect x="4" y="4" width="6" height="6" rx="1" /><path d="M14 5h6M14 9h6M4 15h16M4 20h11" /></SidebarIcon>;
+}
+
 /**
  * The running-agent spinner. It turns through the `sidebar-spin` class
  * (app/sidebar-menu.css), which stands still under prefers-reduced-motion.

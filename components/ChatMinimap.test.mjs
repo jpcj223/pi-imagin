@@ -22,6 +22,17 @@ const jiti = createJiti(import.meta.url, {
 });
 const { AssistantOutline, countToolCalls } = await jiti.import("./ChatMinimap.tsx");
 
+test("outline decoration preserves heading text and navigation indices", () => {
+  const html = renderToStaticMarkup(React.createElement(AssistantOutline, {
+    markdown: '# 总览\n\n## 方案\n\n### 细节\n\n## 📚 原有图标',
+    onHeadingClick() {},
+  }));
+  assert.equal((html.match(/class="assistant-heading-icon"/g) ?? []).length, 1);
+  assert.deepEqual([...html.matchAll(/data-preview-heading-index="(\d+)"/g)].map(m=>m[1]), ['0','1','2','3']);
+  assert.match(html, /📚 原有图标/);
+  assert.doesNotMatch(html, /disabled=""/);
+});
+
 test("renders math in headings without disabling heading navigation", () => {
   const html = renderToStaticMarkup(
     React.createElement(AssistantOutline, {

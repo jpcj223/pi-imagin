@@ -12,6 +12,7 @@ import { loadMinimapPreviewLocked, saveMinimapPreviewLocked } from "@/lib/minima
 import type { AgentMessage, AssistantMessage, CustomMessage, TextContent, UserMessage } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 import styles from "./ChatMinimap.module.css";
+import { AssistantHeading } from "./AssistantHeading";
 
 interface Props {
   /** 固定在工作区右侧时，直接显示可点击的会话目录。 */
@@ -107,7 +108,7 @@ function PreviewHeading({
         if (headingIndex !== null) onClick?.(headingIndex);
       }}
     >
-      {children}
+      {level === 2 ? <AssistantHeading>{children}</AssistantHeading> : children}
     </button>
   );
 }
@@ -642,7 +643,7 @@ export const ChatMinimap = memo(function ChatMinimap({
         <div key={node.index} className={styles.turn} data-located={activeIndex === node.index ? "true" : undefined}>
           <span className={styles.number}>{String(turnsBefore + node.index + 1).padStart(2, "0")}</span>
           <div className={styles.content}>
-            <div className="workspace-outline-user"><button className={styles.user} onClick={() => scrollToNode(node, "smooth")}><span className={styles.userText}>{getUserPreview(node.targetTurn.userMessage)}</span></button>
+            <div className="workspace-outline-user"><button className={styles.user} title={getUserPreview(node.targetTurn.userMessage)} onClick={() => scrollToNode(node, "smooth")}><span className={styles.userText}>{getUserPreview(node.targetTurn.userMessage)}</span></button>
             {onCreateBranch && node.targetTurn.userMessage.role === "user" && <button type="button" className="workspace-outline-branch" title={t("workspace.createBranch")} aria-label={t("workspace.createBranchFromTurn", { count: turnsBefore + node.index + 1 })} onClick={() => onCreateBranch(node.targetTurn.userMessage as UserMessage)}>⑂</button>}</div>
             {node.targetTurn.assistantPreviews.map((assistant, index) => (
               <div key={index} className={styles.assistant}>

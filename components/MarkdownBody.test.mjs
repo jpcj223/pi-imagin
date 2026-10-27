@@ -29,6 +29,33 @@ function renderMarkdown(markdown, props = {}) {
   );
 }
 
+test("only assistant H2 headings get decoration and existing emoji stays single", () => {
+  const md = '# 大标题\n\n## **方案** `配置`\n\n### 细节\n\n**普通加粗**\n\n- 列表\n\n## 📚 原有图标\n\n## 🇨🇳 标记\n\n## 1️⃣ 步骤';
+  assert.doesNotMatch(renderMarkdown(md), /assistant-heading-icon|markdown-assistant-reply/);
+  for (const isStreaming of [false, true]) {
+    const html = renderMarkdown(md, { decorateHeadings: true, isStreaming });
+    assert.equal((html.match(/class="assistant-heading-icon"/g) ?? []).length, 1);
+    assert.match(html, /<h2><svg[^>]*aria-hidden="true"[^>]*>/);
+    assert.match(html, /<h3>细节<\/h3>/);
+    assert.match(html, /<h2>📚 原有图标<\/h2>/);
+    assert.match(html, /<strong>普通加粗<\/strong>/);
+    assert.doesNotMatch(html, /\snode=/);
+  }
+  for (const prefix of ['\ud83d', '📚', '📚 原有']) {
+    assert.doesNotMatch(renderMarkdown('## '+prefix, { decorateHeadings: true, isStreaming: true }), /assistant-heading-icon/);
+  }
+});
+
+test("standalone emphasis gets spacing without promoting inline emphasis or document text", () => {
+  const md = '**核对结果**\n\n**路径：** 正文说明\n\n- **列表内容**';
+  const html = renderMarkdown(md, { decorateHeadings: true });
+  assert.equal((html.match(/class="markdown-section-label"/g) ?? []).length, 1);
+  assert.match(html, /<p class="markdown-section-label"><strong>核对结果<\/strong><\/p>/);
+  assert.match(html, /<p><strong>路径：<\/strong> 正文说明<\/p>/);
+  assert.doesNotMatch(html, /<h[1-6]|assistant-heading-icon/);
+  assert.doesNotMatch(renderMarkdown(md), /markdown-section-label/);
+});
+
 test("a document reader keeps local links in the page without an href", () => {
   const local = renderMarkdown("[relative](references/setup.md#config) [anchor](#config) [outside](../outside.md) [absolute](/etc/test.md) [attachment](image.png)", { onOpenFile: undefined, onNavigateLink() {} });
   assert.equal((local.match(/<a role="link" tabindex="0">/g) ?? []).length, 5);

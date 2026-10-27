@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, memo, useContext, useMemo, type ComponentProps, type MouseEvent } from "react";
+import { Children, createContext, isValidElement, memo, useContext, useMemo, type ComponentProps, type MouseEvent } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
@@ -9,6 +9,7 @@ import { isExternalMarkdownHref, markdownAppUrlTransform, markdownDocumentRehype
 import { splitMarkdownBlocks } from "@/lib/markdown-blocks";
 import { ImagePreview } from "./ImagePreview";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
+import { AssistantHeading } from "./AssistantHeading";
 
 const MarkdownLinkContext = createContext(false);
 
@@ -22,6 +23,8 @@ interface MarkdownBodyProps {
   onNavigateLink?: (href: string) => void;
   /** Render every line ending as a line break, for text the user typed. */
   keepLineBreaks?: boolean;
+  /** 仅助手聊天正文启用，不影响技能文档、用户消息或文件预览。 */
+  decorateHeadings?: boolean;
 }
 
 function MarkdownImage({
@@ -79,7 +82,7 @@ const MarkdownBlock = memo(function MarkdownBlock({ markdown, remarkPlugins, url
   );
 });
 
-export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, onNavigateLink, keepLineBreaks }: MarkdownBodyProps) {
+export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, onNavigateLink, keepLineBreaks, decorateHeadings }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
   // A streaming reply grows by a few characters per chunk; parsing all of it
   // each time made a long reply quadratic. Its finished blocks keep their
@@ -90,6 +93,16 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
   );
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
+    p({ children, ...props }) {
+      delete props.node;
+      const parts = Children.toArray(children).filter((child) => typeof child !== "string" || child.trim());
+      const standaloneLabel = decorateHeadings && parts.length === 1 && isValidElement(parts[0]) && parts[0].type === "strong";
+      return <p {...props} className={standaloneLabel ? "markdown-section-label" : undefined}>{children}</p>;
+    },
+    h2({ children, ...props }) {
+      delete props.node;
+      return <h2 {...props}>{decorateHeadings ? <AssistantHeading>{children}</AssistantHeading> : children}</h2>;
+    },
     code({ className, children, ...props }) {
       delete props.node;
       const lang = className?.replace("language-", "").toLowerCase() ?? "";
@@ -178,10 +191,10 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
         </div>
       );
     },
-  }), [cwd, isStreaming, onOpenFile, onNavigateLink]);
+  }), [cwd, isStreaming, onOpenFile, onNavigateLink, decorateHeadings]);
 
   return (
-    <div className={["markdown-body", className].filter(Boolean).join(" ")}>
+    <div className={["markdown-body", decorateHeadings && "markdown-assistant-reply", className].filter(Boolean).join(" ")}>
       {blocks.map((block, index) => (
         <MarkdownBlock
           key={index}

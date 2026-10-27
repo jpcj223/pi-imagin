@@ -60,9 +60,9 @@ html[data-desktop] .project-editor-backdrop,html[data-desktop] .resource-remove-
 .workspace-shell .chat-input-controls>div {margin-left:0!important;justify-content:flex-start!important;}
 .workspace-shell .chat-input-controls button {font-size:11px!important;height:25px!important;padding-top:3px!important;padding-bottom:3px!important;}
 .workspace-send svg {width:17px;height:17px;}
-.workspace-answer-brand {margin-bottom:12px!important;gap:6px!important;font-size:12px!important;color:var(--text)!important;}
+.workspace-answer-brand {margin-bottom:8px!important;gap:6px!important;font-size:12px!important;color:var(--text)!important;}
 .workspace-answer-brand strong {font-weight:500;font-size:12px;}
-.workspace-answer-model {margin-left:auto;color:var(--text-dim);font-size:11px;}
+.workspace-answer-model {margin-left:auto;color:var(--text-muted);font-size:12px;}
 .workspace-aux-tabs {display:flex;align-items:center;gap:12px;min-height:46px;padding:10px 13px;border-bottom:1px solid var(--border);flex:none;}
 .workspace-aux-tabs button {background:none;border:0;padding:4px 0;color:var(--text-muted);font-size:11px;cursor:pointer;}
 .workspace-aux-tabs button[aria-pressed="true"] {color:var(--accent);}
@@ -116,6 +116,9 @@ html[data-desktop] .project-editor-backdrop,html[data-desktop] .resource-remove-
 .workspace-settings-body .settings-section-tab {flex:0 0 auto;width:100%;}
 .workspace-settings-body .settings-section-tab::after {display:none;}
 .workspace-chat-padding {padding:0 var(--workspace-space)!important;}
+/* 左右面板同时打开时也保留阅读留白，不依赖用户的内容宽度设置。 */
+@media(min-width:881px){.workspace-shell :is(.chat-content,.workspace-conversation-heading){--workspace-space:32px;}}
+@media(min-width:1100px){.workspace-shell :is(.chat-content,.workspace-conversation-heading){--workspace-space:48px;}}
 @media(max-width:640px){.workspace-settings-body>.settings-section-tabs{height:auto;overflow:visible;}.workspace-settings-body .settings-section-tab{width:auto;}.settings-workspace-page .settings-mobile-section-picker{display:none;}}
 .workspace-status>button {display:inline-flex;align-items:center;gap:5px;}
 .workspace-shell .terminal-xterm .xterm-viewport {background-color:var(--terminal-bg)!important;}

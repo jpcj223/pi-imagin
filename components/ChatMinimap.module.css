@@ -107,7 +107,7 @@
   display: block;
   width: calc(100% + 34px);
   min-height: 32px;
-  max-height: 86px;
+  max-height: 54px;
   margin: 0 0 0 -34px;
   padding: 7px 10px 7px 40px;
   border: 0;
@@ -115,8 +115,8 @@
   background: transparent;
   color: var(--text);
   font-family: inherit;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   letter-spacing: 0;
   line-height: 18px;
   text-align: left;
@@ -131,8 +131,8 @@
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .user:hover {
@@ -243,6 +243,13 @@
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 400;
+}
+
+.heading :global(.assistant-heading-icon) {
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 0.45em;
+  color: var(--text-muted);
 }
 
 .paragraph {
