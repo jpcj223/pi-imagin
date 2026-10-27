@@ -3,6 +3,7 @@
 import { memo, useState, useRef, useEffect, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import { MarkdownBody } from "./MarkdownBody";
+import { getCompactionInfoKey } from "@/lib/compaction-feedback";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
 import { copyText } from "@/lib/clipboard";
@@ -679,6 +680,7 @@ function AssistantMessageView({
   compactError?: string | null;
 }) {
   const { t } = useI18n();
+  const compactInfoKey = getCompactionInfoKey(compactError);
   const time = showTimestamp ? formatTime(message.timestamp) : null;
   const blockItems = useMemo(() => (message.content ?? [])
     .map((block, originalIndex) => ({ block, originalIndex }))
@@ -932,7 +934,7 @@ function AssistantMessageView({
             </button>
           )}
           {unansweredTruncation && compactError && (
-            <div style={{ marginTop: 8, color: "#ef4444", whiteSpace: "pre-wrap" }}>{compactError}</div>
+            <div style={{ marginTop: 8, color: compactInfoKey ? "var(--text-muted)" : "#ef4444", whiteSpace: "pre-wrap" }}>{compactInfoKey ? t(compactInfoKey) : compactError}</div>
           )}
         </div>
       )}

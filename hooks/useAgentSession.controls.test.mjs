@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
+import { getCompactionInfoKey } from '../lib/compaction-feedback.ts';
 
 // 提取实际回调，受控网络用于检查点击后的状态与失败路径，不调用付费模型。
 const source=readFileSync(new URL('./useAgentSession.ts',import.meta.url),'utf8');
@@ -23,6 +24,68 @@ function setup(sendAgentCommand,isNew=false){
     setStopStatus:value=>{state.stop=value;},addNotice:value=>state.notices.push(value)};
   return {state,environment};
 }
+
+test('压缩按钮和斜杠命令将明确的无操作结果作为提示，真实失败仍保留错误', async () => {
+  for (const error of ['Nothing to compact (session too small)', 'Already compacted', 'Network error']) {
+    const state = { busy: false, error: null, result: null, notices: [] };
+    const environment = {
+      sessionIdRef: { current: 's' }, isCompacting: false, getCompactionInfoKey,
+      sendAgentCommand: async () => { throw new Error(error); },
+      setIsCompacting: value => { state.busy = value; },
+      setCompactError: value => { state.error = typeof value === 'function' ? value(state.error) : value; },
+      setCompactResult: value => { state.result = value; },
+      addNotice: value => state.notices.push(value),
+    };
+    const result = await callback('handleBuiltinSlashCommand', environment)('/compact');
+    assert.equal(state.busy, false);
+    if (getCompactionInfoKey(error)) {
+      assert.deepEqual(result, { handled: true });
+      assert.equal(state.error, error);
+      assert.deepEqual(state.notices, []);
+    } else {
+      assert.equal(result.error, error);
+      assert.equal(state.notices[0].type, 'error');
+    }
+    await callback('handleCompact', environment)();
+    assert.equal(state.error, error);
+    assert.equal(state.busy, false);
+  }
+});
+
+test('重复压缩的请求及实时事件不卸载已有中性提示，成功或取消后才清除', async () => {
+  const info = 'Nothing to compact (session too small)';
+  for (const entry of ['handleCompact', 'handleBuiltinSlashCommand']) {
+    let error = info, busy = false, reject;
+    const history = [];
+    const environment = {
+      sessionIdRef: { current: 's' }, isCompacting: false, getCompactionInfoKey,
+      sendAgentCommand: () => new Promise((_resolve, fail) => { reject = fail; }),
+      setIsCompacting: value => { busy = value; },
+      setCompactError: value => { error = typeof value === 'function' ? value(error) : value; history.push(error); },
+      setCompactResult() {}, addNotice() {}, readCompactResult: () => ({ tokensBefore: 100 }), loadSession() {},
+    };
+    const handle = callback(entry, environment);
+    const event = callback('handleAgentEvent', environment);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const pending = handle('/compact');
+      assert.equal(busy, true);
+      assert.equal(error, info);
+      event({ type: 'compaction_start' });
+      assert.equal(error, info);
+      event({ type: 'compaction_end', errorMessage: `Compaction failed: ${info}` });
+      reject(new Error(info));
+      await pending;
+      assert.equal(busy, false);
+      assert.equal(error, info);
+    }
+    assert.ok(history.every(value => getCompactionInfoKey(value)), '过程中没有清空提示');
+    event({ type: 'compaction_end', aborted: true });
+    assert.equal(error, null);
+    error = info;
+    event({ type: 'compaction_end', result: {} });
+    assert.equal(error, null);
+  }
+});
 test('已有运行会话选择 auto 发出更新，反馈实际强度并避免并发覆盖',async()=>{
   const calls=[];let release;const {state,environment}=setup((_sid,body)=>{calls.push(body);return new Promise(done=>{release=done;});});
   const change=callback('handleThinkingLevelChange',environment);const pending=change('auto');

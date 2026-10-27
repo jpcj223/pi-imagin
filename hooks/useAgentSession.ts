@@ -16,6 +16,7 @@ import type {
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
+import { getCompactionInfoKey } from "@/lib/compaction-feedback";
 import {
   deleteSessionViewSnapshot,
   getSessionViewSnapshot,
@@ -1724,7 +1725,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "auto_compaction_start":
       case "compaction_start":
         setIsCompacting(true);
-        setCompactError(null);
+        // 重复压缩时保留中性提示的占位，避免提示条和消息滚动区先收起再展开。
+        setCompactError(previous => getCompactionInfoKey(previous) ? previous : null);
         setCompactResult(null);
         break;
       case "auto_compaction_end":
@@ -1734,8 +1736,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setCompactError(event.errorMessage as string);
           setCompactResult(null);
         } else if (!event.aborted) {
+          setCompactError(null);
           setCompactResult(readCompactResult(event.result, (event.reason as string | undefined) ?? "auto"));
           if (sessionIdRef.current) loadSession(sessionIdRef.current);
+        } else {
+          setCompactError(null);
         }
         break;
       case "extension_ui_request":
@@ -2044,10 +2049,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid || isCompacting) return;
     setIsCompacting(true);
-    setCompactError(null);
+    setCompactError(previous => getCompactionInfoKey(previous) ? previous : null);
     setCompactResult(null);
     try {
       const result = await sendAgentCommand<CompactCommandResult>(sid, { type: "compact" });
+      setCompactError(null);
       setCompactResult(readCompactResult(result, "manual"));
       await loadSession(sid, true);
     } catch (e) {
@@ -2196,12 +2202,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         case "compact": {
           if (!sid || isCompacting) return complete({ handled: true, error: "No active session to compact" });
           setIsCompacting(true);
-          setCompactError(null);
+          setCompactError(previous => getCompactionInfoKey(previous) ? previous : null);
           setCompactResult(null);
           const result = await sendAgentCommand<CompactCommandResult>(sid, {
             type: "compact",
             ...(args ? { customInstructions: args } : {}),
           });
+          setCompactError(null);
           setCompactResult(readCompactResult(result, "manual"));
           if (await loadSession(sid, true)) promoteNewSession();
           return complete({ handled: true, message: "Compacted context" });
@@ -2300,7 +2307,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           return { handled: false };
       }
     } catch (e) {
-      return complete({ handled: true, error: e instanceof Error ? e.message : String(e) });
+      const error = e instanceof Error ? e.message : String(e);
+      if (commandName === "compact" && getCompactionInfoKey(error)) {
+        setCompactError(error);
+        setCompactResult(null);
+        return { handled: true };
+      }
+      return complete({ handled: true, error });
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }

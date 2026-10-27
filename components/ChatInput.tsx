@@ -29,7 +29,9 @@ import { ImagePreview } from "./ImagePreview";
 import { DismissButton } from "./DismissButton";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useEnterSendMode } from "@/hooks/useEnterSendMode";
+import { useDeferredLoading } from "@/hooks/useDeferredLoading";
 import { useI18n } from "@/hooks/useI18n";
+import { getCompactionInfoKey } from "@/lib/compaction-feedback";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
 import type { ToolPreset } from "@/lib/tool-presets";
@@ -1653,6 +1655,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     }));
   })();
 
+  const compactInfoKey = getCompactionInfoKey(compactError);
+  const showCompacting = useDeferredLoading(!!isCompacting);
   const compactSavedTokens = compactResult
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
     : 0;
@@ -1996,24 +2000,24 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         )}
         {compactError && (
           <div
-            role="alert"
+            role={compactInfoKey ? "status" : "alert"}
             style={{
               display: "flex",
               alignItems: "flex-start",
               gap: 6,
               marginBottom: 8,
               padding: onDismissCompactError ? "3px 3px 3px 10px" : "7px 10px",
-              background: "rgba(239,68,68,0.07)",
-              border: "1px solid rgba(239,68,68,0.3)",
+              background: compactInfoKey ? "var(--bg-subtle)" : "rgba(239,68,68,0.07)",
+              border: compactInfoKey ? "1px solid var(--border)" : "1px solid rgba(239,68,68,0.3)",
               borderRadius: 6,
-              color: "#ef4444",
-              fontFamily: "var(--font-mono)",
+              color: compactInfoKey ? "var(--text-muted)" : "#ef4444",
+              fontFamily: compactInfoKey ? "inherit" : "var(--font-mono)",
               fontSize: 12,
               lineHeight: 1.5,
             }}
           >
-            <span style={{ minWidth: 0, flex: 1, padding: onDismissCompactError ? "4px 0" : 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{compactError}</span>
-            {onDismissCompactError && <DismissButton onClick={onDismissCompactError} title={t("chat.dismissCompactError")} />}
+            <span style={{ minWidth: 0, flex: 1, padding: onDismissCompactError ? "4px 0" : 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{compactInfoKey ? t(compactInfoKey) : compactError}</span>
+            {onDismissCompactError && <DismissButton onClick={onDismissCompactError} title={t(compactInfoKey ? "chat.dismissCompactNotice" : "chat.dismissCompactError")} />}
           </div>
         )}
         {/* Image previews */}
@@ -2644,32 +2648,39 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     padding: isMobile ? "0 6px" : "8px 12px",
                     width: isMobile ? "auto" : undefined,
                     height: 32,
-                    background: isCompacting ? "rgba(239,68,68,0.08)" : "none",
+                    background: "none",
                     border: "none",
                     borderRadius: 9,
-                    color: isCompacting ? "#ef4444" : "var(--text-muted)",
+                    color: "var(--text-muted)",
                     cursor: "pointer",
                     fontSize: 12,
                     transition: "background 0.12s, color 0.12s",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.16)" : "var(--bg-hover)";
-                    e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text)";
+                    e.currentTarget.style.background = "var(--bg-hover)";
+                    e.currentTarget.style.color = "var(--text)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.08)" : "none";
-                    e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text-muted)";
+                    e.currentTarget.style.background = "none";
+                    e.currentTarget.style.color = "var(--text-muted)";
                   }}
                    title={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
                    aria-label={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
                 >
-                  {isCompacting ? (
-                    <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>{(!isMobile || controlsMenuOpen) && <span data-composer-action-label="" style={{ whiteSpace: "nowrap" }}>{t("chat.compacting")}</span>}</>
+                  {showCompacting ? (
+                    <svg width="11" height="11" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0 }}><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>
                   ) : (
-                    <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                       <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
                       <line x1="10" y1="14" x2="3" y2="21" /><line x1="21" y1="3" x2="14" y2="10" />
-                    </svg>{(!isMobile || controlsMenuOpen) && <span data-composer-action-label="" style={{ whiteSpace: "nowrap" }}>{t("chat.compact")}</span>}</>
+                    </svg>
+                  )}
+                  {(!isMobile || controlsMenuOpen) && (
+                    // 两种文字共同占位，短请求切换状态时不挤动相邻按钮。
+                    <span data-composer-action-label="" style={{ display: "inline-grid", whiteSpace: "nowrap" }}>
+                      <span aria-hidden={showCompacting} style={{ gridArea: "1 / 1", visibility: showCompacting ? "hidden" : "visible" }}>{t("chat.compact")}</span>
+                      <span aria-hidden={!showCompacting} style={{ gridArea: "1 / 1", visibility: showCompacting ? "visible" : "hidden" }}>{t("chat.compacting")}</span>
+                    </span>
                   )}
                 </button>
               </div>

@@ -848,6 +848,23 @@ test("rekey keeps a synchronously restored draft when React state is still empty
   clearDraft(sessionKey);
 });
 
+test("compaction control keeps neutral colors and reserves the same label space while running", () => {
+  for (const isCompacting of [false, true]) {
+    const html = renderToStaticMarkup(React.createElement(I18nProvider, null,
+      React.createElement(ChatInput, { onSend() {}, onAbort() {}, onCompact() {}, onAbortCompaction() {}, isStreaming: false, isCompacting })));
+    const name = isCompacting ? "Stop compaction" : "Compact context";
+    const button = html.match(new RegExp(`<button[^>]*aria-label="${name}"[^>]*>[\\s\\S]*?</button>`))?.[0];
+    assert.ok(button);
+    assert.match(button, /color:var\(--text-muted\)/);
+    assert.doesNotMatch(button, /239,68,68|#ef4444/);
+    assert.match(button, /<svg width="11" height="11"/);
+    assert.match(button, /display:inline-grid/);
+    assert.equal((button.match(/grid-area:1 \/ 1/g) ?? []).length, 2);
+    assert.match(button, />Compact<\/span>/);
+    assert.match(button, />Compacting…<\/span>/);
+  }
+});
+
 test("renders compact errors above the input as a wrapping alert", () => {
   const error = "Compaction failed: OpenAI API error (403): <html>request forbidden</html>";
   const html = renderToStaticMarkup(
@@ -881,7 +898,7 @@ test("a compact error can be dismissed when the composer is given a handler", ()
         onAbort() {},
         onCompact() {},
         isStreaming: false,
-        compactError: "Nothing to compact (session too small)",
+        compactError: "Compaction failed: Network error",
         ...props,
       }),
     ),
@@ -889,6 +906,24 @@ test("a compact error can be dismissed when the composer is given a handler", ()
 
   assert.match(render({ onDismissCompactError() {} }), /aria-label="Dismiss compaction error"/);
   assert.doesNotMatch(render({}), /Dismiss compaction error/);
+});
+
+test("short or already compacted sessions show localized neutral dismissible feedback", () => {
+  for (const [locale, expected] of [['zh-CN', '当前会话内容较少，暂不需要压缩。'], ['zh-TW', '目前對話內容較少，暫不需要壓縮。'], ['en', 'This conversation is short and does not need compaction yet.']]) {
+    for (const compactError of ['Compaction failed: Nothing to compact (session too small)', 'Nothing to compact (session too small)']) {
+    const html = renderToStaticMarkup(React.createElement(LocaleProvider, { initialLocale: locale },
+      React.createElement(ChatInput, { onSend() {}, onAbort() {}, isStreaming: false, compactError, onDismissCompactError() {} })));
+    assert.match(html, /role="status"/);
+    assert.ok(html.includes(expected));
+    assert.match(html, /color:var\(--text-muted\)/);
+    assert.doesNotMatch(html, /role="alert"|Nothing to compact|color:#ef4444/);
+    }
+  }
+  const html = renderToStaticMarkup(React.createElement(I18nProvider, null,
+    React.createElement(ChatInput, { onSend() {}, onAbort() {}, isStreaming: false, compactError: 'Already compacted', onDismissCompactError() {} })));
+  assert.match(html, /role="status"/);
+  assert.match(html, /already compacted/);
+  assert.match(html, /aria-label="Dismiss compaction notice"/);
 });
 
 test("modelSupportsImageInput warns only when modality info is known and lacks image", () => {
