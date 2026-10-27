@@ -62,7 +62,10 @@ async function request(endpoint, body, method) {
 
 async function verifyTerminal() {
   const id = crypto.randomBytes(16).toString("hex");
-  await request("/api/terminal", { id, cwd, cols: 80, rows: 24, shell: process.platform === "win32" ? "cmd.exe" : "/bin/sh" });
+  const available = await request("/api/terminal");
+  const shell = process.platform === "win32" ? available.shells.find(item => item.id === "cmd")?.id : available.defaultShell;
+  assert.ok(shell, "应有已登记且可用的终端 Shell");
+  await request("/api/terminal", { id, cwd, cols: 80, rows: 24, shell });
   const controller = new AbortController();
   const stream = await fetch(`${ready.origin}/api/terminal/${id}/events`, { headers, signal: controller.signal });
   assert.equal(stream.status, 200);

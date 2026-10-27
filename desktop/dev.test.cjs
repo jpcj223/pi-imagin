@@ -53,6 +53,11 @@ test("页面新增、原子替换与删除同步，镜像写入不改真实源�
  fs.writeFileSync(target,"generated-only");assert.equal(fs.readFileSync(source,"utf8"),"first");
  fs.writeFileSync(source+".tmp","replacement");fs.renameSync(source+".tmp",source);await wait(()=>fs.readFileSync(target,"utf8")==="replacement");
  fs.unlinkSync(source);await wait(()=>!fs.existsSync(target));assert.equal(failure,undefined);
+ const nested=path.join(root,"app","nested"),nestedTarget=path.join(workspace,"app","nested","page.tsx");
+ fs.mkdirSync(nested);fs.writeFileSync(path.join(nested,"page.tsx"),"nested");await wait(()=>fs.existsSync(nestedTarget));
+ fs.writeFileSync(path.join(nested,"page.tsx.tmp"),"changed");fs.renameSync(path.join(nested,"page.tsx.tmp"),path.join(nested,"page.tsx"));await wait(()=>fs.readFileSync(nestedTarget,"utf8")==="changed");
+ fs.unlinkSync(path.join(nested,"page.tsx"));await wait(()=>!fs.existsSync(nestedTarget));
+ fs.rmdirSync(nested);await wait(()=>!fs.existsSync(path.dirname(nestedTarget)));assert.equal(failure,undefined);
 });
 test("派生目录冲突时拒绝覆盖已有内容", t=>{
  const root=fixture(t);fs.mkdirSync(path.join(root,".desktop-dev"));fs.writeFileSync(path.join(root,".desktop-dev","keep"),"user");

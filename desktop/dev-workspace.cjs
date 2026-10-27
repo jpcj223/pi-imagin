@@ -28,7 +28,22 @@ function synchronizeApplication(source, target) {
 function watchApplication(root, directory, onError) {
   const pending = new Map();
   const source = path.join(root, "app"), target = path.join(directory, "app");
-  const watcher = fs.watch(source, { recursive: true }, (event, filename) => {
+  const watchers = new Map();
+  function refreshDirectories() {
+    const wanted = new Set();
+    function visit(current) {
+      wanted.add(current);
+      for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+        if (entry.isDirectory()) visit(path.join(current, entry.name));
+      }
+    }
+    visit(source);
+    for (const [current, watcher] of watchers) if (!wanted.has(current)) { watcher.close(); watchers.delete(current); }
+    for (const current of wanted) if (!watchers.has(current)) {
+      watchers.set(current, fs.watch(current, (event, filename) => schedule(event, path.relative(source, path.join(current, String(filename || ""))))));
+    }
+  }
+  function schedule(event, filename) {
     const relative = String(filename || "");
     // 文件系统通知也先验证边界；只更新本启动器生成的页面镜像。
     if (path.isAbsolute(relative) || relative.split(/[\\/]/).includes("..")) return;
@@ -36,11 +51,17 @@ function watchApplication(root, directory, onError) {
     pending.set(relative, setTimeout(() => {
       pending.delete(relative);
       // Linux 原子替换后可能仍上报旧 inode 的临时文件名；结构变更核对完整镜像。
-      try { if (event === "rename") synchronizeApplication(source, target); else synchronizeApplication(path.join(source, relative), path.join(target, relative)); }
+      try {
+        if (event === "rename") synchronizeApplication(source, target); else synchronizeApplication(path.join(source, relative), path.join(target, relative));
+        if (process.platform === "linux" && event === "rename") refreshDirectories();
+      }
       catch (error) { onError(error); }
     }, 25));
-  });
-  return () => { watcher.close(); for (const timer of pending.values()) clearTimeout(timer); pending.clear(); };
+  }
+  // Linux 的递归文件监听会在原子替换后丢失文件 inode；监听稳定的父目录。
+  if (process.platform === "linux") refreshDirectories();
+  else watchers.set(source, fs.watch(source, { recursive: true }, schedule));
+  return () => { for (const watcher of watchers.values()) watcher.close(); for (const timer of pending.values()) clearTimeout(timer); pending.clear(); };
 }
 
 /** 生成独立开发入口，页面镜像自动同步；框架配置、类型文件和缓存保留在派生目录。 */
