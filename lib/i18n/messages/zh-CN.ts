@@ -5,6 +5,7 @@ export const zhCNLocale: LocalePlugin = {
   id: "zh-CN",
   label: "简体中文",
   messages: {
+    "project.folderCountOne": "{count} 个文件夹",
 
     "resources.loadingInstalled": "正在刷新已安装列表…",
     "resources.copyName": "复制名称",

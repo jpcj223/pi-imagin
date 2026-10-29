@@ -5,6 +5,7 @@ export const zhTWLocale: LocalePlugin = {
   id: "zh-TW",
   label: "繁體中文",
   messages: {
+    "project.folderCountOne": "{count} 個資料夾",
 
     "resources.loadingInstalled": "正在重新整理已安裝清單…",
     "resources.copyName": "複製名稱",

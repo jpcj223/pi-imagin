@@ -4,7 +4,6 @@ import { useI18n } from "@/hooks/useI18n";
 import { useImperativeHandle, useRef, useState, type Ref } from "react";
 import type { NewSessionContext, NewSessionTarget } from "@/lib/new-session-context";
 import { newSessionProjectOptions } from "@/lib/new-session-project";
-import { projectNameOf } from "@/lib/session-tree";
 import { SidebarMenu, type SidebarMenuItem } from "./SidebarMenu";
 import { ChevronIcon, FolderIcon, PlusIcon } from "./SidebarIcons";
 
@@ -22,13 +21,16 @@ export function NewSessionProjectPicker({ context, mobile, handleRef, onPick, on
   const [menu, setMenu] = useState<{ kind: NewSessionProjectControl; opener: HTMLElement } | null>(null);
   useImperativeHandle(handleRef, () => ({ button: control => control === "project" ? projectButton.current : directoryButton.current }), []);
   const managed = context.managedProjects?.find(project => project.id === context.managedProjectId);
-  const associated = !context.defaultWorkspace;
-  const selectedKey = managed ? `managed:${managed.id}` : context.project.key;
-  const selectedName = managed?.name ?? context.project.alias ?? projectNameOf(context.project.root);
+  // 旧会话目录不等于项目关联；只显示真实登记身份，避免菜单已过滤而按钮仍显示 gitee-ai 等旧目录。
+  // 这里只修正展示，不重置 cwd、草稿或历史会话；选择项目后仍走原来的切换与目录校验。
+  const associated = managed !== undefined;
+  const selectedKey = managed ? `managed:${managed.id}` : undefined;
+  const selectedName = managed?.name ?? "";
   const options = newSessionProjectOptions(context);
   const pick = (target: NewSessionTarget, control: NewSessionProjectControl) => { setMenu(null); onPick(target, control); };
   const projectItems: SidebarMenuItem[] = options.map(option => ({
-    type: "item", id: option.key, label: option.name, note: option.key.startsWith("managed:") ? (() => { const count = context.managedProjects?.find(project => `managed:${project.id}` === option.key)?.folders.length ?? 0; return t(count ? "project.folderCount" : "project.noLinkedFolders", { count }); })() : option.note,
+    type: "item", id: option.key, label: option.name,
+    note: t(option.folderCount === 0 ? "project.noLinkedFolders" : option.folderCount === 1 ? "project.folderCountOne" : "project.folderCount", { count: option.folderCount }),
     checked: associated && option.key === selectedKey,
     title: option.target.cwd,
     onSelect: () => {

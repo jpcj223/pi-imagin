@@ -5,6 +5,7 @@ export const enLocale: LocalePlugin = {
   id: "en",
   label: "English",
   messages: {
+    "project.folderCountOne": "{count} folder",
 
     "resources.loadingInstalled": "Refreshing installed items…",
     "resources.copyName": "Copy name",

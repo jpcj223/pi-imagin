@@ -1,27 +1,20 @@
 import { createProjectSessionResolver, defaultProjectFolder, projectContainsCwd, type ManagedProject } from "./managed-projects-shared";
 import type { NewSessionContext, NewSessionTarget } from "./new-session-context";
 
-export interface NewSessionProjectOption { key: string; name: string; note?: string; target: NewSessionTarget }
+export interface NewSessionProjectOption { key: string; name: string; folderCount: number; target: NewSessionTarget }
 
-/** 已登记项目按身份列出一次；旧项目保留，但已归属项目的文件夹不再单独冒充项目。 */
+/** 新会话只选择正式项目；历史会话的 cwd 仍保留，但不能因此成为项目选项。 */
 export function newSessionProjectOptions(context: NewSessionContext): NewSessionProjectOption[] {
   const projects = context.managedProjects ?? [];
-  const resolver = createProjectSessionResolver({ version: 1, revision: 0, projects, sessions: {} });
   const result: NewSessionProjectOption[] = [];
   for (const project of projects) {
     const folder = defaultProjectFolder(project);
     if (folder) result.push({ key: `managed:${project.id}`, name: project.name,
-      note: project.folders.length ? `${project.folders.length} 个文件夹` : "未关联文件夹", target: { cwd: folder.path, managedProjectId: project.id } });
+      // 返回结构数据，由界面按当前语言显示，避免纯逻辑层写死中文说明。
+      folderCount: project.folders.length, target: { cwd: folder.path, managedProjectId: project.id } });
   }
-  const seen = new Set<string>();
-  const legacyChoices = !context.defaultWorkspace && !context.managedProjectId && !context.projects.some(project => project.key === context.project.key)
-    ? [context.project, ...context.projects] : context.projects;
-  for (const project of legacyChoices) {
-    if (seen.has(project.key) || resolver.byPath(project.root)) continue;
-    seen.add(project.key);
-    result.push({ key: project.key, name: project.alias ?? project.root.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? project.root,
-      target: { cwd: project.root, projectKey: project.key, projectRoot: project.root } });
-  }
+  // context.projects 含从历史会话收集的目录，供旧会话及文件浏览兼容使用。
+  // 不在此拼接它，也不注入当前未登记目录；加载中或无正式项目时保持空列表。
   return result;
 }
 
