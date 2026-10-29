@@ -577,7 +577,7 @@ export function TreeNode({
           ))}
           {children.length === 0 && loaded && !loadError && (
             <div style={{ paddingLeft: 8 + (depth + 1) * 14, fontSize: 11, color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
-              empty
+              {t("files.emptyFolder")}
             </div>
           )}
           {loadError && (
@@ -1260,7 +1260,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       {(changesCollapsed || gitFiles.length === 0) && (!fileSearchOpen || !hasSearchQuery) && (
         <div style={{ padding: "2px 4px" }}>
           {loading ? (
-            <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>
+            <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>{t("chat.loadingFiles")}</div>
           ) : error ? (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "#f87171" }}>{error}</div>
           ) : (

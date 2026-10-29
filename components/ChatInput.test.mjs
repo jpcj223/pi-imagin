@@ -19,6 +19,21 @@ const { I18nProvider: LocaleProvider } = await jiti.import("@/hooks/useI18n");
 // 这些断言验证英文界面，明确固定测试语言，不依赖项目默认语言。
 const I18nProvider = ({ children }) => React.createElement(LocaleProvider, { initialLocale: "en" }, children);
 
+test("模型提示的关闭按钮随语言变化", () => {
+  const draftKey = "new:/tmp/localized-image-warning";
+  setDraft(draftKey, { value: "Describe", images: [{ data: "aW1hZ2U=", mimeType: "image/png" }] });
+  try {
+    for (const [locale, label] of [["en", "Dismiss"], ["zh-CN", "关闭"], ["zh-TW", "關閉"]]) {
+      const html = renderToStaticMarkup(React.createElement(LocaleProvider, { initialLocale: locale }, React.createElement(ChatInput, {
+        onSend() {}, onAbort() {}, isStreaming: false, draftKey,
+        model: { provider: "custom", modelId: "text-only" },
+        modelList: [{ id: "text-only", name: "Text Only", provider: "custom", input: ["text"] }],
+      })));
+      assert.ok(html.includes(`aria-label="${label}"`));
+    }
+  } finally { clearDraft(draftKey); }
+});
+
 test("preserves pasted HTML links as Markdown without changing plain text layout", () => {
   const link = (label, href, occurrence = 0) => ({ label, href, occurrence });
 

@@ -891,7 +891,7 @@ function AssistantMessageView({
             overflowWrap: "anywhere",
           }}
         >
-          Error: {providerError}
+          {t("chat.errorPrefix")} {providerError}
         </div>
       )}
 
@@ -1722,7 +1722,7 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
           }}
         >
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
-            compaction
+            {t("chat.compactionTitle")}
           </span>
           {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
         </div>
@@ -2080,6 +2080,7 @@ function formatUsage(usage: {
 }
 
 function BashExecutionView({ message, sessionId }: { message: BashExecutionMessage; sessionId?: string }) {
+  const { t } = useI18n();
   const [fullOutput, setFullOutput] = useState<string | null>(null);
   const [loadingFull, setLoadingFull] = useState(false);
   const [fullError, setFullError] = useState<string | null>(null);
@@ -2143,14 +2144,14 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
               disabled={loadingFull}
               style={{ background: "none", border: "none", color: "var(--accent)", cursor: loadingFull ? "default" : "pointer", fontSize: 11, padding: 0, textDecoration: "underline" }}
             >
-              {loadingFull ? "loading…" : "view full output"}
+              {loadingFull ? t("chat.loadingFullOutput") : t("chat.viewFullOutput")}
             </button>
           )}
           <a
             href={`${fullOutputUrl}&download=1`}
             style={{ marginLeft: showFullButton ? 10 : 0, color: "var(--accent)", fontSize: 11, textDecoration: "underline" }}
           >
-            download full output
+            {t("chat.downloadFullOutput")}
           </a>
           {fullError && <span style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 11 }}>({fullError})</span>}
         </div>

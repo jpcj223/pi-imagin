@@ -379,7 +379,7 @@ function DiffView({ patch }: { patch: string }) {
                 borderBottom: "1px solid var(--border)",
               }}
             >
-              ... {seg.count} unchanged lines ...
+              {t("files.unchangedLines", { count: seg.count })}
             </div>
           );
           return result;

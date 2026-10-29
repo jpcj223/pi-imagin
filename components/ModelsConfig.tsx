@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useId, useRef } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import type { TranslationParams } from "@/lib/i18n/types";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
 import {
@@ -78,6 +79,9 @@ interface ApiKeyProvider {
   supportsOAuth?: boolean;
 }
 
+// 应用自身的登录状态保存翻译键，渲染时翻译，切换语言无需重启登录。
+// 服务商返回的提示仍保留原文，不把外部消息当成本地翻译键。
+type LocalAuthMessage = { key: string; params?: TranslationParams };
 type OAuthLoginState =
   | { phase: "idle" }
   | { phase: "connecting" }
@@ -85,9 +89,9 @@ type OAuthLoginState =
   | { phase: "device_code"; userCode: string; verificationUri: string; intervalSeconds: number | null; expiresInSeconds: number | null }
   | { phase: "prompt"; message: string; placeholder: string | null; token: string }
   | { phase: "select"; message: string; options: { id: string; label: string }[]; token: string }
-  | { phase: "progress"; message: string }
+  | { phase: "progress"; message: string; localMessage?: LocalAuthMessage }
   | { phase: "success" }
-  | { phase: "error"; message: string };
+  | { phase: "error"; message: string; localMessage?: LocalAuthMessage };
 
 interface ModelEntry {
   id: string;
@@ -287,7 +291,7 @@ function Select({ value, onChange, options, required }: { value: string; onChang
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}
       style={{ ...inputStyle, color: value ? "var(--text)" : "var(--text-dim)" }}>
-       {!required && <option value="">— {t("i18n.default")} / none —</option>}
+       {!required && <option value="">— {t("models.defaultOrNone")} —</option>}
       {options.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
   );
@@ -413,23 +417,23 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
       </div>
 
        <Field label={t("i18n.providerName")}>
-        <TextInput value={editingName} onChange={onEditingNameChange} placeholder="provider-name" mono />
+        <TextInput value={editingName} onChange={onEditingNameChange} placeholder={t("models.providerNamePlaceholder")} mono />
 
       </Field>
 
-      <Field label="Base URL">
+      <Field label={t("models.providerBaseUrl")}>
         <TextInput value={provider.baseUrl ?? ""} onChange={(v) => set("baseUrl", v || undefined)}
           placeholder="https://api.example.com/v1" mono />
         <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-          Leave empty for a built-in provider to use the endpoint pi ships
+          {t("models.providerBaseUrlHelp")}
         </span>
       </Field>
 
-      <Field label="API Key">
+      <Field label={t("models.apiKey")}>
         <SecretTextInput value={provider.apiKey ?? ""} onChange={(v) => set("apiKey", v || undefined)}
-          placeholder="ENV_VAR_NAME, !shell-command, or literal key" mono />
+          placeholder={t("models.apiKeyPlaceholder")} mono />
         <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-          Prefix with <code style={{ fontFamily: "var(--font-mono)" }}>!</code> to run a shell command, or use an env var name
+          {t("models.apiKeyHelp")}
         </span>
       </Field>
 
@@ -437,13 +441,13 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
         <Select value={provider.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
       </Field>
 
-      <Field label="Headers">
+      <Field label={t("models.headers")}>
         <HeaderListEditor
           headers={provider.headers}
           onChange={(headers) => set("headers", headers)}
         />
         <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-          Added to every request from this provider (e.g. User-Agent). Useful for gateways with bot detection.
+          {t("models.providerHeadersHelp")}
         </span>
       </Field>
 
@@ -574,6 +578,7 @@ function ThinkingLevelMapEditor({
   value: Record<string, string | null> | undefined;
   onChange: (v: Record<string, string | null> | undefined) => void;
 }) {
+  const { t } = useI18n();
   const map = value ?? {};
 
   const setLevel = (level: ThinkingLevel, entry: string | null | "omit") => {
@@ -647,13 +652,13 @@ function ThinkingLevelMapEditor({
                 onClick={() => setLevel(level, "omit")}
                 style={{ ...btnBase, ...(state === "omit" ? btnActive : {}) }}
               >
-                Default
+                {t("i18n.default")}
               </button>
               <button
                 onClick={() => setLevel(level, null)}
                 style={{ ...btnBase, borderLeft: "1px solid var(--border)", ...(state === "null" ? btnActiveDisabled : {}) }}
               >
-                Disabled
+                {t("i18n.disabled")}
               </button>
             </div>
 
@@ -662,7 +667,7 @@ function ThinkingLevelMapEditor({
                 onClick={() => setLevel(level, strVal || level)}
                 style={{ ...btnBase, ...(state === "string" ? btnActive : {}), borderRight: "1px solid var(--border)", flexShrink: 0 }}
               >
-                Custom
+                {t("i18n.custom")}
               </button>
               <input
                 value={strVal}
@@ -726,6 +731,7 @@ function HeaderListEditor({ headers, onChange }: {
   headers: Record<string, string> | undefined;
   onChange: (h: Record<string, string> | undefined) => void;
 }) {
+  const { t } = useI18n();
   const [rows, setRows] = useState<HeaderRow[]>(() => Object.entries(headers ?? {}).map(
     ([name, value], id) => ({ id, name, value }),
   ));
@@ -756,10 +762,10 @@ function HeaderListEditor({ headers, onChange }: {
       {rows.map((row) => (
         <div key={row.id} style={{ display: "flex", gap: 6 }}>
           <input value={row.name} onChange={(e) => setEntry(row.id, { name: e.target.value })}
-            placeholder="Header-Name" style={{ ...inputStyle, fontFamily: "var(--font-mono)", flex: 1 }} />
+            placeholder={t("models.headerName")} style={{ ...inputStyle, fontFamily: "var(--font-mono)", flex: 1 }} />
           <input value={row.value} onChange={(e) => setEntry(row.id, { value: e.target.value })}
-            placeholder="value" style={{ ...inputStyle, fontFamily: "var(--font-mono)", flex: 1 }} />
-          <button onClick={() => removeEntry(row.id)} style={rowBtnStyle}>✕</button>
+            placeholder={t("models.headerValue")} style={{ ...inputStyle, fontFamily: "var(--font-mono)", flex: 1 }} />
+          <button onClick={() => removeEntry(row.id)} aria-label={t("models.removeHeader")} style={rowBtnStyle}>✕</button>
         </div>
       ))}
       <button onClick={() => setRows((current) => [
@@ -767,7 +773,7 @@ function HeaderListEditor({ headers, onChange }: {
         { id: nextRowIdRef.current++, name: "", value: "" },
       ])}
         style={{ padding: "5px 9px", background: "none", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-muted)", cursor: "pointer", fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, alignSelf: "flex-start" }}>
-        + Add header
+        + {t("models.addHeader")}
       </button>
     </div>
   );
@@ -1094,7 +1100,7 @@ function ModelDetail({
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label="ID *"><ModelIdInput value={model.id} onChange={(v) => set("id", v)} providerName={providerName} provider={provider} existingModels={(provider.models ?? []).filter(entry => entry !== model)} style={inputStyle} /></Field>
-        <Field label="Name"><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder="Display name" /></Field>
+        <Field label={t("models.modelName")}><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder={t("models.displayName")} /></Field>
       </div>
 
       <div style={{ padding: "2px 0" }}>
@@ -1402,7 +1408,7 @@ function OAuthDetail({ provider, onRefresh, enabledModels }: {
     };
     es.onerror = () => {
       es.close();
-      setLoginState((prev) => prev.phase === "success" ? prev : { phase: "error", message: "Connection lost" });
+      setLoginState((prev) => prev.phase === "success" ? prev : { phase: "error", message: "", localMessage: { key: "models.authConnectionLost" } });
     };
   }, [provider.id, onRefresh]);
 
@@ -1414,7 +1420,7 @@ function OAuthDetail({ provider, onRefresh, enabledModels }: {
 
   const submitCode = useCallback(async (token: string, code: string) => {
     if (!code.trim()) return;
-    setLoginState({ phase: "progress", message: "Verifying…" });
+    setLoginState({ phase: "progress", message: "", localMessage: { key: "models.authVerifying" } });
     try {
       const res = await fetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
         method: "POST",
@@ -1423,18 +1429,18 @@ function OAuthDetail({ provider, onRefresh, enabledModels }: {
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({})) as { error?: string };
-        setLoginState({ phase: "error", message: d.error ?? `Server error ${res.status}` });
+        setLoginState({ phase: "error", message: d.error ?? "", localMessage: d.error ? undefined : { key: "models.authServerError", params: { status: res.status } } });
         return;
       }
       setInputValue("");
       // Success path: SSE stream will emit "success" and update state
     } catch (e) {
-      setLoginState({ phase: "error", message: e instanceof Error ? e.message : "Network error" });
+      setLoginState({ phase: "error", message: e instanceof Error ? e.message : "", localMessage: e instanceof Error ? undefined : { key: "i18n.networkError" } });
     }
   }, [provider.id]);
 
   const submitSelection = useCallback(async (token: string, value: string) => {
-    setLoginState({ phase: "progress", message: "Continuing…" });
+    setLoginState({ phase: "progress", message: "", localMessage: { key: "models.authContinuing" } });
     try {
       const res = await fetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
         method: "POST",
@@ -1443,10 +1449,10 @@ function OAuthDetail({ provider, onRefresh, enabledModels }: {
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({})) as { error?: string };
-        setLoginState({ phase: "error", message: d.error ?? `Server error ${res.status}` });
+        setLoginState({ phase: "error", message: d.error ?? "", localMessage: d.error ? undefined : { key: "models.authServerError", params: { status: res.status } } });
       }
     } catch (e) {
-      setLoginState({ phase: "error", message: e instanceof Error ? e.message : "Network error" });
+      setLoginState({ phase: "error", message: e instanceof Error ? e.message : "", localMessage: e instanceof Error ? undefined : { key: "i18n.networkError" } });
     }
   }, [provider.id]);
 
@@ -1502,7 +1508,7 @@ function OAuthDetail({ provider, onRefresh, enabledModels }: {
         {loginState.phase === "idle" && (
           !provider.loggedIn && (
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-              Connect your {provider.name} account.
+              {t("models.authConnectAccount", { provider: provider.name })}
             </p>
           )
         )}
@@ -1530,19 +1536,18 @@ function OAuthDetail({ provider, onRefresh, enabledModels }: {
         {(loginState.phase === "auth" || loginState.phase === "prompt") && (
           <OAuthPastePanel
             message={loginState.phase === "auth"
-              ? "Complete sign-in in the browser, then copy the redirect URL from the address bar and paste it below."
+              ? t("models.authPasteRedirect")
               : loginState.message}
             hint={loginState.phase === "auth" ? (
               <>
-                If the browser window did not open,{" "}
+                {t("models.authBrowserFallback")}{" "}
                 <a href={loginState.url} target="_blank" rel="noopener noreferrer">
-                  click here to open the login page
+                  {t("models.authOpenLogin")}
                 </a>
-                .
               </>
             ) : undefined}
             value={inputValue}
-            placeholder={loginState.phase === "auth" ? "http://localhost:1455/auth/callback?code=…" : (loginState.placeholder ?? "Enter value…")}
+            placeholder={loginState.phase === "auth" ? "http://localhost:1455/auth/callback?code=…" : (loginState.placeholder ?? t("models.authInputPlaceholder"))}
             submitLabel={t("i18n.submit")}
             inputRef={inputRef}
             onValueChange={setInputValue}
@@ -1552,7 +1557,7 @@ function OAuthDetail({ provider, onRefresh, enabledModels }: {
         {loginState.phase === "device_code" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-              Open the verification page and enter this code:
+              {t("models.authEnterDeviceCode")}
             </p>
             <div style={{ padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text)", fontSize: 16, fontWeight: 700, fontFamily: "var(--font-mono)", letterSpacing: 0 }}>
               {loginState.userCode}
@@ -1561,18 +1566,18 @@ function OAuthDetail({ provider, onRefresh, enabledModels }: {
               <a href={loginState.verificationUri} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", wordBreak: "break-all" }}>
                 {loginState.verificationUri}
               </a>
-              {loginState.expiresInSeconds ? ` Expires in ${Math.ceil(loginState.expiresInSeconds / 60)} minutes.` : ""}
+              {loginState.expiresInSeconds ? ` ${t("models.authCodeExpires", { minutes: Math.ceil(loginState.expiresInSeconds / 60) })}` : ""}
             </p>
           </div>
         )}
         {loginState.phase === "progress" && (
-          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{loginState.message}</p>
+          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{loginState.localMessage ? t(loginState.localMessage.key, loginState.localMessage.params) : loginState.message}</p>
         )}
         {loginState.phase === "success" && (
              <p style={{ margin: 0, fontSize: 12, color: "#4ade80" }}>{t("i18n.connectedSuccessfully")}</p>
         )}
         {loginState.phase === "error" && (
-          <p style={{ margin: 0, fontSize: 12, color: "#f87171" }}>{loginState.message}</p>
+          <p style={{ margin: 0, fontSize: 12, color: "#f87171" }}>{loginState.localMessage ? t(loginState.localMessage.key, loginState.localMessage.params) : loginState.message}</p>
         )}
       </div>
 
@@ -1648,7 +1653,7 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels }: {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <ConfigDetailHeader>
         <ConfigDetailHeaderInfo>
-          <SectionTitle>API Key</SectionTitle>
+          <SectionTitle>{t("models.apiKey")}</SectionTitle>
         </ConfigDetailHeaderInfo>
         <ConfigDetailActions>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1672,7 +1677,7 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels }: {
 
       {!provider.configured && (
         <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-          Enter your {provider.displayName} API key to enable {provider.modelCount} model{provider.modelCount !== 1 ? "s" : ""}.
+          {t("models.apiKeyEnable", { provider: provider.displayName, count: provider.modelCount })}
         </p>
       )}
 
@@ -1681,7 +1686,7 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels }: {
           value={apiKey}
           onChange={setApiKey}
           onKeyDown={(e) => { if (e.key === "Enter" && apiKey.trim()) handleSave(); }}
-          placeholder={provider.configured ? "Enter new key to replace…" : "sk-…"}
+          placeholder={provider.configured ? t("models.apiKeyReplace") : "sk-…"}
           style={{ flex: 1 }}
           autoComplete="off"
           spellCheck={false}
@@ -1806,7 +1811,7 @@ function AddProviderPicker({
                   onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--bg-panel)"; }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>OpenAI / Anthropic compatible</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t("models.compatibleProvider")}</div>
                      <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{t("i18n.customEndpoint")}</div>
                   </div>
                   <span style={{ width: 26, height: 26, borderRadius: 5, background: "var(--bg-hover)", border: "1px dashed var(--border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -1835,7 +1840,7 @@ function AddProviderPicker({
               ))}
 
               {availableApiKey.length > 0 && (
-                <div style={{ gridColumn: "1 / -1", paddingTop: availableOAuth.length > 0 ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>API Key</div>
+                <div style={{ gridColumn: "1 / -1", paddingTop: availableOAuth.length > 0 ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>{t("models.apiKey")}</div>
               )}
               {availableApiKey.map((p) => (
                 <button key={p.id} onClick={() => { onSelectApiKey(p.id); onClose(); }}
@@ -1845,7 +1850,7 @@ function AddProviderPicker({
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.displayName}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{p.modelCount} models</div>
+                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{t(p.modelCount === 1 ? "models.modelCountOne" : "models.modelCount", { count: p.modelCount })}</div>
                   </div>
                   <ProviderIcon id={p.id} size={28} />
                 </button>

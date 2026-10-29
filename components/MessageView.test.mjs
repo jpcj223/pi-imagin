@@ -322,6 +322,25 @@ test("renders a provider error when the assistant message has no content", () =>
   assert.match(html, /&lt;html&gt;request forbidden&lt;\/html&gt;/);
 });
 
+test("错误前缀和完整输出操作使用界面语言，服务商原文与历史输出保持不变", () => {
+  const providerError = "Provider original error (403)";
+  const locales = [
+    ["en", "Error:", "View full output", "Download full output"],
+    ["zh-CN", "错误：", "查看完整输出", "下载完整输出"],
+    ["zh-TW", "錯誤：", "檢視完整輸出", "下載完整輸出"],
+  ];
+  const render = (locale, message) => renderToStaticMarkup(React.createElement(LocaleProvider, { initialLocale: locale }, React.createElement(MessageView, { message, sessionId: "locale-test" })));
+  for (const [locale, prefix, view, download] of locales) {
+    const error = render(locale, { role: "assistant", content: [], stopReason: "error", errorMessage: providerError });
+    assert.ok(error.includes(prefix)); assert.ok(error.includes(providerError));
+    setToolCallExpanded("bash-424242", true);
+    try {
+      const output = render(locale, { role: "bashExecution", timestamp: 424242, command: "echo output", output: "ORIGINAL OUTPUT", exitCode: 0, truncated: true, fullOutputPath: "/tmp/original.txt" });
+      assert.ok(output.includes(view)); assert.ok(output.includes(download)); assert.ok(textOf(output).includes("ORIGINAL OUTPUT"));
+    } finally { setToolCallExpanded("bash-424242", false); }
+  }
+});
+
 test("renders a truncation notice for stopReason length", () => {
   const html = renderMessage({
     role: "assistant",
