@@ -50,6 +50,7 @@ import { resolveEnvironmentTools } from "./shell-profiles";
 import { createEnvironmentOperations } from "./shell-profile-operations";
 import { createPowerShellOutputExtension, preferUserPowerShellExtension } from "./powershell-operations";
 import { createConversationGuidanceExtension } from "./conversation-guidance";
+import { createAppInfoExtension } from "./app-info-extension";
 import { createCredentialFileGuardExtension } from "./credential-file-guard";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
@@ -2601,6 +2602,8 @@ export async function startRpcSession(
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
               createConversationGuidanceExtension(),
+              // 仅普通工具会话加载只读应用查询；仅聊天及子代理不因此增加工具或提示。
+              createAppInfoExtension(),
               // 凭证访问保护只注册拦截器，不向模型增加专用工具或额外系统提示。
               createCredentialFileGuardExtension(agentDir),
               createPowerShellOutputExtension(sessionCwd, () => createEnvironmentOperations(settingsManager, "powershell")),
