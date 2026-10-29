@@ -21,6 +21,9 @@ const nextConfig: NextConfig = {
   output: process.env.PI_IMAGIN_DESKTOP_BUILD === "1" ? "standalone" : undefined,
   outputFileTracingRoot: configDir,
   experimental: {
+    // 桌面先打开工作区，不在健康探测时遍历所有页面／接口。
+    // 否则暂未使用的模型、终端等接口也会提前载入 SDK，抵消首屏后的预热。
+    ...(process.env.PI_IMAGIN_DESKTOP_BUILD === "1" ? { preloadEntriesOnStart: false } : {}),
     // 存在 proxy.ts 时，Next 会缓存 API 请求体，
     // 默认上限为 10 MB，而上传接口允许单次最多 100 MB。
     // 缓存上限必须大于上传上限，避免大文件被截断

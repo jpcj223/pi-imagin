@@ -93,6 +93,12 @@ async function startWorkspace() {
       backendPassword = password;
       authorization = `Basic ${Buffer.from(`pi:${password}`).toString("base64")}`;
       const nodeDir = path.dirname(runtime.node);
+      let buildId = "unknown";
+      try {
+        const value = fs.readFileSync(path.join(runtime.server, ".next", "BUILD_ID"), "utf8").trim();
+        if (/^[a-zA-Z0-9_-]{1,100}$/.test(value)) buildId = value;
+      } catch { /* 诊断信息缺失不能妨碍启动。 */ }
+      record(`[startup] backend preparing build=${buildId}`);
       backend = spawn(runtime.node, [runtime.launcher, path.join(runtime.server, "server.js")], {
         cwd: runtime.server,
         windowsHide: true,
@@ -113,9 +119,12 @@ async function startWorkspace() {
         }
       });
     }
-    await waitForServer(origin, authorization, backend);
+    await waitForServer(origin, authorization, backend, 90000, progress => {
+      record(`[startup] health ${JSON.stringify(progress)}`);
+    });
     if (quitting) return;
     startupStep("本地服务连接就绪", started);
+    if (backend?.connected) backend.send({ type: "pi-imagin:backend-ready" }, () => {});
     status("正在打开工作区…");
     if (backendPassword) {
       // 页面与 API 沿用同一认证机制，先为本窗口建立会话 Cookie。
@@ -156,6 +165,7 @@ else {
     logs = path.join(app.getPath("userData"), "desktop.log");
     try { if (fs.statSync(logs).size > 2 * 1024 * 1024) fs.renameSync(logs, `${logs}.previous`); } catch { /* 首次启动没有日志。 */ }
     startupStep("桌面进程就绪", launchStarted);
+    record(`[startup] desktop pid=${process.pid} version=${app.getVersion()} electron=${process.versions.electron} platform=${process.platform}-${process.arch} log=${logs}`);
     const icon = pathsFor(app, process.resourcesPath).icon;
     mainWindow = new BrowserWindow({
       width: 1440, height: 900, minWidth: 900, minHeight: 600,

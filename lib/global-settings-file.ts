@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+// 读取设置位置不需要智能体运行时；沿用与 SDK 一致的轻量目录解析。
+import { getAgentDir } from "./agent-dir";
 import lockfile from "proper-lockfile";
 
 // Locked read-modify-write of the global `settings.json` for the keys pi's

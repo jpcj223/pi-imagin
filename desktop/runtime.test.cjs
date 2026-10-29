@@ -81,6 +81,19 @@ function fakeWindow(load) {
   return window;
 }
 
+test("健康探测记录重试与成功耗时，不泄露认证内容", async t => {
+  let calls = 0;
+  const origin = await localServer(t, (_request, response) => {
+    response.writeHead(++calls === 1 ? 503 : 200); response.end("{}");
+  });
+  const progress = [];
+  await waitForServer(origin, "Basic private-test-value", { exitCode: null }, 2000, value => progress.push(value));
+  assert.deepEqual(progress.map(value => value.outcome), ["http-503", "ready"]);
+  assert.deepEqual(progress.map(value => value.attempts), [1, 2]);
+  assert.ok(progress.every(value => value.elapsedMs >= value.requestMs && value.requestMs >= 0));
+  assert.ok(!JSON.stringify(progress).includes("private-test-value"));
+});
+
 test("页面 DOM 就绪即完成启动，不等待尚未结束的资源加载", async () => {
   const window = fakeWindow(() => new Promise(() => {}));
   const loaded = loadWorkspacePage(window, "http://127.0.0.1:30142", 1000);

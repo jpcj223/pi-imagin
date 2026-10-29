@@ -49,15 +49,28 @@ async function choosePort(profile) {
   return port;
 }
 
-async function waitForServer(origin, authorization, child, timeout = 90000) {
-  const deadline = Date.now() + timeout;
+async function waitForServer(origin, authorization, child, timeout = 90000, report) {
+  const started = Date.now();
+  const deadline = started + timeout;
+  let attempts = 0, lastReport = started;
+  // 只记次数、状态和耗时，不记录认证头；长等待每五秒最多一条，避免刷日志。
+  function progress(requestStarted, outcome) {
+    const now = Date.now();
+    if (report && (attempts === 1 || outcome === "ready" || now - lastReport >= 5000)) {
+      lastReport = now;
+      report({ attempts, outcome, elapsedMs: now - started, requestMs: now - requestStarted });
+    }
+  }
   while (Date.now() < deadline) {
     if (child?.spawnError) throw new Error(`本地服务无法启动：${child.spawnError.message}`);
     if (child && child.exitCode !== null) throw new Error("本地服务已退出，请重新启动。启动记录保存在应用日志目录。");
+    attempts++;
+    const requestStarted = Date.now();
     try {
       const response = await requestLocal(origin, "/api/home", { authorization, timeout: Math.min(2500, deadline - Date.now()) });
+      progress(requestStarted, response.status === 200 ? "ready" : `http-${response.status}`);
       if (response.status === 200) return;
-    } catch { /* 服务尚未完成启动，继续有限等待。 */ }
+    } catch { progress(requestStarted, "pending"); /* 服务尚未完成启动，继续有限等待。 */ }
     await new Promise(resolve => setTimeout(resolve, 250));
   }
   throw new Error("本地服务启动超时，请检查应用日志后重试。");

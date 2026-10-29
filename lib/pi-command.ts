@@ -167,8 +167,14 @@ export function changePiCommandSettings(enabled: boolean): Promise<PiCommandSett
 /** 桌面启动修复自身入口的运行时位置，关闭状态不会在更新后被重新开启。 */
 export async function initializeExternalPiCommand(): Promise<void> {
   if (process.platform !== "win32" || process.env.PI_IMAGIN_DESKTOP !== "1") return;
-  const enabled = await readGlobalSettings(getGlobalSettingsPath(), settings => settings[KEY] !== false);
-  await applyExternalCommand(enabled);
+  // 首屏后的自动修复与用户手动开关共用队列，并在执行时读取最新设置。
+  // 避免初始化较晚完成，把用户刚刚关闭的入口重新开启。
+  const task = pending.catch(() => {}).then(async () => {
+    const enabled = await readGlobalSettings(getGlobalSettingsPath(), settings => settings[KEY] !== false);
+    await applyExternalCommand(enabled);
+  });
+  pending = task;
+  await task;
 }
 
 /** 应用终端使用独立入口；关闭对外注册仍能在应用内执行 Pi。 */
